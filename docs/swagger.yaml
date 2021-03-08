@@ -1,0 +1,511 @@
+basePath: /api/v0/
+definitions:
+  api.Error:
+    properties:
+      error:
+        type: string
+    type: object
+  config.KnownPeer:
+    properties:
+      alias:
+        description: User provided name
+        type: string
+      allowedLocalPorts:
+        additionalProperties:
+          $ref: '#/definitions/config.LocalConnConfig'
+        description: |-
+          Connection from remote peer to this peer
+          LocalPort -> Config
+        type: object
+      allowedRemotePorts:
+        additionalProperties:
+          $ref: '#/definitions/config.RemoteConnConfig'
+        description: |-
+          Connection from this peer to remote peer
+          RemotePort -> Config
+        type: object
+      confirmed:
+        description: Has remote peer confirmed our invitation
+        type: boolean
+      lastSeen:
+        description: Time of last connection
+        type: string
+      name:
+        description: Peer provided name
+        type: string
+      peerId:
+        description: Hex-encoded multihash representing a peer ID
+        type: string
+    type: object
+  config.LocalConnConfig:
+    properties:
+      description:
+        type: string
+      port:
+        type: integer
+    type: object
+  config.RemoteConnConfig:
+    properties:
+      description:
+        type: string
+      forwarded:
+        type: boolean
+      mappedLocalPort:
+        type: integer
+      protocol:
+        type: string
+      remotePort:
+        type: integer
+    type: object
+  entity.AuthRequest:
+    properties:
+      name:
+        type: string
+      peerId:
+        type: string
+    type: object
+  entity.BandwidthDebugInfo:
+    properties:
+      byProtocol:
+        additionalProperties:
+          $ref: '#/definitions/entity.BandwidthInfo'
+        type: object
+      total:
+        $ref: '#/definitions/entity.BandwidthInfo'
+        type: object
+    type: object
+  entity.BandwidthInfo:
+    properties:
+      rateIn:
+        type: string
+      rateOut:
+        type: string
+      totalIn:
+        type: string
+      totalOut:
+        type: string
+    type: object
+  entity.BootstrapPeerDebugInfo:
+    properties:
+      connections:
+        items:
+          type: string
+        type: array
+      error:
+        type: string
+    type: object
+  entity.ConnectionsDebugInfo:
+    properties:
+      connectedPeersCount:
+        type: integer
+      lastTrimAgo:
+        type: string
+      openConnectionsCount:
+        type: integer
+      openStreamsCount:
+        type: integer
+      totalStreamsInbound:
+        type: integer
+      totalStreamsOutbound:
+        type: integer
+    type: object
+  entity.DhtDebugInfo:
+    properties:
+      bootstrapPeers:
+        additionalProperties:
+          $ref: '#/definitions/entity.BootstrapPeerDebugInfo'
+        type: object
+      listenAddress:
+        items:
+          type: string
+        type: array
+      observedAddrs:
+        items:
+          type: string
+        type: array
+      peersWithAddrsCount:
+        type: integer
+      reachability:
+        type: string
+      routingTableSize:
+        type: integer
+    type: object
+  entity.ForwardedPort:
+    properties:
+      listenAddress:
+        type: string
+      peerId:
+        type: string
+      protocol:
+        type: string
+      remotePort:
+        type: integer
+    type: object
+  entity.FriendRequest:
+    properties:
+      alias:
+        type: string
+      peerId:
+        type: string
+    required:
+    - peerId
+    type: object
+  entity.GeneralDebugInfo:
+    properties:
+      uptime:
+        type: string
+    type: object
+  entity.GetInboundConnectionsResponse:
+    additionalProperties:
+      items:
+        $ref: '#/definitions/entity.InboundStream'
+      type: array
+    type: object
+  entity.InboundStream:
+    properties:
+      localPort:
+        type: integer
+      peerId:
+        type: string
+      protocol:
+        type: string
+    type: object
+  entity.KnownPeersResponse:
+    properties:
+      addresses:
+        items:
+          type: string
+        type: array
+      confirmed:
+        type: boolean
+      connected:
+        type: boolean
+      lastSeen:
+        type: string
+      name:
+        type: string
+      networkStats:
+        $ref: '#/definitions/metrics.Stats'
+        type: object
+      peerID:
+        type: string
+      version:
+        type: string
+    type: object
+  entity.P2pDebugInfo:
+    properties:
+      bandwidth:
+        $ref: '#/definitions/entity.BandwidthDebugInfo'
+        type: object
+      connections:
+        $ref: '#/definitions/entity.ConnectionsDebugInfo'
+        type: object
+      dht:
+        $ref: '#/definitions/entity.DhtDebugInfo'
+        type: object
+      general:
+        $ref: '#/definitions/entity.GeneralDebugInfo'
+        type: object
+    type: object
+  entity.PeerIDRequest:
+    properties:
+      peerId:
+        type: string
+    required:
+    - peerId
+    type: object
+  entity.PeerInfo:
+    properties:
+      connectedBootstrapPeers:
+        type: integer
+      name:
+        type: string
+      networkStats:
+        $ref: '#/definitions/metrics.Stats'
+        type: object
+      peerID:
+        type: string
+      serverVersion:
+        type: string
+      totalBootstrapPeers:
+        type: integer
+      uptime:
+        type: string
+    type: object
+  entity.UpdateMySettingsRequest:
+    properties:
+      name:
+        type: string
+    type: object
+  entity.UpdatePeerSettingsRequest:
+    properties:
+      alias:
+        type: string
+      localConns:
+        additionalProperties:
+          $ref: '#/definitions/config.LocalConnConfig'
+        type: object
+      peerId:
+        type: string
+      remoteConns:
+        additionalProperties:
+          $ref: '#/definitions/config.RemoteConnConfig'
+        type: object
+    required:
+    - peerId
+    type: object
+  metrics.Stats:
+    properties:
+      rateIn:
+        type: number
+      rateOut:
+        type: number
+      totalIn:
+        type: integer
+      totalOut:
+        type: integer
+    type: object
+host: localhost:8639
+info:
+  contact: {}
+  description: Peerlan API
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  title: Peerlan API
+  version: "0.1"
+paths:
+  /connections/forwarded_ports:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/entity.ForwardedPort'
+            type: array
+      summary: Get outbound connections
+      tags:
+      - Connections
+  /connections/inbound:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.GetInboundConnectionsResponse'
+      summary: Get inbound connections
+      tags:
+      - Connections
+  /debug/log:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: log text
+          schema:
+            type: string
+      summary: Get logs
+      tags:
+      - Debug
+  /debug/p2p_info:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.P2pDebugInfo'
+      summary: Get p2p debug info
+      tags:
+      - Debug
+  /peers/accept_peer:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.FriendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Accept new peer's invitation
+      tags:
+      - Peers
+  /peers/auth_requests:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/entity.AuthRequest'
+            type: array
+      summary: Get ingoing auth requests
+      tags:
+      - Peers
+  /peers/get_known:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/entity.KnownPeersResponse'
+            type: array
+      summary: Get known peers info
+      tags:
+      - Peers
+  /peers/get_known_peer_settings:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.PeerIDRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/config.KnownPeer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get known peer settings
+      tags:
+      - Peers
+  /peers/invite_peer:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.FriendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Invite new peer
+      tags:
+      - Peers
+  /peers/update_settings:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.UpdatePeerSettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Update peer settings
+      tags:
+      - Peers
+  /settings/peer_info:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.PeerInfo'
+      summary: Get my peer info
+      tags:
+      - Settings
+  /settings/update:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.UpdateMySettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Update my peer info
+      tags:
+      - Settings
+swagger: "2.0"
