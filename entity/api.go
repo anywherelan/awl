@@ -31,8 +31,6 @@ type (
 	}
 	UpdateMySettingsRequest struct {
 		Name string
-		// TODO
-		//HttpListenAddress string`validate:"required"`
 	}
 )
 
@@ -112,8 +110,6 @@ type (
 	BandwidthDebugInfo struct {
 		Total      BandwidthInfo
 		ByProtocol map[string]BandwidthInfo
-		// TODO
-		//ByPeer     map[peer.ID]metrics.Stats
 	}
 	BandwidthInfo struct {
 		TotalIn  string

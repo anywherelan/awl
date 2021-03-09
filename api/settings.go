@@ -49,8 +49,6 @@ func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 
 	h.conf.Lock()
 	h.conf.P2pNode.Name = req.Name
-	// TODO
-	//h.conf.HttpListenAddress = req.HttpListenAddress
 	h.conf.Unlock()
 
 	// TODO: exchange status info with all connected known peers. it should be in service

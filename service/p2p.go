@@ -73,37 +73,8 @@ func (s *P2pService) ConnectPeer(ctx context.Context, peerID peer.ID) error {
 		return fmt.Errorf("could not find peer %s", peerID.Pretty())
 	}
 	err = s.p2pServer.ConnectPeer(peerInfo)
-	if err == nil {
-		return nil
-	}
-	s.logger.Warnf("could not connect to peer %s direct through addrs %v, err: %v", peerID.Pretty(), peerInfo.Loggable(), err)
 
-	return err // REMOVE
-	// TODO: кажется это можно всё убрать, т.к пиры должны анонсировать свой релейный адрес,
-	//  если они подключились к релею
-
-	// Creates a relay address
-	// TODO: кажется в go-libp2p-circuit/v0.2.0 выпилили поддержку релей адресов без конкретного релея
-	relayAddr, err := ma.NewMultiaddr("/p2p-circuit/ipfs/" + peerID.Pretty())
-	if err != nil {
-		s.logger.DPanicf("create circuit multiaddr: %v", err)
-		return err
-	}
-
-	// TODO: переписать без использования ClearBackoff. И/или использовать его не всегда
-	// TODO: кажется в новой версии сделали бэкофы не по peerId, а по адресам - по идее это больше не нужно
-	s.p2pServer.ClearBackoff(peerID)
-
-	relayInfo := peer.AddrInfo{
-		ID:    peerID,
-		Addrs: []ma.Multiaddr{relayAddr},
-	}
-	if err := s.p2pServer.ConnectPeer(relayInfo); err != nil {
-		return fmt.Errorf("could not connect to peer %s through relays: %v", peerID.Pretty(), err)
-	}
-	s.logger.Infof("connected to %s through relay!!!", peerID.Pretty()) // REMOVE
-
-	return nil
+	return err
 }
 
 func (s *P2pService) NewStream(id peer.ID, proto protocol.ID) (network.Stream, error) {
@@ -159,7 +130,7 @@ func (s *P2pService) BootstrapPeersStats() (int, int) {
 		peerIds[peerInfo.ID] = struct{}{}
 	}
 
-	for peerID, _ := range peerIds {
+	for peerID := range peerIds {
 		if s.p2pServer.IsConnected(peerID) {
 			connected += 1
 		}
