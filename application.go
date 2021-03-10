@@ -2,7 +2,9 @@ package awl
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"strings"
@@ -25,6 +27,17 @@ import (
 const (
 	logBufSize = 100 * 1024
 )
+
+//go:embed static
+var frontendStatic embed.FS
+
+func FrontendStatic() fs.FS {
+	fsys, err := fs.Sub(frontendStatic, "static")
+	if err != nil {
+		panic(err)
+	}
+	return fsys
+}
 
 // @title Anywherelan API
 // @version 0.1

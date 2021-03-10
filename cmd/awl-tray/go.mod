@@ -7,7 +7,6 @@ require (
 	github.com/anywherelan/awl v0.0.0-00010101000000-000000000000
 	github.com/getlantern/systray v1.0.2
 	github.com/ipfs/go-log/v2 v2.1.3
-	github.com/rakyll/statik v0.1.7
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 )
 

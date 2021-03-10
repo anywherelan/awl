@@ -20,8 +20,9 @@ func main() {
 
 	err := app.Init(ctx, nil)
 	if err != nil {
-		logger.Fatal(err)
+		logger.Fatalf("failed to init server: %v", err)
 	}
+	app.Api.SetupFrontend(awl.FrontendStatic())
 
 	quit := make(chan os.Signal, 2)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
