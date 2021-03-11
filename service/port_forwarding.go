@@ -69,7 +69,7 @@ func (s *PortForwarding) StreamHandler(stream network.Stream) {
 	s.logger.Debugf("got stream to forward %d port for peer %s", port, peerID)
 
 	if !s.conf.CheckLocalPerm(peerID, port) {
-		s.logger.Warnf("peer %s tried to access forbidden port %n", peerID, port)
+		s.logger.Warnf("peer %s tried to access forbidden port %d", peerID, port)
 		go helpers.FullClose(stream)
 		return
 	}

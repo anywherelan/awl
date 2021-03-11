@@ -215,10 +215,8 @@ func (p *P2p) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
 	return p.dht.FindPeer(ctx, id)
 }
 
-// TODO: тоже пробрасывать внешний контекст
-func (p *P2p) ConnectPeer(peerInfo peer.AddrInfo) error {
-	err := p.host.Connect(p.ctx, peerInfo)
-	return err
+func (p *P2p) ConnectPeer(ctx context.Context, peerInfo peer.AddrInfo) error {
+	return p.host.Connect(ctx, peerInfo)
 }
 
 func (p *P2p) ChangeProtectedStatus(peerID peer.ID, tag string, protected bool) {
@@ -383,10 +381,13 @@ func (p *P2p) Bootstrap() error {
 func (p *P2p) background() {
 	//event.EvtPeerConnectednessChanged
 	bufSize := eventbus.BufSize(64)
-	subReachability, _ := p.host.EventBus().Subscribe(new(event.EvtLocalReachabilityChanged), bufSize)
+	subReachability, err := p.host.EventBus().Subscribe(new(event.EvtLocalReachabilityChanged), bufSize)
+	if err != nil {
+		panic(err)
+	}
 	defer func() {
 		p.logger.Info("stopped background task")
-		subReachability.Close()
+		_ = subReachability.Close()
 	}()
 
 	for {

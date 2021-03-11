@@ -72,7 +72,7 @@ func (s *P2pService) ConnectPeer(ctx context.Context, peerID peer.ID) error {
 	if err != nil {
 		return fmt.Errorf("could not find peer %s", peerID.Pretty())
 	}
-	err = s.p2pServer.ConnectPeer(peerInfo)
+	err = s.p2pServer.ConnectPeer(ctx, peerInfo)
 
 	return err
 }
@@ -246,6 +246,9 @@ func (s *P2pService) connectToKnownPeers() {
 
 	bootstrapsInfo := make(map[string]entity.BootstrapPeerDebugInfo)
 	var mu sync.Mutex
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	for _, peerAddr := range s.conf.GetBootstrapPeers() {
 		peerInfo, err := peer.AddrInfoFromP2pAddr(peerAddr)
 		if err != nil {
@@ -255,7 +258,7 @@ func (s *P2pService) connectToKnownPeers() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := s.p2pServer.ConnectPeer(*peerInfo)
+			err := s.p2pServer.ConnectPeer(ctx, *peerInfo)
 			var info entity.BootstrapPeerDebugInfo
 			if err != nil {
 				info.Error = err.Error()
