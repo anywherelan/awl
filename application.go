@@ -1,4 +1,4 @@
-package peerlan
+package awl
 
 import (
 	"context"
@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anywherelan/awl/api"
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/p2p"
+	"github.com/anywherelan/awl/protocol"
+	"github.com/anywherelan/awl/ringbuffer"
+	"github.com/anywherelan/awl/service"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/peerlan/peerlan/api"
-	"github.com/peerlan/peerlan/config"
-	"github.com/peerlan/peerlan/p2p"
-	"github.com/peerlan/peerlan/protocol"
-	"github.com/peerlan/peerlan/ringbuffer"
-	"github.com/peerlan/peerlan/service"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -23,9 +23,9 @@ const (
 	logBufSize = 100 * 1024
 )
 
-// @title Peerlan API
+// @title Anywherelan API
 // @version 0.1
-// @description Peerlan API
+// @description Anywherelan API
 
 // @Host localhost:8639
 // @BasePath /api/v0/
@@ -93,7 +93,7 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 	// Config
 	conf, err := config.LoadConfig()
 	if err != nil {
-		fmt.Printf("ERROR peerlan: failed to read config file, creating new one: %v\n", err)
+		fmt.Printf("ERROR anywherelan: failed to read config file, creating new one: %v\n", err)
 		conf = config.NewConfig()
 	}
 
@@ -119,7 +119,7 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 
 	log.SetupLogging(zapCore, func(name string) zapcore.Level {
 		switch {
-		case strings.HasPrefix(name, "peerlan"):
+		case strings.HasPrefix(name, "awl"):
 			return lvl
 		case name == "swarm2":
 			// TODO: решить какой выставлять
@@ -138,7 +138,7 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 		opts...,
 	)
 
-	a.logger = log.Logger("peerlan")
+	a.logger = log.Logger("awl")
 	a.Conf = conf
 
 	return a.logger

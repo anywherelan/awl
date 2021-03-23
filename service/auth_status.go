@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/protocol"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/helpers"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/peerlan/peerlan/config"
-	"github.com/peerlan/peerlan/protocol"
 )
 
 const (
@@ -32,7 +32,7 @@ func NewAuthStatus(p2pService *P2pService, conf *config.Config) *AuthStatus {
 	auth := &AuthStatus{
 		ingoingAuths:  make(map[peer.ID]protocol.AuthPeer),
 		outgoingAuths: make(map[peer.ID]protocol.AuthPeer),
-		logger:        log.Logger("peerlan/service/status"),
+		logger:        log.Logger("awl/service/status"),
 		p2p:           p2pService,
 		conf:          conf,
 	}

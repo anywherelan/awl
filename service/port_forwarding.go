@@ -6,14 +6,14 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/entity"
+	"github.com/anywherelan/awl/protocol"
+	"github.com/anywherelan/awl/proxy"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/helpers"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/peerlan/peerlan/config"
-	"github.com/peerlan/peerlan/entity"
-	"github.com/peerlan/peerlan/protocol"
-	"github.com/peerlan/peerlan/proxy"
 )
 
 const (
@@ -49,7 +49,7 @@ func NewPortForwarding(p2pService *P2pService, conf *config.Config) *PortForward
 		forwarded: forwardedPortsRegistry{
 			ports: make(map[forwardedPort]forwardedPortInfo),
 		},
-		logger: log.Logger("peerlan/service/forwarding"),
+		logger: log.Logger("awl/service/forwarding"),
 		p2p:    p2pService,
 		conf:   conf,
 	}

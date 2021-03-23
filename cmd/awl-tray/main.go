@@ -7,18 +7,18 @@ import (
 	"net/http"
 	"runtime"
 
+	_ "awl-tray/static"
 	ico "github.com/Kodeworks/golang-image-ico"
+	"github.com/anywherelan/awl"
 	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
-	"github.com/peerlan/peerlan"
 	"github.com/rakyll/statik/fs"
 	"github.com/skratchdot/open-golang/open"
-	_ "peerlan-tray/static"
 )
 
 var (
 	statikFS http.FileSystem
-	app      *peerlan.Application
+	app      *awl.Application
 	logger   *log.ZapEventLogger
 )
 
@@ -47,8 +47,8 @@ func onReady() {
 	InitServer()
 
 	systray.SetIcon(getIcon())
-	systray.SetTitle("Peerlan")
-	systray.SetTooltip("Peerlan tray")
+	systray.SetTitle("Anywherelan")
+	systray.SetTooltip("Anywherelan tray")
 
 	mOpenBrowser := systray.AddMenuItem("Show Web UI", "")
 	go func() {
@@ -82,7 +82,7 @@ func onExit() {
 }
 
 func InitServer() {
-	app = peerlan.New()
+	app = awl.New()
 	logger = app.SetupLoggerAndConfig()
 
 	err := app.Init(context.Background())

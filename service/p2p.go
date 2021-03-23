@@ -6,15 +6,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/entity"
+	"github.com/anywherelan/awl/p2p"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/metrics"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
-	"github.com/peerlan/peerlan/config"
-	"github.com/peerlan/peerlan/entity"
-	"github.com/peerlan/peerlan/p2p"
 )
 
 const (
@@ -35,7 +35,7 @@ func NewP2p(server *p2p.P2p, conf *config.Config) *P2pService {
 	p := &P2pService{
 		p2pServer:      server,
 		conf:           conf,
-		logger:         log.Logger("peerlan/service/p2p"),
+		logger:         log.Logger("awl/service/p2p"),
 		startedAt:      time.Now(),
 		bootstrapsInfo: make(map[string]entity.BootstrapPeerDebugInfo),
 	}

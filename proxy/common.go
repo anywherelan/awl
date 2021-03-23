@@ -11,7 +11,7 @@ import (
 
 const bufSize = 32 * 1024
 
-var logger = log.Logger("peerlan/proxy")
+var logger = log.Logger("awl/proxy")
 
 type temporary interface {
 	Temporary() bool

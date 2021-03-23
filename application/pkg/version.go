@@ -4,5 +4,5 @@ package pkg
 const (
 	Version         = "v0.2.0-beta3"
 	UserAgent       = UserAgentPrefix + Version
-	UserAgentPrefix = "peerlan/"
+	UserAgentPrefix = "awl/"
 )

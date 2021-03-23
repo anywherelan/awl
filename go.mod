@@ -1,4 +1,4 @@
-module github.com/peerlan/peerlan
+module github.com/anywherelan/awl
 
 go 1.13
 

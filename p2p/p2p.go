@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anywherelan/awl/application/pkg"
+	"github.com/anywherelan/awl/config"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
@@ -33,8 +35,6 @@ import (
 	"github.com/libp2p/go-tcp-transport"
 	ws "github.com/libp2p/go-ws-transport"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/peerlan/peerlan/application/pkg"
-	"github.com/peerlan/peerlan/config"
 	"go.uber.org/multierr"
 )
 
@@ -42,7 +42,7 @@ const (
 	DesiredRelays  = 2
 	RelayBootDelay = 10 * time.Second
 
-	DHTProtocolPrefix protocol.ID = "/peerlan"
+	DHTProtocolPrefix protocol.ID = "/awl"
 )
 
 type P2p struct {
@@ -71,7 +71,7 @@ func NewP2p(ctx context.Context, cfg *config.Config) *P2p {
 		cfg:       cfg,
 		ctx:       newCtx,
 		ctxCancel: ctxCancel,
-		logger:    log.Logger("peerlan/p2p"),
+		logger:    log.Logger("awl/p2p"),
 	}
 }
 
@@ -147,7 +147,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 				dht.ProtocolPrefix(DHTProtocolPrefix),
 				// TODO: переделать через эту опцию?
 				//dht.BootstrapPeers(),
-				// с помощью этого можно добавлять в роутинг только тех кто использует peerlan
+				// с помощью этого можно добавлять в роутинг только тех кто использует awl
 				//dht.RoutingTableFilter(),
 				// default to minute
 				//dht.RoutingTableLatencyTolerance(),

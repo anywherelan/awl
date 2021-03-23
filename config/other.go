@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/anywherelan/awl/application/pkg"
 	"github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/peerlan/peerlan/application/pkg"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 )
 
 // TODO: move to Config struct?
-var logger = log.Logger("peerlan/config")
+var logger = log.Logger("awl/config")
 
 var DefaultBootstrapPeers []multiaddr.Multiaddr
 
@@ -55,7 +55,7 @@ func CalcAppDataDir() (dataDir string) {
 		suitableDataDir = envDir
 		err := os.MkdirAll(envDir, dirsPerm)
 		if err != nil {
-			logger.Warnf("could not create peerlan data directory from env: %v", err)
+			logger.Warnf("could not create data directory from env: %v", err)
 		}
 		return envDir
 	}
@@ -83,7 +83,7 @@ func CalcAppDataDir() (dataDir string) {
 	userDataDir := filepath.Join(userConfigDir, AppDataDirectory)
 	err = os.MkdirAll(userDataDir, dirsPerm)
 	if err != nil {
-		logger.Warnf("could not create peerlan data directory in user dir: %v", err)
+		logger.Warnf("could not create data directory in user dir: %v", err)
 		return ""
 	}
 	suitableDataDir = userDataDir

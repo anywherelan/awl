@@ -3,9 +3,9 @@ package entity
 import (
 	"time"
 
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/protocol"
 	"github.com/libp2p/go-libp2p-core/metrics"
-	"github.com/peerlan/peerlan/config"
-	"github.com/peerlan/peerlan/protocol"
 )
 
 // Requests

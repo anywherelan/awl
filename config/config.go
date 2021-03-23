@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	AppConfigFilename         = "config.json"
-	AppDataDirectory          = "peerlan"
+	AppConfigFilename         = "config_awl.json"
+	AppDataDirectory          = "anywherelan"
 	DhtPeerstoreDataDirectory = "peerstore"
-	AppDataDirEnvKey          = "PEERLAN_DATA_DIR"
+	AppDataDirEnvKey          = "AWL_DATA_DIR"
 
 	// TODO 8989 maybe?
 	DefaultHTTPPort = 8639

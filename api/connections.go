@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/anywherelan/awl/entity"
 	"github.com/labstack/echo/v4"
-	"github.com/peerlan/peerlan/entity"
 )
 
 // @Tags Connections

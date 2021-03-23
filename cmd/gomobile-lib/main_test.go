@@ -1,4 +1,4 @@
-package peerlan
+package anywherelan
 
 import (
 	"testing"

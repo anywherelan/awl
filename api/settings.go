@@ -3,9 +3,9 @@ package api
 import (
 	"net/http"
 
+	"github.com/anywherelan/awl/application/pkg"
+	"github.com/anywherelan/awl/entity"
 	"github.com/labstack/echo/v4"
-	"github.com/peerlan/peerlan/application/pkg"
-	"github.com/peerlan/peerlan/entity"
 )
 
 // @Tags Settings

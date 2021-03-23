@@ -13,9 +13,9 @@ import (
 const (
 	Version = "0.1.0"
 
-	PortForwardingMethod protocol.ID = "/peerlan/" + Version + "/forward/"
-	AuthMethod           protocol.ID = "/peerlan/" + Version + "/auth/"
-	GetStatusMethod      protocol.ID = "/peerlan/" + Version + "/status/"
+	PortForwardingMethod protocol.ID = "/awl/" + Version + "/forward/"
+	AuthMethod           protocol.ID = "/awl/" + Version + "/auth/"
+	GetStatusMethod      protocol.ID = "/awl/" + Version + "/status/"
 )
 
 func HandleForwardPortStream(stream io.Reader) (int, error) {

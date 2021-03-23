@@ -1,4 +1,4 @@
-package peerlan
+package anywherelan
 
 import (
 	"context"
@@ -7,19 +7,19 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/anywherelan/awl"
+	"github.com/anywherelan/awl/config"
 	"github.com/ipfs/go-log/v2"
-	"github.com/peerlan/peerlan"
-	"github.com/peerlan/peerlan/config"
 )
 
 var (
-	app           *peerlan.Application
+	app           *awl.Application
 	logger        *log.ZapEventLogger
 	globalDataDir string
 )
 
 /*
-	gomobile bind -o peerlan.aar -target=android .
+	gomobile bind -o anywherelan.aar -target=android .
 */
 
 // All public functions are part of a library
@@ -29,7 +29,7 @@ func InitServer(dataDir string) {
 	globalDataDir = dataDir
 	_ = os.Setenv(config.AppDataDirEnvKey, dataDir)
 
-	app = peerlan.New()
+	app = awl.New()
 	logger = app.SetupLoggerAndConfig()
 	//ctx, ctxCancel := context.WithCancel(context.Background())
 	ctx := context.Background()

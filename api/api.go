@@ -6,13 +6,13 @@ import (
 	http_pprof "net/http/pprof"
 	"runtime/pprof"
 
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/ringbuffer"
+	"github.com/anywherelan/awl/service"
 	"github.com/go-playground/validator/v10"
 	"github.com/ipfs/go-log/v2"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/peerlan/peerlan/config"
-	"github.com/peerlan/peerlan/ringbuffer"
-	"github.com/peerlan/peerlan/service"
 )
 
 type Handler struct {
@@ -38,7 +38,7 @@ func NewHandler(conf *config.Config, forwarding *service.PortForwarding, p2p *se
 }
 
 func (h *Handler) SetupAPI() {
-	logger := log.Logger("peerlan/api")
+	logger := log.Logger("awl/api")
 	h.logger = logger
 
 	e := echo.New()

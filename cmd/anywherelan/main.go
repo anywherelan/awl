@@ -7,11 +7,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/peerlan/peerlan"
+	"github.com/anywherelan/awl"
 )
 
 func main() {
-	app := peerlan.New()
+	app := awl.New()
 	logger := app.SetupLoggerAndConfig()
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
