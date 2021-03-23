@@ -162,8 +162,6 @@ func (c *Config) GetBootstrapPeers() []multiaddr.Multiaddr {
 	}
 	c.RUnlock()
 
-	// TODO
-	//allMultiaddrs = append(allMultiaddrs, dht.DefaultBootstrapPeers...)
 	allMultiaddrs = append(allMultiaddrs, DefaultBootstrapPeers...)
 
 	result := make([]multiaddr.Multiaddr, 0, len(allMultiaddrs))
