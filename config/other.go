@@ -25,13 +25,19 @@ var DefaultBootstrapPeers []multiaddr.Multiaddr
 
 func init() {
 	for _, s := range []string{
-		"/ip4/45.67.230.153/tcp/6350/p2p/QmQ4JKHL6tpYGNSCT3bvqANgfBaiPEzkwCubimfrXhtXP4",
-		"/ip4/45.67.230.153/udp/6450/quic/p2p/QmQ4JKHL6tpYGNSCT3bvqANgfBaiPEzkwCubimfrXhtXP4",
+		"/ip4/45.67.230.153/tcp/6150/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
+		"/ip4/45.67.230.153/udp/6150/quic/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
 
-		"/ip4/212.237.53.149/tcp/6350/p2p/QmQD18j92bSDeBrDHwdMFxQ75MQC82touaY93Z22GDPjuo",
-		"/ip4/212.237.53.149/udp/6450/quic/p2p/QmQD18j92bSDeBrDHwdMFxQ75MQC82touaY93Z22GDPjuo",
-		"/ip6/2a00:6d40:72:d95::1/tcp/7350/p2p/QmQD18j92bSDeBrDHwdMFxQ75MQC82touaY93Z22GDPjuo",
-		"/ip6/2a00:6d40:72:d95::1/udp/7450/quic/p2p/QmQD18j92bSDeBrDHwdMFxQ75MQC82touaY93Z22GDPjuo",
+		"/ip4/45.67.230.223/tcp/6150/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
+		"/ip4/45.67.230.223/udp/6150/quic/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
+
+		"/ip4/212.237.53.149/tcp/6150/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
+		"/ip4/212.237.53.149/udp/6150/quic/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
+		"/ip6/2a00:6d40:72:d95::1/tcp/7250/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
+		"/ip6/2a00:6d40:72:d95::1/udp/7250/quic/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
+
+		"/ip4/195.181.214.203/tcp/6150/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
+		"/ip4/195.181.214.203/udp/6150/quic/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
 	} {
 		ma, err := multiaddr.NewMultiaddr(s)
 		if err != nil {
