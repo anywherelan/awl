@@ -18,7 +18,6 @@ import (
 type Handler struct {
 	conf       *config.Config
 	logger     *log.ZapEventLogger
-	forwarding *service.PortForwarding
 	p2p        *service.P2pService
 	authStatus *service.AuthStatus
 	logBuffer  *ringbuffer.RingBuffer
@@ -26,11 +25,10 @@ type Handler struct {
 	echo *echo.Echo
 }
 
-func NewHandler(conf *config.Config, forwarding *service.PortForwarding, p2p *service.P2pService,
-	authStatus *service.AuthStatus, logBuffer *ringbuffer.RingBuffer) *Handler {
+func NewHandler(conf *config.Config, p2p *service.P2pService, authStatus *service.AuthStatus,
+	logBuffer *ringbuffer.RingBuffer) *Handler {
 	return &Handler{
 		conf:       conf,
-		forwarding: forwarding,
 		p2p:        p2p,
 		authStatus: authStatus,
 		logBuffer:  logBuffer,
@@ -54,10 +52,6 @@ func (h *Handler) SetupAPI() {
 	}
 
 	// Routes
-
-	// Connections
-	e.GET(GetInboundConnectionsPath, h.GetInboundConnections)
-	e.GET(GetForwardedPortsPath, h.GetForwardedPorts)
 
 	// Peers
 	e.GET(GetKnownPeersPath, h.GetKnownPeers)

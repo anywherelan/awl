@@ -7,7 +7,6 @@ require (
 	github.com/ipfs/go-datastore v0.4.4
 	github.com/ipfs/go-log/v2 v2.0.5
 	github.com/labstack/echo/v4 v4.1.16
-	github.com/libp2p/go-buffer-pool v0.0.2
 	github.com/libp2p/go-eventbus v0.2.1
 	github.com/libp2p/go-libp2p v0.10.0
 	github.com/libp2p/go-libp2p-connmgr v0.2.4

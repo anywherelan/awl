@@ -29,30 +29,17 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 	for _, peerID := range peers {
 		peer := h.conf.KnownPeers[peerID]
 
-		remotePorts := make([]int, 0, len(peer.AllowedRemotePorts))
-		for port := range peer.AllowedRemotePorts {
-			remotePorts = append(remotePorts, port)
-		}
-		sort.Ints(remotePorts)
-		localPorts := make([]int, 0, len(peer.AllowedLocalPorts))
-		for port := range peer.AllowedLocalPorts {
-			localPorts = append(localPorts, port)
-		}
-		sort.Ints(localPorts)
-
 		id := peer.PeerId()
 		kpr := entity.KnownPeersResponse{
-			PeerID:             peerID,
-			Name:               peer.DisplayName(),
-			Version:            h.p2p.PeerVersion(id),
-			IpAddr:             peer.IPAddr,
-			Connected:          h.p2p.IsConnected(id),
-			Confirmed:          peer.Confirmed,
-			LastSeen:           peer.LastSeen,
-			Addresses:          h.p2p.PeerAddresses(id),
-			NetworkStats:       h.p2p.NetworkStatsForPeer(id),
-			AllowedLocalPorts:  localPorts,
-			AllowedRemotePorts: remotePorts,
+			PeerID:       peerID,
+			Name:         peer.DisplayName(),
+			Version:      h.p2p.PeerVersion(id),
+			IpAddr:       peer.IPAddr,
+			Connected:    h.p2p.IsConnected(id),
+			Confirmed:    peer.Confirmed,
+			LastSeen:     peer.LastSeen,
+			Addresses:    h.p2p.PeerAddresses(id),
+			NetworkStats: h.p2p.NetworkStatsForPeer(id),
 		}
 		result = append(result, kpr)
 	}
@@ -110,43 +97,11 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	}
 	peerID := knownPeer.PeerId()
 
-	for remotePort := range knownPeer.AllowedRemotePorts {
-		oldConf := knownPeer.AllowedRemotePorts[remotePort]
-		newConf, exists := req.RemoteConns[remotePort]
-		if !exists {
-			continue
-		}
-		newConf.RemotePort = oldConf.RemotePort
-		newConf.Description = oldConf.Description
-		knownPeer.AllowedRemotePorts[remotePort] = newConf
-
-		// TODO: check if mapped port is open, is it used at other ports, etc
-		if newConf.Forwarded {
-			go func() {
-				if oldConf.MappedLocalPort != newConf.MappedLocalPort {
-					h.forwarding.StopForwarding(peerID, remotePort)
-				}
-				err := h.forwarding.ForwardPort(peerID, knownPeer.IPAddr, newConf.MappedLocalPort, newConf.RemotePort)
-				if err != nil {
-					h.logger.Warnf("forwarding port %d from %s: %v", newConf.RemotePort, req.PeerID, err)
-				}
-			}()
-		} else {
-			go h.forwarding.StopForwarding(peerID, remotePort)
-		}
-	}
-
-	knownPeer.AllowedLocalPorts = req.LocalConns
 	knownPeer.Alias = req.Alias
 	h.conf.UpsertPeer(knownPeer)
 
+	// not necessary now because we do not send anything
 	go func() {
-		for port := range knownPeer.AllowedLocalPorts {
-			_, exists := req.RemoteConns[port]
-			if !exists {
-				h.forwarding.CloseInboundStreams(peerID, port)
-			}
-		}
 		_ = h.authStatus.ExchangeNewStatusInfo(peerID, knownPeer)
 	}()
 
@@ -191,13 +146,11 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 	ipAddr := h.conf.GenerateNextIpAddr()
 	h.conf.RUnlock()
 	newPeerConfig := config.KnownPeer{
-		PeerID:             req.PeerID,
-		Name:               "",
-		Alias:              req.Alias,
-		IPAddr:             ipAddr,
-		AllowedLocalPorts:  make(map[int]config.LocalConnConfig),
-		AllowedRemotePorts: make(map[int]config.RemoteConnConfig),
-		Confirmed:          false,
+		PeerID:    req.PeerID,
+		Name:      "",
+		Alias:     req.Alias,
+		IPAddr:    ipAddr,
+		Confirmed: false,
 	}
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
@@ -256,13 +209,11 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	ipAddr := h.conf.GenerateNextIpAddr()
 	h.conf.RUnlock()
 	newPeerConfig := config.KnownPeer{
-		PeerID:             req.PeerID,
-		Name:               auth.Name,
-		Alias:              req.Alias,
-		IPAddr:             ipAddr,
-		AllowedLocalPorts:  make(map[int]config.LocalConnConfig),
-		AllowedRemotePorts: make(map[int]config.RemoteConnConfig),
-		Confirmed:          true,
+		PeerID:    req.PeerID,
+		Name:      auth.Name,
+		Alias:     req.Alias,
+		IPAddr:    ipAddr,
+		Confirmed: true,
 	}
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)

@@ -3,10 +3,6 @@ package api
 const (
 	V0Prefix = "/api/v0/"
 
-	// Connections
-	GetForwardedPortsPath     = V0Prefix + "connections/forwarded_ports"
-	GetInboundConnectionsPath = V0Prefix + "connections/inbound"
-
 	// Peers
 	GetKnownPeersPath        = V0Prefix + "peers/get_known"
 	GetKnownPeerSettingsPath = V0Prefix + "peers/get_known_peer_settings"

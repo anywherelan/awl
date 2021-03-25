@@ -43,7 +43,6 @@ type Application struct {
 	host       host.Host
 	Api        *api.Handler
 	P2pService *service.P2pService
-	Forwarding *service.PortForwarding
 	AuthStatus *service.AuthStatus
 }
 
@@ -71,14 +70,12 @@ func (a *Application) Init(ctx context.Context) error {
 	}
 
 	a.P2pService = service.NewP2p(p2pSrv, a.Conf)
-	a.Forwarding = service.NewPortForwarding(a.P2pService, a.Conf)
 	a.AuthStatus = service.NewAuthStatus(a.P2pService, a.Conf)
 
-	host.SetStreamHandler(protocol.PortForwardingMethod, a.Forwarding.StreamHandler)
 	host.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
 	host.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
 
-	handler := api.NewHandler(a.Conf, a.Forwarding, a.P2pService, a.AuthStatus, a.LogBuffer)
+	handler := api.NewHandler(a.Conf, a.P2pService, a.AuthStatus, a.LogBuffer)
 	a.Api = handler
 	handler.SetupAPI()
 

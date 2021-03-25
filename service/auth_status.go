@@ -114,38 +114,15 @@ func (s *AuthStatus) ExchangeNewStatusInfo(remotePeerID peer.ID, peer config.Kno
 	return nil
 }
 
-func (*AuthStatus) createPeerInfo(peer config.KnownPeer, name string) protocol.PeerStatusInfo {
-	ports := make([]protocol.PermittedPort, 0, len(peer.AllowedLocalPorts))
-	for _, cfg := range peer.AllowedLocalPorts {
-		ports = append(ports, protocol.PermittedPort{
-			Port:        cfg.Port,
-			Description: cfg.Description,
-		})
-	}
+func (*AuthStatus) createPeerInfo(_ config.KnownPeer, name string) protocol.PeerStatusInfo {
 	myPeerInfo := protocol.PeerStatusInfo{
-		Name:           name,
-		PermittedPorts: ports,
+		Name: name,
 	}
 
 	return myPeerInfo
 }
 
 func (*AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protocol.PeerStatusInfo) config.KnownPeer {
-	newAllowedRemotePorts := make(map[int]config.RemoteConnConfig, len(peerInfo.PermittedPorts))
-	for _, permittedPort := range peerInfo.PermittedPorts {
-		if oldRemotePort, ok := peer.AllowedRemotePorts[permittedPort.Port]; ok {
-			oldRemotePort.Description = permittedPort.Description
-			newAllowedRemotePorts[permittedPort.Port] = oldRemotePort
-		} else {
-			newRemotePort := config.RemoteConnConfig{
-				RemotePort:      permittedPort.Port,
-				MappedLocalPort: permittedPort.Port,
-				Description:     permittedPort.Description,
-			}
-			newAllowedRemotePorts[permittedPort.Port] = newRemotePort
-		}
-	}
-	peer.AllowedRemotePorts = newAllowedRemotePorts
 	peer.Name = peerInfo.Name
 	peer.Confirmed = true
 	peer.LastSeen = time.Now()

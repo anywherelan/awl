@@ -53,12 +53,6 @@ type (
 		Alias string `json:"alias"`
 		// IPAddr used for forwarding
 		IPAddr string `json:"ipAddr"`
-		// Connections from remote peer to this peer
-		// LocalPort -> Config
-		AllowedLocalPorts map[int]LocalConnConfig `json:"allowedLocalPorts"`
-		// Connections from this peer to remote peer
-		// RemotePort -> Config
-		AllowedRemotePorts map[int]RemoteConnConfig `json:"allowedRemotePorts"`
 		// Time of last connection
 		LastSeen time.Time `json:"lastSeen"`
 		// Has remote peer confirmed our invitation
@@ -143,16 +137,6 @@ func (c *Config) PrivKey() []byte {
 	return b
 }
 
-func (c *Config) CheckLocalPerm(hostID string, port int) bool {
-	c.RLock()
-	defer c.RUnlock()
-	if peer, exist := c.KnownPeers[hostID]; exist {
-		_, ok := peer.AllowedLocalPorts[port]
-		return ok
-	}
-	return false
-}
-
 func (c *Config) GetBootstrapPeers() []multiaddr.Multiaddr {
 	c.RLock()
 	allMultiaddrs := make([]multiaddr.Multiaddr, 0, len(c.P2pNode.BootstrapPeers))
@@ -189,6 +173,7 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 	c.RLock()
 	result := make([]multiaddr.Multiaddr, 0, len(c.P2pNode.ListenAddresses))
 	for _, val := range c.P2pNode.ListenAddresses {
+		// TODO: check err
 		newMultiaddr, _ := multiaddr.NewMultiaddr(val)
 		result = append(result, newMultiaddr)
 	}

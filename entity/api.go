@@ -3,19 +3,12 @@ package entity
 import (
 	"time"
 
-	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/libp2p/go-libp2p-core/metrics"
 )
 
 // Requests
 type (
-	ConnectPeerRequest struct {
-		PeerID     string `validate:"required"`
-		LocalPort  int    `validate:"required"`
-		RemotePort int    `validate:"required"`
-		Protocol   string `validate:"required"`
-	}
 	FriendRequest struct {
 		PeerID string `validate:"required"`
 		Alias  string
@@ -24,10 +17,8 @@ type (
 		PeerID string `validate:"required"`
 	}
 	UpdatePeerSettingsRequest struct {
-		PeerID      string `validate:"required"`
-		Alias       string
-		LocalConns  map[int]config.LocalConnConfig
-		RemoteConns map[int]config.RemoteConnConfig
+		PeerID string `validate:"required"`
+		Alias  string
 	}
 	UpdateMySettingsRequest struct {
 		Name string
@@ -37,17 +28,15 @@ type (
 // Responses
 type (
 	KnownPeersResponse struct {
-		PeerID             string
-		Name               string
-		Version            string
-		IpAddr             string
-		Connected          bool
-		Confirmed          bool
-		LastSeen           time.Time
-		Addresses          []string
-		NetworkStats       metrics.Stats
-		AllowedLocalPorts  []int
-		AllowedRemotePorts []int
+		PeerID       string
+		Name         string
+		Version      string
+		IpAddr       string
+		Connected    bool
+		Confirmed    bool
+		LastSeen     time.Time
+		Addresses    []string
+		NetworkStats metrics.Stats
 	}
 	PeerInfo struct {
 		PeerID                  string
@@ -59,24 +48,13 @@ type (
 		ConnectedBootstrapPeers int
 	}
 
-	ForwardedPort struct {
-		RemotePort    int
-		ListenAddress string
-		PeerID        string
-	}
-	InboundStream struct {
-		LocalPort int
-		PeerID    string
-		Protocol  string
-	}
-
 	AuthRequest struct {
 		PeerID string
 		protocol.AuthPeer
 	}
+)
 
-	GetInboundConnectionsResponse map[int][]InboundStream
-
+type (
 	P2pDebugInfo struct {
 		General     GeneralDebugInfo
 		DHT         DhtDebugInfo

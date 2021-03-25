@@ -190,12 +190,6 @@ func setDefaults(conf *Config) {
 	}
 	for peerID := range conf.KnownPeers {
 		peer := conf.KnownPeers[peerID]
-		if peer.AllowedRemotePorts == nil {
-			peer.AllowedRemotePorts = make(map[int]RemoteConnConfig)
-		}
-		if peer.AllowedLocalPorts == nil {
-			peer.AllowedLocalPorts = make(map[int]LocalConnConfig)
-		}
 		if peer.IPAddr == "" {
 			peer.IPAddr = conf.GenerateNextIpAddr()
 		}
