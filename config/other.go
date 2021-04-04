@@ -195,6 +195,13 @@ func setDefaults(conf *Config) {
 		}
 		conf.KnownPeers[peerID] = peer
 	}
+	if conf.VPNConfig.IPNet == "" {
+		conf.VPNConfig.IPNet = defaultNetworkSubnet
+	}
+	if conf.VPNConfig.InterfaceName == "" {
+		conf.VPNConfig.InterfaceName = defaultInterfaceName
+	}
+
 	if conf.dataDir == "" {
 		conf.dataDir = suitableDataDir
 	}

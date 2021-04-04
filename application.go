@@ -3,6 +3,7 @@ package awl
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/ringbuffer"
 	"github.com/anywherelan/awl/service"
+	"github.com/anywherelan/awl/vpn"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/host"
 	"go.uber.org/zap"
@@ -41,9 +43,11 @@ type Application struct {
 
 	p2pServer  *p2p.P2p
 	host       host.Host
+	vpnDevice  *vpn.Device
 	Api        *api.Handler
 	P2pService *service.P2pService
 	AuthStatus *service.AuthStatus
+	Tunnel     *service.Tunnel
 }
 
 func New() *Application {
@@ -64,6 +68,15 @@ func (a *Application) Init(ctx context.Context) error {
 	a.logger.Infof("Host created. We are: %s", host.ID().String())
 	a.logger.Infof("Listen interfaces: %v", host.Addrs())
 
+	localIP, netMask := a.Conf.VPNLocalIPMask()
+	interfaceName := a.Conf.VPNConfig.InterfaceName
+	vpnDevice, err := vpn.NewDevice(interfaceName, localIP, netMask)
+	if err != nil {
+		return fmt.Errorf("failed to init vpn: %v", err)
+	}
+	a.vpnDevice = vpnDevice
+	a.logger.Infof("Created vpn interface %s: %s", interfaceName, &net.IPNet{IP: localIP, Mask: netMask})
+
 	err = p2pSrv.Bootstrap()
 	if err != nil {
 		return err
@@ -71,11 +84,13 @@ func (a *Application) Init(ctx context.Context) error {
 
 	a.P2pService = service.NewP2p(p2pSrv, a.Conf)
 	a.AuthStatus = service.NewAuthStatus(a.P2pService, a.Conf)
+	a.Tunnel = service.NewTunnel(a.P2pService, vpnDevice, a.Conf)
 
 	host.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
 	host.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
+	host.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
 
-	handler := api.NewHandler(a.Conf, a.P2pService, a.AuthStatus, a.LogBuffer)
+	handler := api.NewHandler(a.Conf, a.P2pService, a.AuthStatus, a.Tunnel, a.LogBuffer)
 	a.Api = handler
 	handler.SetupAPI()
 
@@ -154,6 +169,12 @@ func (a *Application) Close() {
 		err := a.p2pServer.Close()
 		if err != nil {
 			a.logger.Errorf("closing p2p server: %v", err)
+		}
+	}
+	if a.vpnDevice != nil {
+		err := a.vpnDevice.Close()
+		if err != nil {
+			a.logger.Errorf("closing vpn: %v", err)
 		}
 	}
 	a.Conf.Save()

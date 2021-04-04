@@ -20,25 +20,25 @@ type Handler struct {
 	logger     *log.ZapEventLogger
 	p2p        *service.P2pService
 	authStatus *service.AuthStatus
+	tunnel     *service.Tunnel
 	logBuffer  *ringbuffer.RingBuffer
 
 	echo *echo.Echo
 }
 
 func NewHandler(conf *config.Config, p2p *service.P2pService, authStatus *service.AuthStatus,
-	logBuffer *ringbuffer.RingBuffer) *Handler {
+	tunnel *service.Tunnel, logBuffer *ringbuffer.RingBuffer) *Handler {
 	return &Handler{
 		conf:       conf,
 		p2p:        p2p,
 		authStatus: authStatus,
+		tunnel:     tunnel,
 		logBuffer:  logBuffer,
+		logger:     log.Logger("awl/api"),
 	}
 }
 
 func (h *Handler) SetupAPI() {
-	logger := log.Logger("awl/api")
-	h.logger = logger
-
 	e := echo.New()
 	h.echo = e
 	e.HideBanner = true
@@ -86,9 +86,9 @@ func (h *Handler) SetupAPI() {
 	// Start
 	go func() {
 		addr := h.conf.HttpListenAddress
-		logger.Infof("starting web server on http://%s", addr)
+		h.logger.Infof("starting web server on http://%s", addr)
 		if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
-			logger.Warnf("shutting down web server %s: %s", addr, err)
+			h.logger.Warnf("shutting down web server %s: %s", addr, err)
 		}
 		// TODO ???
 		//e.Server.Addr

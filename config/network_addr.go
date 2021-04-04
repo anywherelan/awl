@@ -6,24 +6,19 @@ import (
 )
 
 const (
-	networkSubnet = "127.16.0.1/21"
+	defaultInterfaceName = "awl0"
+	// TODO: generate subnets if this has already taken
+	defaultNetworkSubnet = "10.66.0.1/24"
 )
-
-var (
-	ipNet *net.IPNet
-)
-
-func init() {
-	var err error
-	_, ipNet, err = net.ParseCIDR(networkSubnet)
-	if err != nil {
-		panic(err)
-	}
-}
 
 // GenerateNextIpAddr is not thread safe.
 func (c *Config) GenerateNextIpAddr() string {
-	maxIp := ipNet.IP
+	localIP, netMask := c.VPNLocalIPMask()
+	ipNet := net.IPNet{
+		IP:   localIP.Mask(netMask),
+		Mask: netMask,
+	}
+	maxIp := localIP
 	for _, known := range c.KnownPeers {
 		ip := net.ParseIP(known.IPAddr)
 		if ip == nil {

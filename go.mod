@@ -1,6 +1,6 @@
 module github.com/anywherelan/awl
 
-go 1.13
+go 1.14
 
 require (
 	github.com/go-playground/validator/v10 v10.3.0
@@ -19,11 +19,16 @@ require (
 	github.com/libp2p/go-libp2p-tls v0.1.3
 	github.com/libp2p/go-tcp-transport v0.2.0
 	github.com/libp2p/go-ws-transport v0.3.1
+	github.com/milosgajdos/tenus v0.0.3
 	github.com/mr-tron/base58 v1.2.0
 	github.com/multiformats/go-multiaddr v0.2.2
 	github.com/stretchr/testify v1.6.1
 	go.uber.org/multierr v1.5.0
 	go.uber.org/zap v1.15.0
+	golang.org/x/net v0.0.0-20210119194325-5f4716e94777
+	golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c
+	golang.zx2c4.com/wireguard v0.0.0-20210203165646-9c7bd73be2cc
+	golang.zx2c4.com/wireguard/windows v0.3.5
 )
 
 replace (

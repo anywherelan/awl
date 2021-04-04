@@ -10,8 +10,9 @@ import (
 const (
 	Version = "0.1.0"
 
-	AuthMethod      protocol.ID = "/awl/" + Version + "/auth/"
-	GetStatusMethod protocol.ID = "/awl/" + Version + "/status/"
+	AuthMethod         protocol.ID = "/awl/" + Version + "/auth/"
+	GetStatusMethod    protocol.ID = "/awl/" + Version + "/status/"
+	TunnelPacketMethod protocol.ID = "/awl/" + Version + "/tunnel/"
 )
 
 type (

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"io/ioutil"
+	"net"
 	"path/filepath"
 	"sync"
 	"time"
@@ -33,6 +34,7 @@ type (
 		LoggerLevel       string               `json:"loggerLevel"`
 		HttpListenAddress string               `json:"httpListenAddress"`
 		P2pNode           P2pNodeConfig        `json:"p2pNode"`
+		VPNConfig         VPNConfig            `json:"vpn"`
 		KnownPeers        map[string]KnownPeer `json:"knownPeers"`
 	}
 	P2pNodeConfig struct {
@@ -43,6 +45,10 @@ type (
 		BootstrapPeers          []string      `json:"bootstrapPeers"`
 		ListenAddresses         []string      `json:"listenAddresses"`
 		ReconnectionIntervalSec time.Duration `json:"reconnectionIntervalSec"`
+	}
+	VPNConfig struct {
+		InterfaceName string `json:"interfaceName"`
+		IPNet         string `json:"ipNet"`
 	}
 	KnownPeer struct {
 		// Hex-encoded multihash representing a peer ID
@@ -57,18 +63,6 @@ type (
 		LastSeen time.Time `json:"lastSeen"`
 		// Has remote peer confirmed our invitation
 		Confirmed bool `json:"confirmed"`
-	}
-	// Connection from remote peer to this peer
-	LocalConnConfig struct {
-		Port        int    `json:"port"`
-		Description string `json:"description"`
-	}
-	// Connection from this peer to remote peer
-	RemoteConnConfig struct {
-		RemotePort      int    `json:"remotePort"`
-		MappedLocalPort int    `json:"mappedLocalPort"`
-		Forwarded       bool   `json:"forwarded"`
-		Description     string `json:"description"`
 	}
 )
 
@@ -179,6 +173,14 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 	}
 	c.RUnlock()
 	return result
+}
+
+func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {
+	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNet)
+	if err != nil {
+		logger.Errorf("parse CIDR: %v", err)
+	}
+	return localIP.To4(), ipNet.Mask
 }
 
 func (c *Config) PeerstoreDir() string {

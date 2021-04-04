@@ -154,6 +154,7 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 	}
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
+	h.tunnel.RefreshPeersList()
 
 	go func() {
 		authPeer := protocol.AuthPeer{
@@ -217,6 +218,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	}
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
+	h.tunnel.RefreshPeersList()
 
 	go func() {
 		_ = h.authStatus.ExchangeNewStatusInfo(peerId, newPeerConfig)

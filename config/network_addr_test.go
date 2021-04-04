@@ -20,6 +20,7 @@ func TestIncrementIPAddr(t *testing.T) {
 		{name: "", args: args{ip: "127.16.3.254"}, want: "127.16.3.255"},
 		{name: "", args: args{ip: "127.16.0.254"}, want: "127.16.0.255"},
 		{name: "", args: args{ip: "127.16.0.255"}, want: "127.16.1.0"},
+		{name: "", args: args{ip: "10.66.0.1"}, want: "10.66.0.2"},
 	}
 	for _, tt := range tests {
 		ip := net.ParseIP(tt.args.ip)
@@ -29,5 +30,15 @@ func TestIncrementIPAddr(t *testing.T) {
 				t.Errorf("IncrementIPAddr() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestConfig_GenerateNextIpAddr(t *testing.T) {
+	cfg := new(Config)
+	setDefaults(cfg)
+
+	addr := cfg.GenerateNextIpAddr()
+	if addr != "10.66.0.2" {
+		t.Fail()
 	}
 }
