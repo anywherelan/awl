@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -18,7 +19,8 @@ const (
 	interfaceMTU  = 3500
 	outboundChCap = 50
 	// internal tun header
-	tunPacketOffset = 4
+	tunPacketOffset    = 4
+	ipv4offsetChecksum = 10
 )
 
 type Device struct {
@@ -83,10 +85,13 @@ func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
 		copy(data.Src, senderIP)
 		copy(data.Dst, d.localIP)
 	}
+	data.RecalculateChecksum()
 
-	_, err := d.tun.Write(data.Buffer[:tunPacketOffset+len(data.Packet)], tunPacketOffset)
+	n, err := d.tun.Write(data.Buffer[:tunPacketOffset+len(data.Packet)], tunPacketOffset)
 	if err != nil {
 		return fmt.Errorf("write packet to tun: %v", err)
+	} else if n < len(data.Packet) {
+		d.logger.Warnf("wrote %d bytes, len(packet): %d", n, len(data.Packet))
 	}
 
 	return nil
@@ -217,4 +222,87 @@ func (data *Packet) Parse() bool {
 	}
 
 	return true
+}
+
+func (data *Packet) RecalculateChecksum() {
+	const (
+		IPProtocolTCP = 6
+		IPProtocolUDP = 17
+	)
+
+	if data.IsIPv6 {
+		// TODO
+	} else {
+		ipHeaderLen := int(data.Packet[0]&0x0f) << 2
+		copy(data.Packet[ipv4offsetChecksum:], []byte{0, 0})
+		ipChecksum := checksumIPv4Header(data.Packet[:ipHeaderLen])
+		binary.BigEndian.PutUint16(data.Packet[ipv4offsetChecksum:], ipChecksum)
+
+		switch protocol := data.Packet[9]; protocol {
+		case IPProtocolTCP:
+			tcpOffsetChecksum := ipHeaderLen + 16
+			copy(data.Packet[tcpOffsetChecksum:], []byte{0, 0})
+			checksum := checksumIPv4TCPUDP(data.Packet[ipHeaderLen:], uint32(protocol), data.Src, data.Dst)
+			binary.BigEndian.PutUint16(data.Packet[tcpOffsetChecksum:], checksum)
+		case IPProtocolUDP:
+			udpOffsetChecksum := ipHeaderLen + 6
+			copy(data.Packet[udpOffsetChecksum:], []byte{0, 0})
+			checksum := checksumIPv4TCPUDP(data.Packet[ipHeaderLen:], uint32(protocol), data.Src, data.Dst)
+			binary.BigEndian.PutUint16(data.Packet[udpOffsetChecksum:], checksum)
+		}
+	}
+}
+
+func checksumIPv4Header(buf []byte) uint16 {
+	var v uint32
+	for i := 0; i < len(buf)-1; i += 2 {
+		v += uint32(binary.BigEndian.Uint16(buf[i:]))
+	}
+	if len(buf)%2 == 1 {
+		v += uint32(buf[len(buf)-1]) << 8
+	}
+	for v > 0xffff {
+		v = (v >> 16) + (v & 0xffff)
+	}
+
+	return ^uint16(v)
+}
+
+func checksumIPv4TCPUDP(headerAndPayload []byte, protocol uint32, srcIP net.IP, dstIP net.IP) uint16 {
+	var csum uint32
+	csum += (uint32(srcIP[0]) + uint32(srcIP[2])) << 8
+	csum += uint32(srcIP[1]) + uint32(srcIP[3])
+	csum += (uint32(dstIP[0]) + uint32(dstIP[2])) << 8
+	csum += uint32(dstIP[1]) + uint32(dstIP[3])
+
+	totalLen := uint32(len(headerAndPayload))
+
+	csum += protocol
+	csum += totalLen & 0xffff
+	csum += totalLen >> 16
+
+	return tcpipChecksum(headerAndPayload, csum)
+}
+
+// Calculate the TCP/IP checksum defined in rfc1071. The passed-in csum is any
+// initial checksum data that's already been computed.
+// Borrowed from google/gopacket
+func tcpipChecksum(data []byte, csum uint32) uint16 {
+	// to handle odd lengths, we loop to length - 1, incrementing by 2, then
+	// handle the last byte specifically by checking against the original
+	// length.
+	length := len(data) - 1
+	for i := 0; i < length; i += 2 {
+		// For our test packet, doing this manually is about 25% faster
+		// (740 ns vs. 1000ns) than doing it by calling binary.BigEndian.Uint16.
+		csum += uint32(data[i]) << 8
+		csum += uint32(data[i+1])
+	}
+	if len(data)%2 == 1 {
+		csum += uint32(data[length]) << 8
+	}
+	for csum > 0xffff {
+		csum = (csum >> 16) + (csum & 0xffff)
+	}
+	return ^uint16(csum)
 }
