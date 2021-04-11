@@ -19,6 +19,7 @@ var (
 )
 
 /*
+	export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/20.0.5594570
 	gomobile bind -o anywherelan.aar -target=android .
 */
 

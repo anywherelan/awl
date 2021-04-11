@@ -1,4 +1,5 @@
-// +build !linux,!windows,!darwin
+// +build !windows,!darwin
+// +build !linux android
 
 package vpn
 
