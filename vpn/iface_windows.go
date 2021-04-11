@@ -24,17 +24,20 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Devi
 	err := elevate.DoAsSystem(func() error {
 		var err error
 		tunDevice, err = tun.CreateTUN(ifname, mtu)
-		return err
+		if err != nil {
+			fmt.Errorf("create tun: %v", err)
+		}
+		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("do as system: %v", err)
 	}
 
 	nativeTunDevice := tunDevice.(*tun.NativeTun)
 	luid := winipcfg.LUID(nativeTunDevice.LUID())
 	err = luid.SetIPAddresses([]net.IPNet{{localIP, ipMask}})
 	if err != nil {
-		return nil, fmt.Errorf("unable to setup interface: %v", err)
+		return nil, fmt.Errorf("unable to setup interface IP: %v", err)
 	}
 
 	return tunDevice, nil

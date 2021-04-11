@@ -18,7 +18,7 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Devi
 
 	tunDevice, err := tun.CreateTUN(ifname, mtu)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create tun: %v", err)
 	}
 
 	link, err := tenus.NewLinkFrom(ifname)

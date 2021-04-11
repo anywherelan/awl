@@ -20,12 +20,12 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Devi
 
 	tunDevice, err := tun.CreateTUN(ifname, mtu)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create tun: %v", err)
 	}
 	// Interface name must be utun[0-9]*
 	realIfname, err := tunDevice.Name()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get interface name: %v", err)
 	}
 
 	err = exec.Command("ifconfig", realIfname, "inet", ipNet.String(), "mtu", strconv.FormatInt(int64(mtu), 10), "up").Run()
