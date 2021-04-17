@@ -154,7 +154,7 @@ type VpnPeer struct {
 	peerID     peer.ID
 	localIP    net.IP
 	inboundCh  chan *vpn.Packet
-	outboundCh chan *vpn.Packet // from us to him
+	outboundCh chan *vpn.Packet // from us to remote
 }
 
 // TODO: remove Tunnel from VpnPeer dependencies
@@ -162,7 +162,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 	for packet := range vp.outboundCh {
 		err := t.sendPacket(vp.peerID, packet)
 		if err != nil {
-			t.logger.Warnf("send packet to peerID %s: %v", vp.peerID, err)
+			t.logger.Warnf("send packet to peerID (%s) local ip (%s): %v", vp.peerID, vp.localIP, err)
 		}
 		t.device.PutTempPacket(packet)
 	}

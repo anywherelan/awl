@@ -1,3 +1,5 @@
+// +build linux,android
+
 package anywherelan
 
 import (
@@ -9,6 +11,7 @@ import (
 
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/vpn"
 	"github.com/ipfs/go-log/v2"
 )
 
@@ -26,9 +29,10 @@ var (
 // All public functions are part of a library
 
 // TODO: возвращать ошибку, а не просто логировать
-func InitServer(dataDir string) {
+func InitServer(dataDir string, tunFD int32) {
 	globalDataDir = dataDir
 	_ = os.Setenv(config.AppDataDirEnvKey, dataDir)
+	_ = os.Setenv(vpn.TunFDEnvKey, strconv.Itoa(int(tunFD)))
 
 	app = awl.New()
 	logger = app.SetupLoggerAndConfig()
@@ -42,8 +46,10 @@ func InitServer(dataDir string) {
 }
 
 func StopServer() {
-	app.Close()
-	app = nil
+	if app != nil {
+		app.Close()
+		app = nil
+	}
 }
 
 func ImportConfig(data string) error {
