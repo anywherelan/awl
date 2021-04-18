@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	http_pprof "net/http/pprof"
 	"runtime/pprof"
@@ -38,7 +40,7 @@ func NewHandler(conf *config.Config, p2p *service.P2pService, authStatus *servic
 	}
 }
 
-func (h *Handler) SetupAPI() {
+func (h *Handler) SetupAPI() error {
 	e := echo.New()
 	h.echo = e
 	e.HideBanner = true
@@ -84,15 +86,20 @@ func (h *Handler) SetupAPI() {
 	}
 
 	// Start
+	address := h.conf.HttpListenAddress
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return fmt.Errorf("unable to bind address %s: %v", address, err)
+	}
+	h.echo.Listener = listener
+	h.logger.Infof("starting web server on http://%s", listener.Addr().String())
 	go func() {
-		addr := h.conf.HttpListenAddress
-		h.logger.Infof("starting web server on http://%s", addr)
-		if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
-			h.logger.Warnf("shutting down web server %s: %s", addr, err)
+		if err := e.StartServer(e.Server); err != nil && err != http.ErrServerClosed {
+			h.logger.Warnf("shutting down web server %s: %s", address, err)
 		}
-		// TODO ???
-		//e.Server.Addr
 	}()
+
+	return nil
 }
 
 func (h *Handler) SetupFrontend(fs http.FileSystem) {
@@ -102,6 +109,22 @@ func (h *Handler) SetupFrontend(fs http.FileSystem) {
 
 func (h *Handler) Shutdown(ctx context.Context) error {
 	return h.echo.Server.Shutdown(ctx)
+}
+
+func (h *Handler) Address() string {
+	address := h.echo.Listener.Addr().String()
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		panic(err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return address
+	} else if ip.IsUnspecified() {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+
+	return net.JoinHostPort(ip.String(), port)
 }
 
 type customValidator struct {

@@ -6,8 +6,6 @@ import (
 	"context"
 	"os"
 	"strconv"
-	"strings"
-	"unicode"
 
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/config"
@@ -42,6 +40,7 @@ func InitServer(dataDir string, tunFD int32) {
 	err := app.Init(ctx)
 	if err != nil {
 		logger.Errorf("init server: %v", err)
+		app.Close()
 	}
 }
 
@@ -60,19 +59,6 @@ func ImportConfig(data string) error {
 	return config.ImportConfig([]byte(data), globalDataDir)
 }
 
-// TODO: переписать попроще, чтобы брать с конца порт (???)
-func GetPort() int {
-	addr := app.Conf.HttpListenAddress
-	return getPortFromAddress(addr)
-}
-
-// TODO: ? функция, возвращающая адрес, а не только порт
-func getPortFromAddress(addr string) int {
-	addr = strings.TrimSpace(addr)
-	fields := strings.FieldsFunc(addr, func(r rune) bool {
-		return !unicode.IsNumber(r)
-	})
-	port, _ := strconv.Atoi(fields[len(fields)-1])
-
-	return port
+func GetApiAddress() string {
+	return app.Api.Address()
 }

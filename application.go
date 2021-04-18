@@ -92,7 +92,10 @@ func (a *Application) Init(ctx context.Context) error {
 
 	handler := api.NewHandler(a.Conf, a.P2pService, a.AuthStatus, a.Tunnel, a.LogBuffer)
 	a.Api = handler
-	handler.SetupAPI()
+	err = handler.SetupAPI()
+	if err != nil {
+		return fmt.Errorf("failed to setup api: %v", err)
+	}
 
 	go a.P2pService.MaintainBackgroundConnections(a.Conf.P2pNode.ReconnectionIntervalSec)
 	go a.AuthStatus.BackgroundRetryAuthRequests()

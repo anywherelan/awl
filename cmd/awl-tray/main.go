@@ -54,9 +54,7 @@ func onReady() {
 	go func() {
 		for range mOpenBrowser.ClickedCh {
 			if a := app; app != nil {
-				// TODO: обрабатывать 0.0.0.0 адрес - под windows не работает (заменять на localhost?)
-				addr := a.Conf.HttpListenAddress
-				open.Run("http://" + addr)
+				open.Run("http://" + a.Api.Address())
 			}
 		}
 	}()
