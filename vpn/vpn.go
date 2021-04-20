@@ -34,10 +34,16 @@ type Device struct {
 	logger           *log.ZapEventLogger
 }
 
-func NewDevice(interfaceName string, localIP net.IP, ipMask net.IPMask) (*Device, error) {
-	tunDevice, err := newTUN(interfaceName, interfaceMTU, localIP, ipMask)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create TUN device: %v", err)
+func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipMask net.IPMask) (*Device, error) {
+	var tunDevice tun.Device
+	var err error
+	if existingTun == nil {
+		tunDevice, err = newTUN(interfaceName, interfaceMTU, localIP, ipMask)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TUN device: %v", err)
+		}
+	} else {
+		tunDevice = existingTun
 	}
 
 	realInterfaceName, err := tunDevice.Name()
@@ -150,7 +156,9 @@ func (d *Device) tunPacketsReader() {
 		}
 
 		size, err := d.tun.Read(data.Buffer[:], tunPacketOffset)
-		if err != nil {
+		if err == io.EOF {
+			return
+		} else if err != nil {
 			d.logger.Errorf("Failed to read packet from TUN device: %v", err)
 			return
 		}

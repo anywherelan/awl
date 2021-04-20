@@ -37,7 +37,7 @@ func InitServer(dataDir string, tunFD int32) {
 	//ctx, ctxCancel := context.WithCancel(context.Background())
 	ctx := context.Background()
 
-	err := app.Init(ctx)
+	err := app.Init(ctx, nil)
 	if err != nil {
 		logger.Errorf("init server: %v", err)
 		app.Close()

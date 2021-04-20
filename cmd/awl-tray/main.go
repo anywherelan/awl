@@ -83,7 +83,7 @@ func InitServer() {
 	app = awl.New()
 	logger = app.SetupLoggerAndConfig()
 
-	err := app.Init(context.Background())
+	err := app.Init(context.Background(), nil)
 	if err != nil {
 		logger.Errorf("failed to init server: %v", err)
 	}

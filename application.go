@@ -19,6 +19,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"golang.zx2c4.com/wireguard/tun"
 )
 
 const (
@@ -54,7 +55,7 @@ func New() *Application {
 	return &Application{}
 }
 
-func (a *Application) Init(ctx context.Context) error {
+func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	p2pSrv := p2p.NewP2p(ctx, a.Conf)
 	host, err := p2pSrv.InitHost()
 	if err != nil {
@@ -70,7 +71,7 @@ func (a *Application) Init(ctx context.Context) error {
 
 	localIP, netMask := a.Conf.VPNLocalIPMask()
 	interfaceName := a.Conf.VPNConfig.InterfaceName
-	vpnDevice, err := vpn.NewDevice(interfaceName, localIP, netMask)
+	vpnDevice, err := vpn.NewDevice(tunDevice, interfaceName, localIP, netMask)
 	if err != nil {
 		return fmt.Errorf("failed to init vpn: %v", err)
 	}

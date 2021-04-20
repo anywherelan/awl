@@ -15,7 +15,7 @@ func main() {
 	logger := app.SetupLoggerAndConfig()
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
-	err := app.Init(ctx)
+	err := app.Init(ctx, nil)
 	if err != nil {
 		logger.Fatal(err)
 	}

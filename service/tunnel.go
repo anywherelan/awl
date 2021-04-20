@@ -119,8 +119,6 @@ func (t *Tunnel) backgroundReadPackets() {
 		select {
 		case vpnPeer.outboundCh <- packet:
 		default:
-			// REMOVE
-			t.logger.Warnf("outbound reader dropped packet, len %d", len(packet.Packet))
 			t.device.PutTempPacket(packet)
 		}
 	}
