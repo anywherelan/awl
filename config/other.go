@@ -48,17 +48,8 @@ func init() {
 	}
 }
 
-var (
-	suitableDataDir string
-)
-
-func CalcAppDataDir() (dataDir string) {
-	defer func() {
-		logger.Debugf("initialize app in %s directory", dataDir)
-	}()
-
+func CalcAppDataDir() string {
 	if envDir := os.Getenv(AppDataDirEnvKey); envDir != "" {
-		suitableDataDir = envDir
 		err := os.MkdirAll(envDir, dirsPerm)
 		if err != nil {
 			logger.Warnf("could not create data directory from env: %v", err)
@@ -74,7 +65,6 @@ func CalcAppDataDir() (dataDir string) {
 		executableDir = filepath.Dir(ex)
 	}
 	if executableDir != "" {
-		suitableDataDir = executableDir
 		configPath := filepath.Join(executableDir, AppConfigFilename)
 		if _, err := os.Stat(configPath); err == nil {
 			return executableDir
@@ -92,7 +82,6 @@ func CalcAppDataDir() (dataDir string) {
 		logger.Warnf("could not create data directory in user dir: %v", err)
 		return ""
 	}
-	suitableDataDir = userDataDir
 
 	return userDataDir
 }
@@ -142,7 +131,7 @@ func ImportConfig(data []byte, directory string) error {
 		return fmt.Errorf("save file: %v", err)
 	}
 
-	logger.Info("Imported new config")
+	logger.Infof("Imported new config to %s", path)
 	return nil
 }
 
@@ -174,13 +163,9 @@ func setDefaults(conf *Config) {
 	}
 
 	// Other
-	// TODO: remove after public release
-	if conf.LoggerLevel != "dev" {
-		conf.LoggerLevel = "debug"
+	if conf.LoggerLevel == "" {
+		conf.LoggerLevel = "info"
 	}
-	//if conf.LoggerLevel == "" {
-	//	conf.LoggerLevel = "info"
-	//}
 	if conf.HttpListenAddress == "" {
 		conf.HttpListenAddress = "127.0.0.1:" + strconv.Itoa(DefaultHTTPPort)
 	}
@@ -203,7 +188,7 @@ func setDefaults(conf *Config) {
 	}
 
 	if conf.dataDir == "" {
-		conf.dataDir = suitableDataDir
+		conf.dataDir = CalcAppDataDir()
 	}
 
 	// Create dirs

@@ -118,6 +118,11 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 		os.RemoveAll(tempDir)
 	})
 	a.NoError(os.Setenv(config.AppDataDirEnvKey, tempDir))
+	if disableLogging {
+		tempConf := config.NewConfig()
+		tempConf.LoggerLevel = "fatal"
+		tempConf.Save()
+	}
 
 	app := New()
 	app.SetupLoggerAndConfig()

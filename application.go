@@ -107,9 +107,8 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 
 func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 	// Config
-	conf, err := config.LoadConfig()
-	if err != nil {
-		fmt.Printf("ERROR anywherelan: failed to read config file, creating new one: %v\n", err)
+	conf, loadConfigErr := config.LoadConfig()
+	if loadConfigErr != nil {
 		conf = config.NewConfig()
 	}
 
@@ -156,6 +155,11 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 
 	a.logger = log.Logger("awl")
 	a.Conf = conf
+
+	if loadConfigErr != nil {
+		a.logger.Warnf("failed to read config file, creating new one: %v", loadConfigErr)
+	}
+	a.logger.Infof("initialize app in %s directory", conf.DataDir())
 
 	return a.logger
 }

@@ -188,12 +188,16 @@ func (c *Config) PeerstoreDir() string {
 	return dir
 }
 
+func (c *Config) DataDir() string {
+	return c.dataDir
+}
+
 func (c *Config) LogLevel() zapcore.Level {
 	level := c.LoggerLevel
 	if c.LoggerLevel == "dev" {
 		level = "debug"
 	}
-	var lvl zapcore.Level
+	lvl := zapcore.InfoLevel
 	_ = lvl.Set(level)
 	return lvl
 }
