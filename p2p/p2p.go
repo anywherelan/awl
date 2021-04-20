@@ -26,7 +26,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/routing"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	noise "github.com/libp2p/go-libp2p-noise"
-	"github.com/libp2p/go-libp2p-peerstore/pstoreds"
+	"github.com/libp2p/go-libp2p-peerstore/pstoremem"
 	quic "github.com/libp2p/go-libp2p-quic-transport"
 	swarm "github.com/libp2p/go-libp2p-swarm"
 	tls "github.com/libp2p/go-libp2p-tls"
@@ -102,11 +102,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 	//	p.logger.DPanicf("could not create leveldb datastore: %v", err)
 	//	datastore = dssync.MutexWrap(ds.NewMapDatastore())
 	//}
-	peerstoreOpts := pstoreds.DefaultOpts()
-	peerstore, err := pstoreds.NewPeerstore(p.ctx, datastore, peerstoreOpts)
-	if err != nil {
-		return nil, err
-	}
+	peerstore := pstoremem.NewPeerstore()
 
 	p.connManager = connmgr.NewConnManager(
 		50,
