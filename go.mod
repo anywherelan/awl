@@ -22,7 +22,9 @@ require (
 	github.com/milosgajdos/tenus v0.0.3
 	github.com/mr-tron/base58 v1.2.0
 	github.com/multiformats/go-multiaddr v0.2.2
+	github.com/olekukonko/tablewriter v0.0.5
 	github.com/stretchr/testify v1.6.1
+	github.com/urfave/cli/v2 v2.3.0
 	go.uber.org/multierr v1.5.0
 	go.uber.org/zap v1.15.0
 	golang.org/x/net v0.0.0-20210119194325-5f4716e94777

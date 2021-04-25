@@ -8,9 +8,12 @@ import (
 	"time"
 
 	"github.com/anywherelan/awl"
+	"github.com/anywherelan/awl/cli"
 )
 
 func main() {
+	cli.New().Run()
+
 	app := awl.New()
 	logger := app.SetupLoggerAndConfig()
 	ctx, ctxCancel := context.WithCancel(context.Background())

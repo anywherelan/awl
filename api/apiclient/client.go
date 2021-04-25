@@ -56,15 +56,6 @@ func (c *Client) PeerInfo() (*entity.PeerInfo, error) {
 	return peerInfo, nil
 }
 
-func (c *Client) P2pDebugInfo() (*entity.P2pDebugInfo, error) {
-	debugInfo := new(entity.P2pDebugInfo)
-	err := c.sendGetRequest(api.GetP2pDebugInfoPath, debugInfo)
-	if err != nil {
-		return nil, err
-	}
-	return debugInfo, nil
-}
-
 func (c *Client) SendFriendRequest(peerID, alias string) error {
 	request := entity.FriendRequest{
 		PeerID: peerID,
@@ -101,7 +92,7 @@ func (c *Client) UpdateMySettings(name string) error {
 	return c.sendPostRequest(api.UpdateMyInfoPath, request, nil)
 }
 
-func (c *Client) DebugInfo() (*entity.P2pDebugInfo, error) {
+func (c *Client) P2pDebugInfo() (*entity.P2pDebugInfo, error) {
 	debugInfo := new(entity.P2pDebugInfo)
 	err := c.sendGetRequest(api.GetP2pDebugInfoPath, debugInfo)
 	if err != nil {
@@ -110,7 +101,7 @@ func (c *Client) DebugInfo() (*entity.P2pDebugInfo, error) {
 	return debugInfo, nil
 }
 
-func (c *Client) DebugLog() (string, error) {
+func (c *Client) ApplicationLog() (string, error) {
 	resp, err := c.cli.Get(c.getUrl(api.GetDebugLogPath))
 	if err != nil {
 		return "", err

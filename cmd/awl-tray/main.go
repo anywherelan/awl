@@ -10,6 +10,7 @@ import (
 	_ "awl-tray/static"
 	ico "github.com/Kodeworks/golang-image-ico"
 	"github.com/anywherelan/awl"
+	"github.com/anywherelan/awl/cli"
 	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
 	"github.com/rakyll/statik/fs"
@@ -34,6 +35,8 @@ var (
 */
 
 func main() {
+	cli.New().Run()
+
 	var err error
 	statikFS, err = fs.New()
 	if err != nil {
