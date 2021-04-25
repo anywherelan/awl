@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/anywherelan/awl/api/apiclient"
+	"github.com/anywherelan/awl/application/pkg"
 	"github.com/anywherelan/awl/config"
 	"github.com/ipfs/go-log/v2"
 	"github.com/olekukonko/tablewriter"
@@ -44,6 +45,9 @@ func (a *Application) Run() {
 func (a *Application) init() {
 	var apiAddr string
 	a.cliapp = &cli.App{
+		Name:    "awl",
+		Version: pkg.Version,
+		Usage:   "p2p mesh vpn",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "api_addr",
@@ -175,11 +179,14 @@ func (a *Application) init() {
 						table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
 						table.SetHeader([]string{"peer", "status", "address"})
 						for _, peer := range peers {
-							connectedStr := "disconnected"
+							status := "disconnected"
 							if peer.Connected {
-								connectedStr = "connected"
+								status = "connected"
 							}
-							table.Append([]string{peer.Name, connectedStr, peer.IpAddr})
+							if !peer.Confirmed {
+								status += ", not confirmed"
+							}
+							table.Append([]string{peer.Name, status, peer.IpAddr})
 						}
 						table.Render()
 						return nil
