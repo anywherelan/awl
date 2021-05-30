@@ -3,31 +3,27 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"image"
-	"net/http"
 	"runtime"
 
-	_ "awl-tray/static"
 	ico "github.com/Kodeworks/golang-image-ico"
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/cli"
 	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
-	"github.com/rakyll/statik/fs"
 	"github.com/skratchdot/open-golang/open"
 )
 
 var (
-	statikFS http.FileSystem
-	app      *awl.Application
-	logger   *log.ZapEventLogger
+	//go:embed Icon.png
+	appIcon []byte
 )
 
-// TODO: переделать на go:embed
-
-//go:generate go run gen.go
-// go get github.com/rakyll/statik
-//go:generate statik -src ../../static/ -p static
+var (
+	app    *awl.Application
+	logger *log.ZapEventLogger
+)
 
 /*
 	go build
@@ -36,12 +32,6 @@ var (
 
 func main() {
 	cli.New().Run()
-
-	var err error
-	statikFS, err = fs.New()
-	if err != nil {
-		logger.Fatalf("failed to init statik: %v", err)
-	}
 
 	systray.Run(onReady, onExit)
 }
@@ -93,7 +83,7 @@ func InitServer() {
 		app = nil
 		return
 	}
-	app.Api.SetupFrontend(statikFS)
+	app.Api.SetupFrontend(awl.FrontendStatic())
 }
 
 func StopServer() {

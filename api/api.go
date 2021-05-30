@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	http_pprof "net/http/pprof"
@@ -102,8 +103,8 @@ func (h *Handler) SetupAPI() error {
 	return nil
 }
 
-func (h *Handler) SetupFrontend(fs http.FileSystem) {
-	fileServer := http.FileServer(fs)
+func (h *Handler) SetupFrontend(fsys fs.FS) {
+	fileServer := http.FileServer(http.FS(fsys))
 	h.echo.GET("/*", echo.WrapHandler(fileServer))
 }
 
