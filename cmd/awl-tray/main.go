@@ -89,6 +89,9 @@ func InitServer() {
 	err := app.Init(context.Background(), nil)
 	if err != nil {
 		logger.Errorf("failed to init server: %v", err)
+		app.Close()
+		app = nil
+		return
 	}
 	app.Api.SetupFrontend(statikFS)
 }
