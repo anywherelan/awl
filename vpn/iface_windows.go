@@ -25,7 +25,7 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Devi
 		var err error
 		tunDevice, err = tun.CreateTUN(ifname, mtu)
 		if err != nil {
-			fmt.Errorf("create tun: %v", err)
+			return fmt.Errorf("create tun: %v", err)
 		}
 		return nil
 	})
