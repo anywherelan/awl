@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	interfaceMTU  = 3500
-	outboundChCap = 50
+	interfaceMTU   = 3500
+	maxContentSize = interfaceMTU * 2 // TODO: determine real size
+	outboundChCap  = 50
 	// internal tun header
 	tunPacketOffset    = 4
 	ipv4offsetChecksum = 10
@@ -124,9 +125,9 @@ func (d *Device) tunEventsReader() {
 				continue
 			}
 			var tooLarge string
-			if mtu > device.MaxContentSize {
-				tooLarge = fmt.Sprintf(" (too large, capped at %v)", device.MaxContentSize)
-				mtu = device.MaxContentSize
+			if mtu > maxContentSize {
+				tooLarge = fmt.Sprintf(" (too large, capped at %v)", maxContentSize)
+				mtu = maxContentSize
 			}
 			old := atomic.SwapInt64(&d.mtu, int64(mtu))
 			if int(old) != mtu {
@@ -162,7 +163,7 @@ func (d *Device) tunPacketsReader() {
 			d.logger.Errorf("Failed to read packet from TUN device: %v", err)
 			return
 		}
-		if size == 0 || size > device.MaxContentSize {
+		if size == 0 || size > maxContentSize {
 			continue
 		}
 
@@ -178,7 +179,7 @@ func (d *Device) tunPacketsReader() {
 }
 
 type Packet struct {
-	Buffer [device.MaxContentSize]byte
+	Buffer [maxContentSize]byte
 	Packet []byte
 	Src    net.IP
 	Dst    net.IP

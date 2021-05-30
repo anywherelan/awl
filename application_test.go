@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"sync/atomic"
@@ -111,12 +110,7 @@ func (tp testPeer) PeerID() string {
 func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 	a := require.New(t)
 
-	// TODO: go1.16 rewrite with t.TempDir()
-	tempDir, err := ioutil.TempDir("", "awl-test")
-	a.NoError(err)
-	t.Cleanup(func() {
-		os.RemoveAll(tempDir)
-	})
+	tempDir := t.TempDir()
 	a.NoError(os.Setenv(config.AppDataDirEnvKey, tempDir))
 	if disableLogging {
 		tempConf := config.NewConfig()
@@ -136,7 +130,7 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 	ctx := context.Background()
 
 	testTUN := tuntest.NewChannelTUN()
-	err = app.Init(ctx, testTUN.TUN())
+	err := app.Init(ctx, testTUN.TUN())
 	a.NoError(err)
 
 	return testPeer{

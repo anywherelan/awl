@@ -9,7 +9,6 @@ import (
 	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/vpn"
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p-core/helpers"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 )
@@ -45,9 +44,7 @@ func NewTunnel(p2pService *P2pService, device *vpn.Device, conf *config.Config) 
 
 func (t *Tunnel) StreamHandler(stream network.Stream) {
 	defer func() {
-		go func() {
-			_ = helpers.FullClose(stream)
-		}()
+		_ = stream.Close()
 	}()
 
 	peerID := stream.Conn().RemotePeer()
@@ -135,9 +132,7 @@ func (t *Tunnel) sendPacket(peerID peer.ID, packet *vpn.Packet) error {
 		return err
 	}
 	defer func() {
-		go func() {
-			_ = helpers.FullClose(stream)
-		}()
+		_ = stream.Close()
 	}()
 
 	_, err = stream.Write(packet.Packet)

@@ -9,7 +9,6 @@ import (
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p-core/helpers"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 )
@@ -43,7 +42,7 @@ func NewAuthStatus(p2pService *P2pService, conf *config.Config) *AuthStatus {
 
 func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	defer func() {
-		_ = helpers.FullClose(stream)
+		_ = stream.Close()
 	}()
 
 	remotePeer := stream.Conn().RemotePeer()
@@ -94,7 +93,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(remotePeerID peer.ID, peer config.Kno
 		return err
 	}
 	defer func() {
-		_ = helpers.FullClose(stream)
+		_ = stream.Close()
 	}()
 
 	myPeerInfo := s.createPeerInfo(peer, s.conf.P2pNode.Name)
@@ -131,7 +130,7 @@ func (*AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protoco
 
 func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	defer func() {
-		_ = helpers.FullClose(stream)
+		_ = stream.Close()
 	}()
 
 	remotePeer := stream.Conn().RemotePeer()
@@ -173,7 +172,7 @@ func (s *AuthStatus) SendAuthRequest(peerID peer.ID, req protocol.AuthPeer) erro
 		return err
 	}
 	defer func() {
-		_ = helpers.FullClose(stream)
+		_ = stream.Close()
 	}()
 
 	err = protocol.SendAuth(stream, req)
