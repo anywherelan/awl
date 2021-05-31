@@ -164,7 +164,12 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 // TODO: remove Tunnel from VpnPeer dependencies
 func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
 	for packet := range vp.inboundCh {
-		packet.Parse()
+		ok := packet.Parse()
+		if !ok {
+			t.logger.Warnf("got invalid packet from peerID (%s) local ip (%s)", vp.peerID, vp.localIP)
+			t.device.PutTempPacket(packet)
+			continue
+		}
 		err := t.device.WritePacket(packet, vp.localIP)
 		if err != nil {
 			t.logger.Warnf("write packet to vpn: %v", err)
