@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/protocol"
@@ -56,19 +59,30 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 		return
 	}
 
-	packet := t.device.GetTempPacket()
-	_, err := packet.ReadFrom(stream)
-	if err != nil {
-		t.logger.Warnf("read to packet: %v", err)
-		t.device.PutTempPacket(packet)
-		return
-	}
-	select {
-	case vpnPeer.inboundCh <- packet:
-	default:
-		// REMOVE
-		t.logger.Warnf("inbound reader dropped packet, len %d", len(packet.Packet))
-		t.device.PutTempPacket(packet)
+	for {
+		packet := t.device.GetTempPacket()
+		packetSize, err := protocol.ReadUint64(stream)
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				t.logger.Warnf("read packet size: %v", err)
+			}
+			t.device.PutTempPacket(packet)
+			return
+		}
+		wrappedStream := io.LimitReader(stream, int64(packetSize))
+		_, err = packet.ReadFrom(wrappedStream)
+		if err != nil {
+			t.logger.Warnf("read to packet: %v", err)
+			t.device.PutTempPacket(packet)
+			return
+		}
+		select {
+		case vpnPeer.inboundCh <- packet:
+		default:
+			// REMOVE
+			t.logger.Warnf("inbound reader dropped packet, len %d", len(packet.Packet))
+			t.device.PutTempPacket(packet)
+		}
 	}
 }
 
@@ -121,26 +135,18 @@ func (t *Tunnel) backgroundReadPackets() {
 	}
 }
 
-func (t *Tunnel) sendPacket(peerID peer.ID, packet *vpn.Packet) error {
+func (t *Tunnel) makeTunnelStream(peerID peer.ID) (network.Stream, error) {
+	// TODO: set timeout on context
 	err := t.p2p.ConnectPeer(context.Background(), peerID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	stream, err := t.p2p.NewStream(peerID, protocol.TunnelPacketMethod)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer func() {
-		_ = stream.Close()
-	}()
-
-	_, err = stream.Write(packet.Packet)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return stream, nil
 }
 
 type VpnPeer struct {
@@ -152,12 +158,56 @@ type VpnPeer struct {
 
 // TODO: remove Tunnel from VpnPeer dependencies
 func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
-	for packet := range vp.outboundCh {
-		err := t.sendPacket(vp.peerID, packet)
-		if err != nil {
-			t.logger.Warnf("send packet to peerID (%s) local ip (%s): %v", vp.peerID, vp.localIP, err)
+	const (
+		maxPacketsPerStream = 1024 * 1024 * 8 / vpn.InterfaceMTU
+		idleStreamTimeout   = 10 * time.Second
+	)
+	var (
+		stream                  network.Stream
+		currentPacketsForStream int
+	)
+	sendPacket := func(packet *vpn.Packet) (err error) {
+		if stream == nil {
+			stream, err = t.makeTunnelStream(vp.peerID)
+			if err != nil {
+				return err
+			}
 		}
-		t.device.PutTempPacket(packet)
+		err = protocol.WriteUint64(stream, uint64(len(packet.Packet)))
+		if err != nil {
+			return err
+		}
+		_, err = stream.Write(packet.Packet)
+		return err
+	}
+
+	closeStream := func() {
+		if stream != nil {
+			_ = stream.Close()
+			stream = nil
+		}
+		currentPacketsForStream = 0
+	}
+
+	idleTicker := time.NewTicker(idleStreamTimeout)
+	for {
+		select {
+		case packet := <-vp.outboundCh:
+			if currentPacketsForStream == maxPacketsPerStream {
+				closeStream()
+			}
+			currentPacketsForStream += 1
+			err := sendPacket(packet)
+			if err != nil {
+				t.logger.Warnf("send packet to peerID (%s) local ip (%s): %v", vp.peerID, vp.localIP, err)
+				closeStream()
+			}
+			t.device.PutTempPacket(packet)
+		case <-idleTicker.C:
+			if len(vp.outboundCh) == 0 {
+				closeStream()
+			}
+		}
 	}
 }
 

@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	interfaceMTU   = 3500
-	maxContentSize = interfaceMTU * 2 // TODO: determine real size
+	InterfaceMTU   = 3500
+	maxContentSize = InterfaceMTU * 2 // TODO: determine real size
 	outboundChCap  = 50
 	// internal tun header
 	tunPacketOffset    = 4
@@ -39,7 +39,7 @@ func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipM
 	var tunDevice tun.Device
 	var err error
 	if existingTun == nil {
-		tunDevice, err = newTUN(interfaceName, interfaceMTU, localIP, ipMask)
+		tunDevice, err = newTUN(interfaceName, InterfaceMTU, localIP, ipMask)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create TUN device: %v", err)
 		}
