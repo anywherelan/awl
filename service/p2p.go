@@ -46,9 +46,8 @@ func NewP2p(server *p2p.P2p, conf *config.Config) *P2pService {
 
 	// Protect friendly peers from disconnecting
 	conf.RLock()
-	for peerId := range conf.KnownPeers {
-		id, _ := peer.Decode(peerId)
-		p.ProtectPeer(id)
+	for _, knownPeer := range conf.KnownPeers {
+		p.ProtectPeer(knownPeer.PeerId())
 	}
 
 	for _, peerAddr := range conf.GetBootstrapPeers() {

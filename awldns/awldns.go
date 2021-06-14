@@ -14,8 +14,10 @@ import (
 const (
 	defaultTTL        = 60 * time.Second
 	defaultTTLSeconds = uint32(defaultTTL / time.Second)
-	localDomain       = "awl"
 	ptrV4Suffix       = ".in-addr.arpa."
+	LocalDomain       = "awl"
+	DNSIp             = "127.0.0.66"
+	DefaultDNSPort    = "53"
 	DNSAddress        = "127.0.0.66:53"
 )
 
@@ -49,7 +51,7 @@ func NewResolver() *Resolver {
 	r.cfg.Store(config{upstreamDNS: "127.0.0.1:53"})
 
 	mux := dns.NewServeMux()
-	mux.HandleFunc(localDomain, r.dnsLocalDomainHandler)
+	mux.HandleFunc(LocalDomain, r.dnsLocalDomainHandler)
 	mux.HandleFunc(strings.TrimPrefix(ptrV4Suffix, "."), r.ptrv4Handler)
 	mux.HandleFunc(".", r.dnsProxyHandler)
 
@@ -88,7 +90,7 @@ func NewResolver() *Resolver {
 func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[string]string) {
 	reverseMapping := make(map[string]string, len(namesMapping))
 	for key, val := range namesMapping {
-		canonicalName := dns.CanonicalName(key + "." + localDomain)
+		canonicalName := dns.CanonicalName(key + "." + LocalDomain)
 		existedName, exists := reverseMapping[val]
 		// we always have at least two names for one ip: peerName and peerID
 		// for consistency we will take the shortest one (usually peerName, which is more human readable)
@@ -131,7 +133,7 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 	for _, question := range req.Question {
 		hostname := question.Name
 		qtype := question.Qtype
-		trimmedDomain := dnsutil.TrimDomainName(hostname, localDomain)
+		trimmedDomain := dnsutil.TrimDomainName(hostname, LocalDomain)
 		mappedIP, found := cfg.directMapping[trimmedDomain]
 
 		switch qtype {

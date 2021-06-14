@@ -19,6 +19,10 @@ import (
 	"golang.zx2c4.com/wireguard/tun/tuntest"
 )
 
+func init() {
+	useAwldns = false
+}
+
 func TestMakeFriends(t *testing.T) {
 	a := require.New(t)
 
