@@ -14,9 +14,16 @@ import (
 )
 
 func init() {
-	tun.WintunPool, _ = wintun.MakePool("Anywherelan")
-	// TODO: generate own GUID
-	tun.WintunStaticRequestedGUID = &windows.GUID{12, 12, 12, [8]byte{12, 12, 12, 12, 12, 12, 12, 12}}
+	var err error
+	tun.WintunPool, err = wintun.MakePool("Anywherelan")
+	if err != nil {
+		panic(err)
+	}
+	guid, err := windows.GUIDFromString("{13b1820f-bcf0-4eef-ba5d-9e98f7283a26}")
+	if err != nil {
+		panic(err)
+	}
+	tun.WintunStaticRequestedGUID = &guid
 }
 
 func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Device, error) {
