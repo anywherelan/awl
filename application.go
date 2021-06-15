@@ -245,27 +245,33 @@ func (a *Application) initDNS() {
 	if err != nil {
 		panic(err)
 	}
-	err = a.dnsOsConfigurator.SetDNS(dns.OSConfig{
+	newOSConfig := dns.OSConfig{
 		Nameservers:  []netaddr.IP{netaddr.MustParseIP(awldns.DNSIp)},
 		MatchDomains: []dnsname.FQDN{fqdn},
-	})
-	if err != nil {
-		a.logger.Errorf("set dns config to os configurator: %v", err)
 	}
 
 	if !a.dnsOsConfigurator.SupportsSplitDNS() {
+		newOSConfig.MatchDomains = nil
 		baseOSConfig, err := a.dnsOsConfigurator.GetBaseConfig()
 		if err != nil {
-			a.logger.Errorf("get base config from os configurator: %v", err)
+			a.logger.Errorf("get base config from os configurator, abort setting os dns: %v", err)
+			return
 		}
 
-		a.logger.Infof("os dns does not support split dns. base config: %v", baseOSConfig)
+		a.logger.Infof("os does not support split dns. base config: %v", baseOSConfig)
 		if len(baseOSConfig.Nameservers) == 0 {
 			a.logger.Errorf("got zero nameservers from os configurator")
 		} else {
 			// TODO: use all nameservers in awldns resolver proxy
 			a.upstreamDNS = net.JoinHostPort(baseOSConfig.Nameservers[0].String(), awldns.DefaultDNSPort)
 		}
+	}
+
+	err = a.dnsOsConfigurator.SetDNS(newOSConfig)
+	if err != nil {
+		a.logger.Errorf("set dns config to os configurator: %v", err)
+	} else {
+		a.logger.Info("successfully set dns config to os")
 	}
 }
 
