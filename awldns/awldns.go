@@ -8,7 +8,6 @@ import (
 
 	"github.com/ipfs/go-log/v2"
 	"github.com/miekg/dns"
-	"github.com/miekg/dns/dnsutil"
 )
 
 const (
@@ -89,21 +88,23 @@ func NewResolver() *Resolver {
 
 func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[string]string) {
 	reverseMapping := make(map[string]string, len(namesMapping))
-	for key, val := range namesMapping {
+	directMapping := make(map[string]string, len(namesMapping))
+	for key, ip := range namesMapping {
 		canonicalName := dns.CanonicalName(key + "." + LocalDomain)
-		existedName, exists := reverseMapping[val]
+		directMapping[canonicalName] = ip
+		existedName, exists := reverseMapping[ip]
 		// we always have at least two names for one ip: peerName and peerID
 		// for consistency we will take the shortest one (usually peerName, which is more human readable)
 		if !exists {
-			reverseMapping[val] = canonicalName
+			reverseMapping[ip] = canonicalName
 		} else if exists && canonicalName < existedName {
-			reverseMapping[val] = canonicalName
+			reverseMapping[ip] = canonicalName
 		}
 	}
 
 	cfg := config{
 		upstreamDNS:    upstreamDNS,
-		directMapping:  namesMapping,
+		directMapping:  directMapping,
 		reverseMapping: reverseMapping,
 	}
 	r.cfg.Store(cfg)
@@ -133,8 +134,7 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 	for _, question := range req.Question {
 		hostname := question.Name
 		qtype := question.Qtype
-		trimmedDomain := dnsutil.TrimDomainName(hostname, LocalDomain)
-		mappedIP, found := cfg.directMapping[trimmedDomain]
+		mappedIP, found := cfg.directMapping[hostname]
 
 		switch qtype {
 		case dns.TypeA, dns.TypeAAAA, dns.TypeANY:
