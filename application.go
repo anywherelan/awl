@@ -226,8 +226,11 @@ func (a *Application) Close() {
 }
 
 func (a *Application) initDNS() {
-	interfaceName := a.Conf.VPNConfig.InterfaceName
-	var err error
+	interfaceName, err := a.vpnDevice.InterfaceName()
+	if err != nil {
+		a.logger.Errorf("failed to get TUN interface name: %v", err)
+		return
+	}
 	a.dnsResolver = awldns.NewResolver()
 	a.Conf.RegisterOnKnownPeersChanged(a.refreshDNSConfig)
 	defer a.refreshDNSConfig()
