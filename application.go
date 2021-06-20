@@ -11,17 +11,21 @@ import (
 	"time"
 
 	"github.com/anywherelan/awl/api"
+	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/p2p"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/ringbuffer"
 	"github.com/anywherelan/awl/service"
 	"github.com/anywherelan/awl/vpn"
+	"github.com/anywherelan/ts-dns/net/dns"
+	"github.com/anywherelan/ts-dns/util/dnsname"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/host"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
+	"inet.af/netaddr"
 )
 
 const (
@@ -38,6 +42,9 @@ func FrontendStatic() fs.FS {
 	}
 	return fsys
 }
+
+// useAwldns is used for tests
+var useAwldns = true
 
 // @title Anywherelan API
 // @version 0.1
@@ -62,6 +69,10 @@ type Application struct {
 	P2pService *service.P2pService
 	AuthStatus *service.AuthStatus
 	Tunnel     *service.Tunnel
+
+	dnsOsConfigurator dns.OSConfigurator
+	dnsResolver       *awldns.Resolver
+	upstreamDNS       string
 }
 
 func New() *Application {
@@ -114,6 +125,10 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	go a.P2pService.MaintainBackgroundConnections(a.Conf.P2pNode.ReconnectionIntervalSec)
 	go a.AuthStatus.BackgroundRetryAuthRequests()
 	go a.AuthStatus.BackgroundExchangeStatusInfo()
+
+	if useAwldns {
+		a.initDNS()
+	}
 
 	return nil
 }
@@ -198,5 +213,78 @@ func (a *Application) Close() {
 			a.logger.Errorf("closing vpn: %v", err)
 		}
 	}
+	if a.dnsOsConfigurator != nil {
+		err := a.dnsOsConfigurator.Close()
+		if err != nil {
+			a.logger.Errorf("closing dns configurator: %v", err)
+		}
+	}
+	if a.dnsResolver != nil {
+		a.dnsResolver.Close()
+	}
 	a.Conf.Save()
+}
+
+func (a *Application) initDNS() {
+	interfaceName, err := a.vpnDevice.InterfaceName()
+	if err != nil {
+		a.logger.Errorf("failed to get TUN interface name: %v", err)
+		return
+	}
+	a.dnsResolver = awldns.NewResolver()
+	a.Conf.RegisterOnKnownPeersChanged(a.refreshDNSConfig)
+	defer a.refreshDNSConfig()
+
+	tsLogger := log.Logger("ts/dnsconf")
+	a.dnsOsConfigurator, err = dns.NewOSConfigurator(func(format string, args ...interface{}) {
+		tsLogger.Infof(format, args...)
+	}, interfaceName)
+	if err != nil {
+		a.logger.Errorf("create dns os configurator: %v", err)
+		return
+	}
+
+	fqdn, err := dnsname.ToFQDN(awldns.LocalDomain)
+	if err != nil {
+		panic(err)
+	}
+	newOSConfig := dns.OSConfig{
+		Nameservers:  []netaddr.IP{netaddr.MustParseIP(awldns.DNSIp)},
+		MatchDomains: []dnsname.FQDN{fqdn},
+	}
+
+	if !a.dnsOsConfigurator.SupportsSplitDNS() {
+		newOSConfig.MatchDomains = nil
+		baseOSConfig, err := a.dnsOsConfigurator.GetBaseConfig()
+		if err != nil {
+			a.logger.Errorf("get base config from os configurator, abort setting os dns: %v", err)
+			return
+		}
+
+		a.logger.Infof("os does not support split dns. base config: %v", baseOSConfig)
+		if len(baseOSConfig.Nameservers) == 0 {
+			a.logger.Errorf("got zero nameservers from os configurator")
+		} else {
+			// TODO: use all nameservers in awldns resolver proxy
+			a.upstreamDNS = net.JoinHostPort(baseOSConfig.Nameservers[0].String(), awldns.DefaultDNSPort)
+		}
+	}
+
+	err = a.dnsOsConfigurator.SetDNS(newOSConfig)
+	if err != nil {
+		a.logger.Errorf("set dns config to os configurator: %v", err)
+	} else {
+		a.logger.Info("successfully set dns config to os")
+	}
+}
+
+func (a *Application) refreshDNSConfig() {
+	if a.Api == nil || a.dnsResolver == nil {
+		a.logger.DPanicf("called refreshDNSConfig with nil api %v or resolver %v", a.Api, a.dnsResolver)
+		return
+	}
+	dnsNamesMapping := a.Conf.DNSNamesMapping()
+	apiHost, _, _ := net.SplitHostPort(a.Api.Address())
+	dnsNamesMapping[config.HttpServerDomainName] = apiHost
+	a.dnsResolver.ReceiveConfiguration(a.upstreamDNS, dnsNamesMapping)
 }

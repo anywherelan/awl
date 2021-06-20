@@ -22,13 +22,16 @@ const (
 	AppDataDirEnvKey          = "AWL_DATA_DIR"
 
 	// TODO 8989 maybe?
-	DefaultHTTPPort = 8639
+	DefaultHTTPPort      = 8639
+	HttpServerDomainName = "admin"
 )
 
 type (
 	Config struct {
 		sync.RWMutex
-		dataDir string
+		dataDir                 string
+		onKnownPeersChanged     []func()
+		onKnownPeersChangedLock sync.Mutex
 
 		Version           string               `json:"version"`
 		LoggerLevel       string               `json:"loggerLevel"`
@@ -94,6 +97,8 @@ func (c *Config) UpsertPeer(peer KnownPeer) {
 	c.KnownPeers[peer.PeerID] = peer
 	c.save()
 	c.Unlock()
+
+	c.triggerOnKnownPeersChanged()
 }
 
 func (c *Config) UpdatePeerLastSeen(peerID string) {
@@ -183,6 +188,26 @@ func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {
 	return localIP.To4(), ipNet.Mask
 }
 
+func (c *Config) DNSNamesMapping() map[string]string {
+	mapping := make(map[string]string)
+	c.RLock()
+	defer c.RUnlock()
+
+	for _, knownPeer := range c.KnownPeers {
+		mapping[knownPeer.PeerID] = knownPeer.IPAddr
+		// TODO: remove spaces, etc from name
+		mapping[knownPeer.DisplayName()] = knownPeer.IPAddr
+	}
+
+	return mapping
+}
+
+func (c *Config) RegisterOnKnownPeersChanged(f func()) {
+	c.onKnownPeersChangedLock.Lock()
+	c.onKnownPeersChanged = append(c.onKnownPeersChanged, f)
+	c.onKnownPeersChangedLock.Unlock()
+}
+
 func (c *Config) PeerstoreDir() string {
 	dir := filepath.Join(c.dataDir, DhtPeerstoreDataDirectory)
 	return dir
@@ -233,6 +258,14 @@ func (c *Config) save() {
 func (c *Config) path() string {
 	path := filepath.Join(c.dataDir, AppConfigFilename)
 	return path
+}
+
+func (c *Config) triggerOnKnownPeersChanged() {
+	c.onKnownPeersChangedLock.Lock()
+	for _, f := range c.onKnownPeersChanged {
+		f()
+	}
+	c.onKnownPeersChangedLock.Unlock()
 }
 
 func (kp KnownPeer) PeerId() peer.ID {

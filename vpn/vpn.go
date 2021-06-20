@@ -25,11 +25,10 @@ const (
 )
 
 type Device struct {
-	tun           tun.Device
-	interfaceName string
-	mtu           int64
-	localIP       net.IP
-	outboundCh    chan *Packet
+	tun        tun.Device
+	mtu        int64
+	localIP    net.IP
+	outboundCh chan *Packet
 
 	outboundDataPool sync.Pool
 	logger           *log.ZapEventLogger
@@ -47,22 +46,16 @@ func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipM
 		tunDevice = existingTun
 	}
 
-	realInterfaceName, err := tunDevice.Name()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get TUN interface name: %v", err)
-	}
-
 	realMtu, err := tunDevice.MTU()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get TUN mtu: %v", err)
 	}
 
 	dev := &Device{
-		tun:           tunDevice,
-		interfaceName: realInterfaceName,
-		mtu:           int64(realMtu),
-		localIP:       localIP,
-		outboundCh:    make(chan *Packet, outboundChCap),
+		tun:        tunDevice,
+		mtu:        int64(realMtu),
+		localIP:    localIP,
+		outboundCh: make(chan *Packet, outboundChCap),
 		outboundDataPool: sync.Pool{
 			New: func() interface{} {
 				return new(Packet)

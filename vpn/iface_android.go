@@ -30,3 +30,12 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Devi
 
 	return tunDevice, nil
 }
+
+func (d *Device) InterfaceName() (string, error) {
+	interfaceName, err := d.tun.Name()
+	if err != nil {
+		return "", err
+	}
+
+	return interfaceName, nil
+}
