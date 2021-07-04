@@ -12,6 +12,7 @@ import (
 
 	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/awldns"
+	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/p2p"
 	"github.com/anywherelan/awl/protocol"
@@ -21,6 +22,7 @@ import (
 	"github.com/anywherelan/ts-dns/net/dns"
 	"github.com/anywherelan/ts-dns/util/dnsname"
 	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p-core/host"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -61,7 +63,10 @@ type Application struct {
 	LogBuffer *ringbuffer.RingBuffer
 	logger    *log.ZapEventLogger
 	Conf      *config.Config
+	Eventbus  awlevent.Bus
 
+	ctx        context.Context
+	ctxCancel  context.CancelFunc
 	p2pServer  *p2p.P2p
 	host       host.Host
 	vpnDevice  *vpn.Device
@@ -80,7 +85,8 @@ func New() *Application {
 }
 
 func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
-	p2pSrv := p2p.NewP2p(ctx, a.Conf)
+	a.ctx, a.ctxCancel = context.WithCancel(ctx)
+	p2pSrv := p2p.NewP2p(a.ctx, a.Conf)
 	host, err := p2pSrv.InitHost()
 	if err != nil {
 		return err
@@ -134,10 +140,11 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 }
 
 func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
+	a.Eventbus = eventbus.NewBus()
 	// Config
-	conf, loadConfigErr := config.LoadConfig()
+	conf, loadConfigErr := config.LoadConfig(a.Eventbus)
 	if loadConfigErr != nil {
-		conf = config.NewConfig()
+		conf = config.NewConfig(a.Eventbus)
 	}
 
 	// Logger
@@ -193,6 +200,9 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 }
 
 func (a *Application) Close() {
+	if a.ctxCancel != nil {
+		a.ctxCancel()
+	}
 	if a.Api != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -232,7 +242,9 @@ func (a *Application) initDNS() {
 		return
 	}
 	a.dnsResolver = awldns.NewResolver()
-	a.Conf.RegisterOnKnownPeersChanged(a.refreshDNSConfig)
+	awlevent.WrapEventbusToCallback(a.ctx, func(_ interface{}) {
+		a.refreshDNSConfig()
+	}, a.Eventbus, new(awlevent.KnownPeerChanged))
 	defer a.refreshDNSConfig()
 
 	tsLogger := log.Logger("ts/dnsconf")

@@ -14,6 +14,7 @@ import (
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-eventbus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun/tuntest"
@@ -117,7 +118,7 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 	tempDir := t.TempDir()
 	a.NoError(os.Setenv(config.AppDataDirEnvKey, tempDir))
 	if disableLogging {
-		tempConf := config.NewConfig()
+		tempConf := config.NewConfig(eventbus.NewBus())
 		tempConf.LoggerLevel = "fatal"
 		tempConf.Save()
 	}

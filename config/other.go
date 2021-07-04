@@ -9,7 +9,9 @@ import (
 	"strconv"
 
 	"github.com/anywherelan/awl/application/pkg"
+	"github.com/anywherelan/awl/awlevent"
 	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-eventbus"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -86,21 +88,13 @@ func CalcAppDataDir() string {
 	return userDataDir
 }
 
-func NewConfig() *Config {
+func NewConfig(bus awlevent.Bus) *Config {
 	conf := &Config{}
-	setDefaults(conf)
+	setDefaults(conf, bus)
 	return conf
 }
 
-// Exists for testing purposes.
-func NewConfigInDir(dir string) *Config {
-	conf := new(Config)
-	conf.dataDir = dir
-	setDefaults(conf)
-	return conf
-}
-
-func LoadConfig() (*Config, error) {
+func LoadConfig(bus awlevent.Bus) (*Config, error) {
 	dataDir := CalcAppDataDir()
 	configPath := filepath.Join(dataDir, AppConfigFilename)
 	data, err := ioutil.ReadFile(configPath)
@@ -114,7 +108,7 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	conf.dataDir = dataDir
-	setDefaults(conf)
+	setDefaults(conf, bus)
 	return conf, nil
 }
 
@@ -135,7 +129,7 @@ func ImportConfig(data []byte, directory string) error {
 	return nil
 }
 
-func setDefaults(conf *Config) {
+func setDefaults(conf *Config, bus awlevent.Bus) {
 	// P2pNode
 	if len(conf.P2pNode.ListenAddresses) == 0 {
 		multiaddrs := make([]multiaddr.Multiaddr, 0, 4)
@@ -198,4 +192,10 @@ func setDefaults(conf *Config) {
 	//if err != nil {
 	//	logger.Warnf("could not create peerstore directory: %v", err)
 	//}
+
+	emitter, err := bus.Emitter(new(awlevent.KnownPeerChanged), eventbus.Stateful)
+	if err != nil {
+		panic(err)
+	}
+	conf.emitter = emitter
 }

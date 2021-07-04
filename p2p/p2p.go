@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anywherelan/awl/application/pkg"
+	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
@@ -184,7 +185,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 	}
 	p.host.Network().Notify(notifyBundle)
 
-	go p.background()
+	p.listenEventbus()
 
 	return host, nil
 }
@@ -369,32 +370,11 @@ func (p *P2p) Bootstrap() error {
 	return nil
 }
 
-func (p *P2p) background() {
+func (p *P2p) listenEventbus() {
 	//event.EvtPeerConnectednessChanged
 	bufSize := eventbus.BufSize(64)
-	subReachability, err := p.host.EventBus().Subscribe(new(event.EvtLocalReachabilityChanged), bufSize)
-	if err != nil {
-		panic(err)
-	}
-	defer func() {
-		p.logger.Info("stopped background task")
-		_ = subReachability.Close()
-	}()
-
-	for {
-		select {
-		case ev, ok := <-subReachability.Out():
-			if !ok {
-				return
-			}
-			evt, ok := ev.(event.EvtLocalReachabilityChanged)
-			if !ok {
-				return
-			}
-
-			p.reachability = evt.Reachability
-		case <-p.ctx.Done():
-			return
-		}
-	}
+	awlevent.WrapEventbusToCallback(p.ctx, func(ev interface{}) {
+		evt := ev.(event.EvtLocalReachabilityChanged)
+		p.reachability = evt.Reachability
+	}, p.host.EventBus(), new(event.EvtLocalReachabilityChanged), bufSize)
 }
