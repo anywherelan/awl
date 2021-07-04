@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"fmt"
 	"image"
 	"runtime"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/anywherelan/awl/cli"
 	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
+	"github.com/ncruces/zenity"
 	"github.com/skratchdot/open-golang/open"
 )
 
@@ -37,7 +39,16 @@ func main() {
 }
 
 func onReady() {
-	InitServer()
+	handleInitServerError := func(err error) {
+		if err == nil {
+			return
+		}
+		logger.Error(err)
+		dialogErr := zenity.Error(err.Error(), zenity.Title("Anywherelan error"), zenity.ErrorIcon)
+		if dialogErr != nil {
+			logger.Errorf("show dialog error: %v", dialogErr)
+		}
+	}
 
 	systray.SetIcon(getIcon())
 	systray.SetTitle("Anywherelan")
@@ -56,7 +67,8 @@ func onReady() {
 	go func() {
 		for range mRestart.ClickedCh {
 			StopServer()
-			InitServer()
+			err := InitServer()
+			handleInitServerError(err)
 		}
 	}()
 
@@ -66,27 +78,45 @@ func onReady() {
 			systray.Quit()
 		}
 	}()
+
+	err := InitServer()
+	handleInitServerError(err)
 }
 
 func onExit() {
 	StopServer()
 }
 
-func InitServer() {
+func InitServer() (err error) {
+	defer func() {
+		recovered := recover()
+		if recovered != nil {
+			err = fmt.Errorf("recovered panic from starting app: %v", recovered)
+		}
+		if err != nil && app != nil {
+			app.Close()
+			app = nil
+		}
+	}()
 	app = awl.New()
 	logger = app.SetupLoggerAndConfig()
 
-	err := app.Init(context.Background(), nil)
+	err = app.Init(context.Background(), nil)
 	if err != nil {
-		logger.Errorf("failed to init server: %v", err)
-		app.Close()
-		app = nil
-		return
+		return fmt.Errorf("failed to start server: %v", err)
 	}
 	app.Api.SetupFrontend(awl.FrontendStatic())
+
+	return nil
 }
 
 func StopServer() {
+	defer func() {
+		recovered := recover()
+		if recovered != nil {
+			logger.Errorf("recovered panic from closing app: %v", recovered)
+		}
+	}()
 	if app != nil {
 		app.Close()
 	}
