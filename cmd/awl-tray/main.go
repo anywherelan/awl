@@ -6,7 +6,10 @@ import (
 	_ "embed"
 	"fmt"
 	"image"
+	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	ico "github.com/Kodeworks/golang-image-ico"
 	"github.com/anywherelan/awl"
@@ -49,6 +52,14 @@ func onReady() {
 			logger.Errorf("show dialog error: %v", dialogErr)
 		}
 	}
+
+	quitCh := make(chan os.Signal, 1)
+	signal.Notify(quitCh, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		sig := <-quitCh
+		logger.Infof("received exit signal '%s'", sig)
+		systray.Quit()
+	}()
 
 	systray.SetIcon(getIcon())
 	systray.SetTitle("Anywherelan")
