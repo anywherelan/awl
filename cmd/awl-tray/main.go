@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"syscall"
 
 	ico "github.com/Kodeworks/golang-image-ico"
@@ -33,6 +34,14 @@ var (
 var (
 	app    *awl.Application
 	logger *log.ZapEventLogger
+)
+
+var (
+	statusMenu      *systray.MenuItem
+	openBrowserMenu *systray.MenuItem
+	peersMenu       *systray.MenuItem
+	startStopMenu   *systray.MenuItem
+	restartMenu     *systray.MenuItem
 )
 
 func main() {
@@ -65,26 +74,53 @@ func onReady() {
 
 	systray.SetIcon(getIcon())
 	systray.SetTitle("Anywherelan")
-	systray.SetTooltip("Anywherelan tray")
+	systray.SetTooltip("Anywherelan")
 
-	mOpenBrowser := systray.AddMenuItem("Show Web UI", "")
+	statusMenu = systray.AddMenuItem("", "")
+	statusMenu.Disable()
+
+	openBrowserMenu = systray.AddMenuItem("Open Web UI", "")
 	go func() {
-		for range mOpenBrowser.ClickedCh {
+		for range openBrowserMenu.ClickedCh {
 			if a := app; app != nil {
-				open.Run("http://" + a.Api.Address())
+				_ = open.Run("http://" + a.Api.Address())
+			}
+		}
+	}()
+	systray.AddSeparator()
+
+	peersMenu = systray.AddMenuItem("Peers", "")
+	go func() {
+		// TODO: on windows getlantern/systray does not trigger clicked event on menus with submenus
+		//  I have no workaround besides refreshing every N seconds, but it's gross.
+		//  We need to fork systray to fix this and other bugs.
+		for range peersMenu.ClickedCh {
+			refreshPeersSubmenus()
+		}
+	}()
+
+	startStopMenu = systray.AddMenuItem("", "")
+	go func() {
+		for range startStopMenu.ClickedCh {
+			if app != nil {
+				StopServer()
+			} else {
+				err := InitServer()
+				handleInitServerError(err)
 			}
 		}
 	}()
 
-	mRestart := systray.AddMenuItem("Restart server", "")
+	restartMenu = systray.AddMenuItem("Restart server", "")
 	go func() {
-		for range mRestart.ClickedCh {
+		for range restartMenu.ClickedCh {
 			StopServer()
 			err := InitServer()
 			handleInitServerError(err)
 		}
 	}()
 
+	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
 	go func() {
 		for range mQuit.ClickedCh {
@@ -92,6 +128,7 @@ func onReady() {
 		}
 	}()
 
+	refreshMenusOnStoppedServer()
 	err := InitServer()
 	handleInitServerError(err)
 }
@@ -122,6 +159,7 @@ func InitServer() (err error) {
 	app.Api.SetupFrontend(awl.FrontendStatic())
 
 	subscribeToNotifications(app)
+	refreshMenusOnStartedServer()
 
 	return nil
 }
@@ -133,6 +171,7 @@ func StopServer() {
 			logger.Errorf("recovered panic from closing app: %v", recovered)
 		}
 	}()
+	defer refreshMenusOnStoppedServer()
 	if app != nil {
 		app.Close()
 	}
@@ -142,9 +181,9 @@ func StopServer() {
 func subscribeToNotifications(app *awl.Application) {
 	awlevent.WrapEventbusToCallback(app.Ctx(), func(evt interface{}) {
 		authRequest := evt.(awlevent.ReceivedAuthRequest)
-		title := "anywherelan: incoming friend request"
+		title := "Anywherelan: incoming friend request"
 		if authRequest.Name != "" {
-			title = fmt.Sprintf("anywherelan: friend request from %s", authRequest.Name)
+			title = fmt.Sprintf("Anywherelan: friend request from %s", authRequest.Name)
 		}
 		notifyErr := beeep.Notify(title, "PeerID: \n"+authRequest.PeerID, tempIconFilepath)
 		if notifyErr != nil {
@@ -173,5 +212,70 @@ func getIcon() []byte {
 		return destBuf.Bytes()
 	default:
 		return appIcon
+	}
+}
+
+func refreshMenusOnStartedServer() {
+	statusMenu.SetTitle("Status: running")
+	openBrowserMenu.Enable()
+	peersMenu.Enable()
+	startStopMenu.SetTitle("Stop server")
+	restartMenu.Enable()
+
+	refreshPeersSubmenus()
+}
+
+func refreshMenusOnStoppedServer() {
+	statusMenu.SetTitle("Status: stopped")
+	openBrowserMenu.Disable()
+	peersMenu.Disable()
+	startStopMenu.SetTitle("Start server")
+	restartMenu.Disable()
+}
+
+var peersSubmenus []*systray.MenuItem
+
+func refreshPeersSubmenus() {
+	for _, submenu := range peersSubmenus {
+		submenu.Hide()
+	}
+	peersSubmenus = nil
+
+	app.Conf.RLock()
+	onlinePeers := make([]string, 0)
+	offlinePeers := make([]string, 0)
+	for _, knownPeer := range app.Conf.KnownPeers {
+		online := app.P2pService.IsConnected(knownPeer.PeerId())
+		peerName := knownPeer.DisplayName()
+		if peerName == "" {
+			peerName = knownPeer.PeerID
+		}
+		if online {
+			onlinePeers = append(onlinePeers, peerName)
+		} else {
+			offlinePeers = append(offlinePeers, peerName)
+		}
+	}
+	app.Conf.RUnlock()
+	sort.Strings(onlinePeers)
+	sort.Strings(offlinePeers)
+
+	onlineSubmenu := peersMenu.AddSubMenuItem("Online peers:", "")
+	peersSubmenus = append(peersSubmenus, onlineSubmenu)
+	for _, peerName := range onlinePeers {
+		submenu := peersMenu.AddSubMenuItem(peerName, "")
+		submenu.Disable()
+		peersSubmenus = append(peersSubmenus, submenu)
+	}
+	separatorMenu := peersMenu.AddSubMenuItem("_______________", "")
+	separatorMenu.Disable()
+	peersSubmenus = append(peersSubmenus, separatorMenu)
+
+	offlineSubmenu := peersMenu.AddSubMenuItem("Offline peers:", "")
+	peersSubmenus = append(peersSubmenus, offlineSubmenu)
+	for _, peerName := range offlinePeers {
+		submenu := peersMenu.AddSubMenuItem(peerName, "")
+		submenu.Disable()
+		peersSubmenus = append(peersSubmenus, submenu)
 	}
 }
