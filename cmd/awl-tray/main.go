@@ -8,12 +8,15 @@ import (
 	"image"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 
 	ico "github.com/Kodeworks/golang-image-ico"
 	"github.com/anywherelan/awl"
+	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/cli"
+	"github.com/gen2brain/beeep"
 	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
 	"github.com/ncruces/zenity"
@@ -23,17 +26,14 @@ import (
 var (
 	//go:embed Icon.png
 	appIcon []byte
+
+	tempIconFilepath = filepath.Join(os.TempDir(), "awl-icon.png")
 )
 
 var (
 	app    *awl.Application
 	logger *log.ZapEventLogger
 )
-
-/*
-	go build
-	GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui
-*/
 
 func main() {
 	cli.New().Run()
@@ -52,6 +52,8 @@ func onReady() {
 			logger.Errorf("show dialog error: %v", dialogErr)
 		}
 	}
+
+	_ = os.WriteFile(tempIconFilepath, appIcon, 0666)
 
 	quitCh := make(chan os.Signal, 1)
 	signal.Notify(quitCh, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
@@ -96,6 +98,7 @@ func onReady() {
 
 func onExit() {
 	StopServer()
+	_ = os.Remove(tempIconFilepath)
 }
 
 func InitServer() (err error) {
@@ -118,6 +121,8 @@ func InitServer() (err error) {
 	}
 	app.Api.SetupFrontend(awl.FrontendStatic())
 
+	subscribeToNotifications(app)
+
 	return nil
 }
 
@@ -132,6 +137,20 @@ func StopServer() {
 		app.Close()
 	}
 	app = nil
+}
+
+func subscribeToNotifications(app *awl.Application) {
+	awlevent.WrapEventbusToCallback(app.Ctx(), func(evt interface{}) {
+		authRequest := evt.(awlevent.ReceivedAuthRequest)
+		title := "anywherelan: incoming friend request"
+		if authRequest.Name != "" {
+			title = fmt.Sprintf("anywherelan: friend request from %s", authRequest.Name)
+		}
+		notifyErr := beeep.Notify(title, "PeerID: \n"+authRequest.PeerID, tempIconFilepath)
+		if notifyErr != nil {
+			logger.Errorf("show incoming friend request notification: %v", notifyErr)
+		}
+	}, app.Eventbus, new(awlevent.ReceivedAuthRequest))
 }
 
 func getIcon() []byte {

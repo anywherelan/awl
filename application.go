@@ -114,7 +114,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	}
 
 	a.P2pService = service.NewP2p(p2pSrv, a.Conf)
-	a.AuthStatus = service.NewAuthStatus(a.P2pService, a.Conf)
+	a.AuthStatus = service.NewAuthStatus(a.P2pService, a.Conf, a.Eventbus)
 	a.Tunnel = service.NewTunnel(a.P2pService, vpnDevice, a.Conf)
 
 	host.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
@@ -197,6 +197,10 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 	a.logger.Infof("initialize app in %s directory", conf.DataDir())
 
 	return a.logger
+}
+
+func (a *Application) Ctx() context.Context {
+	return a.ctx
 }
 
 func (a *Application) Close() {

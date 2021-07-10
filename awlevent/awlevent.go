@@ -3,6 +3,7 @@ package awlevent
 import (
 	"context"
 
+	"github.com/anywherelan/awl/protocol"
 	"github.com/libp2p/go-libp2p-core/event"
 )
 
@@ -10,6 +11,11 @@ type Bus = event.Bus
 type Emitter = event.Emitter
 
 type KnownPeerChanged struct {
+}
+
+type ReceivedAuthRequest struct {
+	protocol.AuthPeer
+	PeerID string
 }
 
 func WrapEventbusToCallback(ctx context.Context, callback func(interface{}), bus Bus,
