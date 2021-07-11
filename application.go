@@ -246,7 +246,7 @@ func (a *Application) initDNS() {
 		return
 	}
 	a.dnsResolver = awldns.NewResolver()
-	awlevent.WrapEventbusToCallback(a.ctx, func(_ interface{}) {
+	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
 		a.refreshDNSConfig()
 	}, a.Eventbus, new(awlevent.KnownPeerChanged))
 	defer a.refreshDNSConfig()

@@ -18,7 +18,7 @@ type ReceivedAuthRequest struct {
 	PeerID string
 }
 
-func WrapEventbusToCallback(ctx context.Context, callback func(interface{}), bus Bus,
+func WrapSubscriptionToCallback(ctx context.Context, callback func(interface{}), bus Bus,
 	eventType interface{}, opts ...event.SubscriptionOpt) {
 	sub, err := bus.Subscribe(eventType, opts...)
 	if err != nil {

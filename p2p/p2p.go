@@ -373,7 +373,7 @@ func (p *P2p) Bootstrap() error {
 func (p *P2p) listenEventbus() {
 	//event.EvtPeerConnectednessChanged
 	bufSize := eventbus.BufSize(64)
-	awlevent.WrapEventbusToCallback(p.ctx, func(ev interface{}) {
+	awlevent.WrapSubscriptionToCallback(p.ctx, func(ev interface{}) {
 		evt := ev.(event.EvtLocalReachabilityChanged)
 		p.reachability = evt.Reachability
 	}, p.host.EventBus(), new(event.EvtLocalReachabilityChanged), bufSize)

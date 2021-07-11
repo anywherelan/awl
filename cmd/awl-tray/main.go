@@ -51,17 +51,6 @@ func main() {
 }
 
 func onReady() {
-	handleInitServerError := func(err error) {
-		if err == nil {
-			return
-		}
-		logger.Error(err)
-		dialogErr := zenity.Error(err.Error(), zenity.Title("Anywherelan error"), zenity.ErrorIcon)
-		if dialogErr != nil {
-			logger.Errorf("show dialog error: %v", dialogErr)
-		}
-	}
-
 	_ = os.WriteFile(tempIconFilepath, appIcon, 0666)
 
 	quitCh := make(chan os.Signal, 1)
@@ -106,7 +95,7 @@ func onReady() {
 				StopServer()
 			} else {
 				err := InitServer()
-				handleInitServerError(err)
+				handleErrorWithDialog(err)
 			}
 		}
 	}()
@@ -116,7 +105,7 @@ func onReady() {
 		for range restartMenu.ClickedCh {
 			StopServer()
 			err := InitServer()
-			handleInitServerError(err)
+			handleErrorWithDialog(err)
 		}
 	}()
 
@@ -130,7 +119,7 @@ func onReady() {
 
 	refreshMenusOnStoppedServer()
 	err := InitServer()
-	handleInitServerError(err)
+	handleErrorWithDialog(err)
 }
 
 func onExit() {
@@ -179,7 +168,7 @@ func StopServer() {
 }
 
 func subscribeToNotifications(app *awl.Application) {
-	awlevent.WrapEventbusToCallback(app.Ctx(), func(evt interface{}) {
+	awlevent.WrapSubscriptionToCallback(app.Ctx(), func(evt interface{}) {
 		authRequest := evt.(awlevent.ReceivedAuthRequest)
 		title := "Anywherelan: incoming friend request"
 		if authRequest.Name != "" {
@@ -212,6 +201,17 @@ func getIcon() []byte {
 		return destBuf.Bytes()
 	default:
 		return appIcon
+	}
+}
+
+func handleErrorWithDialog(err error) {
+	if err == nil {
+		return
+	}
+	logger.Error(err)
+	dialogErr := zenity.Error(err.Error(), zenity.Title("Anywherelan error"), zenity.ErrorIcon)
+	if dialogErr != nil {
+		logger.Errorf("show dialog error: %v", dialogErr)
 	}
 }
 
@@ -267,6 +267,9 @@ func refreshPeersSubmenus() {
 		submenu.Disable()
 		peersSubmenus = append(peersSubmenus, submenu)
 	}
+	// Workaround due to lack of separators in submenus.
+	// https://github.com/getlantern/systray/issues/150
+	// https://github.com/getlantern/systray/issues/170
 	separatorMenu := peersMenu.AddSubMenuItem("_______________", "")
 	separatorMenu.Disable()
 	peersSubmenus = append(peersSubmenus, separatorMenu)
