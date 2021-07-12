@@ -27,7 +27,7 @@ func main() {
 	quit := make(chan os.Signal, 2)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
-	logger.Infof("received signal %s", <-quit)
+	logger.Infof("received exit signal '%s'", <-quit)
 	finishedCh := make(chan struct{})
 	go func() {
 		select {

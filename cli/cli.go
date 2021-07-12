@@ -10,6 +10,7 @@ import (
 	"github.com/anywherelan/awl/application/pkg"
 	"github.com/anywherelan/awl/config"
 	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-eventbus"
 	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli/v2"
 )
@@ -72,7 +73,7 @@ func (a *Application) init() {
 				addr = apiAddr
 				return nil
 			}
-			conf, err := config.LoadConfig()
+			conf, err := config.LoadConfig(eventbus.NewBus())
 			if err != nil {
 				return fmt.Errorf("could not load config, api_addr does not set, exit (%v)", err)
 			}

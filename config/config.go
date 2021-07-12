@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anywherelan/awl/awlevent"
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/mr-tron/base58/base58"
@@ -29,9 +30,8 @@ const (
 type (
 	Config struct {
 		sync.RWMutex
-		dataDir                 string
-		onKnownPeersChanged     []func()
-		onKnownPeersChangedLock sync.Mutex
+		dataDir string
+		emitter awlevent.Emitter
 
 		Version           string               `json:"version"`
 		LoggerLevel       string               `json:"loggerLevel"`
@@ -98,7 +98,7 @@ func (c *Config) UpsertPeer(peer KnownPeer) {
 	c.save()
 	c.Unlock()
 
-	c.triggerOnKnownPeersChanged()
+	c.emitter.Emit(awlevent.KnownPeerChanged{})
 }
 
 func (c *Config) UpdatePeerLastSeen(peerID string) {
@@ -202,12 +202,6 @@ func (c *Config) DNSNamesMapping() map[string]string {
 	return mapping
 }
 
-func (c *Config) RegisterOnKnownPeersChanged(f func()) {
-	c.onKnownPeersChangedLock.Lock()
-	c.onKnownPeersChanged = append(c.onKnownPeersChanged, f)
-	c.onKnownPeersChangedLock.Unlock()
-}
-
 func (c *Config) PeerstoreDir() string {
 	dir := filepath.Join(c.dataDir, DhtPeerstoreDataDirectory)
 	return dir
@@ -258,14 +252,6 @@ func (c *Config) save() {
 func (c *Config) path() string {
 	path := filepath.Join(c.dataDir, AppConfigFilename)
 	return path
-}
-
-func (c *Config) triggerOnKnownPeersChanged() {
-	c.onKnownPeersChangedLock.Lock()
-	for _, f := range c.onKnownPeersChanged {
-		f()
-	}
-	c.onKnownPeersChangedLock.Unlock()
 }
 
 func (kp KnownPeer) PeerId() peer.ID {

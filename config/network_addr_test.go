@@ -3,6 +3,8 @@ package config
 import (
 	"net"
 	"testing"
+
+	"github.com/libp2p/go-eventbus"
 )
 
 func TestIncrementIPAddr(t *testing.T) {
@@ -35,7 +37,7 @@ func TestIncrementIPAddr(t *testing.T) {
 
 func TestConfig_GenerateNextIpAddr(t *testing.T) {
 	cfg := new(Config)
-	setDefaults(cfg)
+	setDefaults(cfg, eventbus.NewBus())
 
 	addr := cfg.GenerateNextIpAddr()
 	if addr != "10.66.0.2" {

@@ -20,24 +20,28 @@ import (
 func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 	result := make([]entity.KnownPeersResponse, 0, len(h.conf.KnownPeers))
 
+	h.conf.RLock()
 	peers := make([]string, 0, len(h.conf.KnownPeers))
 	for peerID := range h.conf.KnownPeers {
 		peers = append(peers, peerID)
 	}
+	h.conf.RUnlock()
 	sort.Strings(peers)
 
 	for _, peerID := range peers {
-		peer := h.conf.KnownPeers[peerID]
+		h.conf.RLock()
+		knownPeer := h.conf.KnownPeers[peerID]
+		h.conf.RUnlock()
 
-		id := peer.PeerId()
+		id := knownPeer.PeerId()
 		kpr := entity.KnownPeersResponse{
 			PeerID:       peerID,
-			Name:         peer.DisplayName(),
+			Name:         knownPeer.DisplayName(),
 			Version:      h.p2p.PeerVersion(id),
-			IpAddr:       peer.IPAddr,
+			IpAddr:       knownPeer.IPAddr,
 			Connected:    h.p2p.IsConnected(id),
-			Confirmed:    peer.Confirmed,
-			LastSeen:     peer.LastSeen,
+			Confirmed:    knownPeer.Confirmed,
+			LastSeen:     knownPeer.LastSeen,
 			Addresses:    h.p2p.PeerAddresses(id),
 			NetworkStats: h.p2p.NetworkStatsForPeer(id),
 		}
@@ -64,12 +68,12 @@ func (h *Handler) GetKnownPeerSettings(c echo.Context) (err error) {
 	if err = c.Validate(req); err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
 	}
-	peer, exists := h.conf.GetPeer(req.PeerID)
+	knownPeer, exists := h.conf.GetPeer(req.PeerID)
 	if !exists {
 		return c.JSON(http.StatusNotFound, ErrorMessage("peer not found"))
 	}
 
-	return c.JSON(http.StatusOK, peer)
+	return c.JSON(http.StatusOK, knownPeer)
 }
 
 // @Tags Peers

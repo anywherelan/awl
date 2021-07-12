@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/ipfs/go-log/v2"
@@ -25,15 +26,22 @@ type AuthStatus struct {
 	logger        *log.ZapEventLogger
 	p2p           *P2pService
 	conf          *config.Config
+	authsEmitter  awlevent.Emitter
 }
 
-func NewAuthStatus(p2pService *P2pService, conf *config.Config) *AuthStatus {
+func NewAuthStatus(p2pService *P2pService, conf *config.Config, eventbus awlevent.Bus) *AuthStatus {
+	emitter, err := eventbus.Emitter(new(awlevent.ReceivedAuthRequest))
+	if err != nil {
+		panic(err)
+	}
+
 	auth := &AuthStatus{
 		ingoingAuths:  make(map[peer.ID]protocol.AuthPeer),
 		outgoingAuths: make(map[peer.ID]protocol.AuthPeer),
 		logger:        log.Logger("awl/service/status"),
 		p2p:           p2pService,
 		conf:          conf,
+		authsEmitter:  emitter,
 	}
 	auth.restoreOutgoingAuths()
 	p2pService.RegisterOnPeerConnected(auth.onPeerConnected)
@@ -49,7 +57,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	peerID := remotePeer.String()
 	peer, known := s.conf.GetPeer(peerID)
 	if !known {
-		s.logger.Infof("Unknown peer %s tried to get status info", peerID)
+		s.logger.Infof("Unknown peer %s tried to exchange status info", peerID)
 		return
 	}
 
@@ -146,6 +154,10 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 		s.authsLock.Lock()
 		s.ingoingAuths[remotePeer] = authPeer
 		s.authsLock.Unlock()
+		s.authsEmitter.Emit(awlevent.ReceivedAuthRequest{
+			AuthPeer: authPeer,
+			PeerID:   peerID,
+		})
 	}
 
 	err = protocol.SendAuthResponse(stream, protocol.AuthPeerResponse{Confirmed: confirmed})
