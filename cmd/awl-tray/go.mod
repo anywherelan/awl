@@ -15,6 +15,7 @@ require (
 
 replace (
 	github.com/anywherelan/awl => ../../
+	github.com/getlantern/systray => github.com/anywherelan/systray v0.0.0-20210712192351-1da45426321d
 	github.com/godbus/dbus/v5 => github.com/pymq/dbus/v5 v5.0.5-0.20210710104724-7ba66a7d9a5a
 	github.com/ipfs/go-log/v2 => github.com/anywherelan/go-log/v2 v2.0.3-0.20210308150645-ad120b957e42
 )

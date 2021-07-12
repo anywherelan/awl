@@ -80,10 +80,17 @@ func onReady() {
 
 	peersMenu = systray.AddMenuItem("Peers", "")
 	go func() {
-		// TODO: on windows getlantern/systray does not trigger clicked event on menus with submenus
-		//  I have no workaround besides refreshing every N seconds, but it's gross.
-		//  We need to fork systray to fix this and other bugs.
+		// On windows systray does not trigger clicked event on menus with submenus
 		for range peersMenu.ClickedCh {
+			refreshPeersSubmenus()
+		}
+	}()
+	go func() {
+		// Workaround for windows only
+		for range systray.TrayOpenedCh {
+			if app == nil {
+				continue
+			}
 			refreshPeersSubmenus()
 		}
 	}()
