@@ -70,3 +70,4 @@ fabric.properties
 /node_modules/
 /vendor/
 /static/
+/build/
