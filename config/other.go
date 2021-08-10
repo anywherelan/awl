@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/anywherelan/awl/application/pkg"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
@@ -163,7 +162,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.HttpListenAddress == "" {
 		conf.HttpListenAddress = "127.0.0.1:" + strconv.Itoa(DefaultHTTPPort)
 	}
-	conf.Version = pkg.Version
+	conf.Version = Version
 	if conf.KnownPeers == nil {
 		conf.KnownPeers = make(map[string]KnownPeer)
 	}

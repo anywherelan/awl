@@ -3,12 +3,10 @@ package p2p
 import (
 	"context"
 	"crypto/rand"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/anywherelan/awl/application/pkg"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
 	ds "github.com/ipfs/go-datastore"
@@ -124,7 +122,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 		//libp2p.PrivateNetwork(),
 		libp2p.Peerstore(peerstore),
 		libp2p.Identity(privKey),
-		libp2p.UserAgent(pkg.UserAgent),
+		libp2p.UserAgent(config.UserAgent),
 		libp2p.BandwidthReporter(p.bandwidthCounter),
 		libp2p.ConnectionManager(p.connManager),
 		libp2p.ListenAddrs(p.cfg.GetListenAddresses()...),
@@ -227,7 +225,7 @@ func (p *P2p) PeerVersion(peerID peer.ID) string {
 	version, _ := p.host.Peerstore().Get(peerID, "AgentVersion")
 
 	if version != nil {
-		return strings.TrimPrefix(version.(string), pkg.UserAgentPrefix)
+		return config.VersionFromUserAgent(version.(string))
 	}
 
 	return ""

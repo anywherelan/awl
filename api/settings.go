@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/anywherelan/awl/application/pkg"
+	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/labstack/echo/v4"
 )
@@ -21,7 +21,7 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 		PeerID:                  h.conf.P2pNode.PeerID,
 		Name:                    h.conf.P2pNode.Name,
 		Uptime:                  h.p2p.Uptime(),
-		ServerVersion:           pkg.Version,
+		ServerVersion:           config.Version,
 		NetworkStats:            h.p2p.NetworkStats(),
 		TotalBootstrapPeers:     totalBootstraps,
 		ConnectedBootstrapPeers: connectedBootstraps,

@@ -4,7 +4,8 @@ awldir=$(pwd)
 builddir="$awldir/build"
 awlflutterdir="$awldir/../awl-flutter"
 
-version=$(git describe --tags)
+# until https://github.com/golang/go/issues/37475 is implemented
+VERSION=$(git describe --tags --always --abbrev=8 --dirty)
 
 rm -rf build/
 mkdir build
@@ -20,8 +21,8 @@ fi
 gobuild() {
 	name="$1"
 	for arch in 386 amd64 arm arm64; do
-	  filename="$name-linux-$arch-$version"
-	  GOOS=linux GOARCH=$arch go build -o "$filename"
+	  filename="$name-linux-$arch-$VERSION"
+	  GOOS=linux GOARCH=$arch go build -ldflags "-X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
 	  mv "$filename" "$builddir"
   done
 
@@ -31,8 +32,8 @@ gobuild() {
     wintunarch=$(echo "$tuple" | cut -f2 -d" ")
     cp "/tmp/$wintun_version/wintun/bin/$wintunarch/wintun.dll" wintun.dll
 
-	  filename="$name-windows-$goarch-$version.exe"
-	  GOOS=windows GOARCH=$goarch go build -ldflags "-H windowsgui" -o "$filename"
+	  filename="$name-windows-$goarch-$VERSION.exe"
+	  GOOS=windows GOARCH=$goarch go build -ldflags "-H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
 	  mv "$filename" "$builddir"
     rm -f "wintun.dll"
   done
@@ -44,12 +45,12 @@ flutter build web --release
 cp -r "$awlflutterdir/build/web" "$awldir/static"
 
 cd "$awldir/cmd/gomobile-lib"
-gomobile bind -o anywherelan.aar -target=android .
+gomobile bind -ldflags "-X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
 mv anywherelan.aar "$awlflutterdir/android/app/src/main/libs/"
 
 cd "$awlflutterdir"
 flutter build apk --release
-mv "$awlflutterdir/build/app/outputs/flutter-apk/app-release.apk" "$builddir/awl-android-multiarch-$version.apk"
+mv "$awlflutterdir/build/app/outputs/flutter-apk/app-release.apk" "$builddir/awl-android-multiarch-$VERSION.apk"
 
 cd "$awldir/cmd/awl"
 gobuild awl
