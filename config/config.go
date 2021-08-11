@@ -29,9 +29,9 @@ const (
 
 type (
 	Config struct {
-		sync.RWMutex
-		dataDir string
-		emitter awlevent.Emitter
+		sync.RWMutex `swaggerignore:"true"`
+		dataDir      string
+		emitter      awlevent.Emitter
 
 		Version           string               `json:"version"`
 		LoggerLevel       string               `json:"loggerLevel"`
@@ -47,7 +47,7 @@ type (
 		Identity                string        `json:"identity"`
 		BootstrapPeers          []string      `json:"bootstrapPeers"`
 		ListenAddresses         []string      `json:"listenAddresses"`
-		ReconnectionIntervalSec time.Duration `json:"reconnectionIntervalSec"`
+		ReconnectionIntervalSec time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"`
 	}
 	VPNConfig struct {
 		InterfaceName string `json:"interfaceName"`

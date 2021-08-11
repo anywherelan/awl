@@ -55,8 +55,7 @@ var useAwldns = true
 // @Host localhost:8639
 // @BasePath /api/v0/
 
-// TODO: move to main package (can't parse here)
-//go:generate swag init --parseDependency
+//go:generate swag init --parseDependency -g application.go
 //go:generate rm -f docs/docs.go docs/swagger.json
 
 type Application struct {

@@ -41,7 +41,7 @@ type (
 	PeerInfo struct {
 		PeerID                  string
 		Name                    string
-		Uptime                  time.Duration
+		Uptime                  time.Duration `swaggertype:"primitive,integer"`
 		ServerVersion           string
 		NetworkStats            metrics.Stats
 		TotalBootstrapPeers     int

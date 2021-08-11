@@ -5,28 +5,34 @@ definitions:
       error:
         type: string
     type: object
+  config.Config:
+    properties:
+      httpListenAddress:
+        type: string
+      knownPeers:
+        additionalProperties:
+          $ref: '#/definitions/config.KnownPeer'
+        type: object
+      loggerLevel:
+        type: string
+      p2pNode:
+        $ref: '#/definitions/config.P2pNodeConfig'
+      version:
+        type: string
+      vpn:
+        $ref: '#/definitions/config.VPNConfig'
+    type: object
   config.KnownPeer:
     properties:
       alias:
         description: User provided name
         type: string
-      allowedLocalPorts:
-        additionalProperties:
-          $ref: '#/definitions/config.LocalConnConfig'
-        description: |-
-          Connection from remote peer to this peer
-          LocalPort -> Config
-        type: object
-      allowedRemotePorts:
-        additionalProperties:
-          $ref: '#/definitions/config.RemoteConnConfig'
-        description: |-
-          Connection from this peer to remote peer
-          RemotePort -> Config
-        type: object
       confirmed:
         description: Has remote peer confirmed our invitation
         type: boolean
+      ipAddr:
+        description: IPAddr used for forwarding
+        type: string
       lastSeen:
         description: Time of last connection
         type: string
@@ -37,31 +43,39 @@ definitions:
         description: Hex-encoded multihash representing a peer ID
         type: string
     type: object
-  config.LocalConnConfig:
+  config.P2pNodeConfig:
     properties:
-      description:
+      bootstrapPeers:
+        items:
+          type: string
+        type: array
+      identity:
         type: string
-      port:
+      listenAddresses:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      peerId:
+        description: Hex-encoded multihash representing a peer ID, calculated from
+          Identity
+        type: string
+      reconnectionIntervalSec:
         type: integer
     type: object
-  config.RemoteConnConfig:
+  config.VPNConfig:
     properties:
-      description:
+      interfaceName:
         type: string
-      forwarded:
-        type: boolean
-      mappedLocalPort:
-        type: integer
-      protocol:
+      ipNet:
         type: string
-      remotePort:
-        type: integer
     type: object
   entity.AuthRequest:
     properties:
       name:
         type: string
-      peerId:
+      peerID:
         type: string
     type: object
   entity.BandwidthDebugInfo:
@@ -72,7 +86,6 @@ definitions:
         type: object
       total:
         $ref: '#/definitions/entity.BandwidthInfo'
-        type: object
     type: object
   entity.BandwidthInfo:
     properties:
@@ -130,44 +143,18 @@ definitions:
       routingTableSize:
         type: integer
     type: object
-  entity.ForwardedPort:
-    properties:
-      listenAddress:
-        type: string
-      peerId:
-        type: string
-      protocol:
-        type: string
-      remotePort:
-        type: integer
-    type: object
   entity.FriendRequest:
     properties:
       alias:
         type: string
-      peerId:
+      peerID:
         type: string
     required:
-    - peerId
+      - peerID
     type: object
   entity.GeneralDebugInfo:
     properties:
       uptime:
-        type: string
-    type: object
-  entity.GetInboundConnectionsResponse:
-    additionalProperties:
-      items:
-        $ref: '#/definitions/entity.InboundStream'
-      type: array
-    type: object
-  entity.InboundStream:
-    properties:
-      localPort:
-        type: integer
-      peerId:
-        type: string
-      protocol:
         type: string
     type: object
   entity.KnownPeersResponse:
@@ -180,13 +167,14 @@ definitions:
         type: boolean
       connected:
         type: boolean
+      ipAddr:
+        type: string
       lastSeen:
         type: string
       name:
         type: string
       networkStats:
         $ref: '#/definitions/metrics.Stats'
-        type: object
       peerID:
         type: string
       version:
@@ -196,23 +184,19 @@ definitions:
     properties:
       bandwidth:
         $ref: '#/definitions/entity.BandwidthDebugInfo'
-        type: object
       connections:
         $ref: '#/definitions/entity.ConnectionsDebugInfo'
-        type: object
       dht:
         $ref: '#/definitions/entity.DhtDebugInfo'
-        type: object
       general:
         $ref: '#/definitions/entity.GeneralDebugInfo'
-        type: object
     type: object
   entity.PeerIDRequest:
     properties:
-      peerId:
+      peerID:
         type: string
     required:
-    - peerId
+      - peerID
     type: object
   entity.PeerInfo:
     properties:
@@ -222,7 +206,6 @@ definitions:
         type: string
       networkStats:
         $ref: '#/definitions/metrics.Stats'
-        type: object
       peerID:
         type: string
       serverVersion:
@@ -230,7 +213,7 @@ definitions:
       totalBootstrapPeers:
         type: integer
       uptime:
-        type: string
+        type: integer
     type: object
   entity.UpdateMySettingsRequest:
     properties:
@@ -241,18 +224,10 @@ definitions:
     properties:
       alias:
         type: string
-      localConns:
-        additionalProperties:
-          $ref: '#/definitions/config.LocalConnConfig'
-        type: object
-      peerId:
+      peerID:
         type: string
-      remoteConns:
-        additionalProperties:
-          $ref: '#/definitions/config.RemoteConnConfig'
-        type: object
     required:
-    - peerId
+      - peerID
     type: object
   metrics.Stats:
     properties:
@@ -267,44 +242,11 @@ definitions:
     type: object
 host: localhost:8639
 info:
-  contact: {}
-  description: Peerlan API
-  license:
-    name: Apache 2.0
-    url: http://www.apache.org/licenses/LICENSE-2.0.html
-  title: Peerlan API
+  contact: { }
+  description: Anywherelan API
+  title: Anywherelan API
   version: "0.1"
 paths:
-  /connections/forwarded_ports:
-    get:
-      consumes:
-      - application/json
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/entity.ForwardedPort'
-            type: array
-      summary: Get outbound connections
-      tags:
-      - Connections
-  /connections/inbound:
-    get:
-      consumes:
-      - application/json
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/entity.GetInboundConnectionsResponse'
-      summary: Get inbound connections
-      tags:
-      - Connections
   /debug/log:
     get:
       consumes:
@@ -474,13 +416,27 @@ paths:
             $ref: '#/definitions/api.Error'
       summary: Update peer settings
       tags:
-      - Peers
+        - Peers
+  /settings/export_server_config:
+    get:
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/config.Config'
+      summary: Export server configuration
+      tags:
+        - Settings
   /settings/peer_info:
     get:
       consumes:
-      - application/json
+        - application/json
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
