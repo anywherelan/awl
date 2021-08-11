@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/anywherelan/awl/api/apiclient"
-	"github.com/anywherelan/awl/application/pkg"
 	"github.com/anywherelan/awl/config"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
@@ -47,7 +46,7 @@ func (a *Application) init() {
 	var apiAddr string
 	a.cliapp = &cli.App{
 		Name:    "awl",
-		Version: pkg.Version,
+		Version: config.Version,
 		Usage:   "p2p mesh vpn",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
