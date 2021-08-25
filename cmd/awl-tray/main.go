@@ -72,7 +72,11 @@ func onReady() {
 	go func() {
 		for range openBrowserMenu.ClickedCh {
 			if a := app; app != nil {
-				_ = open.Run("http://" + a.Api.Address())
+				// TODO: doesn't work on linux under root
+				err := open.Run("http://" + a.Api.Address())
+				if err != nil {
+					logger.Errorf("failed to open web ui: %v", err)
+				}
 			}
 		}
 	}()
