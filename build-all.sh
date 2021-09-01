@@ -45,7 +45,9 @@ flutter build web --release
 cp -r "$awlflutterdir/build/web" "$awldir/static"
 
 cd "$awldir/cmd/gomobile-lib"
+go get -d golang.org/x/mobile/cmd/gomobile
 gomobile bind -ldflags "-X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
+go mod tidy
 mv anywherelan.aar "$awlflutterdir/android/app/src/main/libs/"
 
 cd "$awlflutterdir"
