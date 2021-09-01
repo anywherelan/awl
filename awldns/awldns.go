@@ -31,6 +31,9 @@ type Resolver struct {
 	tcpClient *dns.Client
 	cfg       atomic.Value
 	logger    *log.ZapEventLogger
+
+	udpServerWorking bool
+	tcpServerWorking bool
 }
 
 type config struct {
@@ -64,6 +67,7 @@ func NewResolver() *Resolver {
 		Handler: mux,
 		NotifyStartedFunc: func() {
 			r.logger.Infof("udp server has started on %s", DNSAddress)
+			r.udpServerWorking = true
 		},
 	}
 	r.tcpServer = &dns.Server{
@@ -72,6 +76,7 @@ func NewResolver() *Resolver {
 		Handler: mux,
 		NotifyStartedFunc: func() {
 			r.logger.Infof("tcp server has started on %s", DNSAddress)
+			r.tcpServerWorking = true
 		},
 	}
 	go func() {
@@ -79,12 +84,14 @@ func NewResolver() *Resolver {
 		if err != nil {
 			r.logger.Errorf("serve udp server: %v", err)
 		}
+		r.udpServerWorking = false
 	}()
 	go func() {
 		err := r.tcpServer.ListenAndServe()
 		if err != nil {
 			r.logger.Errorf("serve tcp server: %v", err)
 		}
+		r.tcpServerWorking = false
 	}()
 
 	return r
@@ -101,7 +108,7 @@ func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[str
 		// for consistency we will take the shortest one (usually peerName, which is more human-readable)
 		if !exists {
 			reverseMapping[ip] = canonicalName
-		} else if exists && canonicalName < existedName {
+		} else if exists && len(canonicalName) < len(existedName) {
 			reverseMapping[ip] = canonicalName
 		}
 	}
@@ -112,6 +119,14 @@ func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[str
 		reverseMapping: reverseMapping,
 	}
 	r.cfg.Store(cfg)
+}
+
+func (r *Resolver) DNSAddress() string {
+	if !r.tcpServerWorking || !r.udpServerWorking {
+		return ""
+	}
+
+	return DNSAddress
 }
 
 func (r *Resolver) Close() {

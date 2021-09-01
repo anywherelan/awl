@@ -18,24 +18,31 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
+type DNSService interface {
+	AwlDNSAddress() string
+	IsAwlDNSSetAsSystem() bool
+}
+
 type Handler struct {
 	conf       *config.Config
 	logger     *log.ZapEventLogger
 	p2p        *service.P2pService
 	authStatus *service.AuthStatus
 	tunnel     *service.Tunnel
+	dns        DNSService
 	logBuffer  *ringbuffer.RingBuffer
 
 	echo *echo.Echo
 }
 
 func NewHandler(conf *config.Config, p2p *service.P2pService, authStatus *service.AuthStatus,
-	tunnel *service.Tunnel, logBuffer *ringbuffer.RingBuffer) *Handler {
+	tunnel *service.Tunnel, logBuffer *ringbuffer.RingBuffer, dns DNSService) *Handler {
 	return &Handler{
 		conf:       conf,
 		p2p:        p2p,
 		authStatus: authStatus,
 		tunnel:     tunnel,
+		dns:        dns,
 		logBuffer:  logBuffer,
 		logger:     log.Logger("awl/api"),
 	}

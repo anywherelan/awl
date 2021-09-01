@@ -46,6 +46,9 @@ type (
 		NetworkStats            metrics.Stats
 		TotalBootstrapPeers     int
 		ConnectedBootstrapPeers int
+		Reachability            string `enums:"Unknown,Public,Private"`
+		AwlDNSAddress           string
+		IsAwlDNSSetAsSystem     bool
 	}
 
 	AuthRequest struct {
@@ -67,7 +70,7 @@ type (
 	}
 	DhtDebugInfo struct {
 		RoutingTableSize    int
-		Reachability        string
+		Reachability        string `enums:"Unknown,Public,Private"`
 		ListenAddress       []string
 		PeersWithAddrsCount int
 		ObservedAddrs       []string

@@ -25,6 +25,9 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 		NetworkStats:            h.p2p.NetworkStats(),
 		TotalBootstrapPeers:     totalBootstraps,
 		ConnectedBootstrapPeers: connectedBootstraps,
+		Reachability:            h.p2p.Reachability().String(),
+		AwlDNSAddress:           h.dns.AwlDNSAddress(),
+		IsAwlDNSSetAsSystem:     h.dns.IsAwlDNSSetAsSystem(),
 	}
 
 	return c.JSON(http.StatusOK, peerInfo)

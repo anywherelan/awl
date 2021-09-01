@@ -73,10 +73,7 @@ type Application struct {
 	P2pService *service.P2pService
 	AuthStatus *service.AuthStatus
 	Tunnel     *service.Tunnel
-
-	dnsOsConfigurator dns.OSConfigurator
-	dnsResolver       *awldns.Resolver
-	upstreamDNS       string
+	Dns        *DNSService
 }
 
 func New() *Application {
@@ -112,6 +109,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		return err
 	}
 
+	a.Dns = NewDNSService(a.Conf, a.Eventbus, a.ctx, a.logger)
 	a.P2pService = service.NewP2p(p2pSrv, a.Conf)
 	a.AuthStatus = service.NewAuthStatus(a.P2pService, a.Conf, a.Eventbus)
 	a.Tunnel = service.NewTunnel(a.P2pService, vpnDevice, a.Conf)
@@ -120,19 +118,26 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	host.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
 	host.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
 
-	handler := api.NewHandler(a.Conf, a.P2pService, a.AuthStatus, a.Tunnel, a.LogBuffer)
+	handler := api.NewHandler(a.Conf, a.P2pService, a.AuthStatus, a.Tunnel, a.LogBuffer, a.Dns)
 	a.Api = handler
 	err = handler.SetupAPI()
 	if err != nil {
 		return fmt.Errorf("failed to setup api: %v", err)
 	}
+	// because of cyclic dependency between api and dns
+	a.Dns.api = a.Api
 
 	go a.P2pService.MaintainBackgroundConnections(a.Conf.P2pNode.ReconnectionIntervalSec)
 	go a.AuthStatus.BackgroundRetryAuthRequests()
 	go a.AuthStatus.BackgroundExchangeStatusInfo()
 
 	if useAwldns {
-		a.initDNS()
+		interfaceName, err := a.vpnDevice.InterfaceName()
+		if err != nil {
+			a.logger.Errorf("failed to get TUN interface name: %v", err)
+			return nil
+		}
+		a.Dns.initDNS(interfaceName)
 	}
 
 	return nil
@@ -226,28 +231,36 @@ func (a *Application) Close() {
 			a.logger.Errorf("closing vpn: %v", err)
 		}
 	}
-	if a.dnsOsConfigurator != nil {
-		err := a.dnsOsConfigurator.Close()
-		if err != nil {
-			a.logger.Errorf("closing dns configurator: %v", err)
-		}
-	}
-	if a.dnsResolver != nil {
-		a.dnsResolver.Close()
+	if a.Dns != nil {
+		a.Dns.Close()
 	}
 	a.Conf.Save()
 }
 
-func (a *Application) initDNS() {
-	interfaceName, err := a.vpnDevice.InterfaceName()
-	if err != nil {
-		a.logger.Errorf("failed to get TUN interface name: %v", err)
-		return
-	}
+type DNSService struct {
+	conf     *config.Config
+	eventbus awlevent.Bus
+	ctx      context.Context
+	logger   *log.ZapEventLogger
+	api      *api.Handler
+
+	dnsOsConfigurator   dns.OSConfigurator
+	dnsResolver         *awldns.Resolver
+	upstreamDNS         string
+	awlDNSAddress       string
+	isAwlDNSSetAsSystem bool
+}
+
+func NewDNSService(conf *config.Config, eventbus awlevent.Bus, ctx context.Context, logger *log.ZapEventLogger) *DNSService {
+	return &DNSService{conf: conf, eventbus: eventbus, ctx: ctx, logger: logger}
+}
+
+func (a *DNSService) initDNS(interfaceName string) {
+	var err error
 	a.dnsResolver = awldns.NewResolver()
 	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
 		a.refreshDNSConfig()
-	}, a.Eventbus, new(awlevent.KnownPeerChanged))
+	}, a.eventbus, new(awlevent.KnownPeerChanged))
 	defer a.refreshDNSConfig()
 
 	tsLogger := log.Logger("ts/dnsconf")
@@ -291,16 +304,40 @@ func (a *Application) initDNS() {
 		a.logger.Errorf("set dns config to os configurator: %v", err)
 	} else {
 		a.logger.Info("successfully set dns config to os")
+		a.isAwlDNSSetAsSystem = true
 	}
 }
 
-func (a *Application) refreshDNSConfig() {
-	if a.Api == nil || a.dnsResolver == nil {
-		a.logger.DPanicf("called refreshDNSConfig with nil api %v or resolver %v", a.Api, a.dnsResolver)
+func (a *DNSService) refreshDNSConfig() {
+	if a.api == nil || a.dnsResolver == nil {
+		a.logger.DPanicf("called refreshDNSConfig with nil api %v or resolver %v", a.api, a.dnsResolver)
 		return
 	}
-	dnsNamesMapping := a.Conf.DNSNamesMapping()
-	apiHost, _, _ := net.SplitHostPort(a.Api.Address())
+	dnsNamesMapping := a.conf.DNSNamesMapping()
+	apiHost, _, _ := net.SplitHostPort(a.api.Address())
 	dnsNamesMapping[config.HttpServerDomainName] = apiHost
 	a.dnsResolver.ReceiveConfiguration(a.upstreamDNS, dnsNamesMapping)
+}
+
+func (a *DNSService) Close() {
+	if a.dnsOsConfigurator != nil {
+		err := a.dnsOsConfigurator.Close()
+		if err != nil {
+			a.logger.Errorf("closing dns configurator: %v", err)
+		}
+	}
+	if a.dnsResolver != nil {
+		a.dnsResolver.Close()
+	}
+}
+
+func (a *DNSService) AwlDNSAddress() string {
+	if a.dnsResolver != nil {
+		return a.dnsResolver.DNSAddress()
+	}
+	return ""
+}
+
+func (a *DNSService) IsAwlDNSSetAsSystem() bool {
+	return a.isAwlDNSSetAsSystem
 }
