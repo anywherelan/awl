@@ -278,7 +278,8 @@ func (a *Application) initDNS() {
 
 		a.logger.Infof("os does not support split dns. base config: %v", baseOSConfig)
 		if len(baseOSConfig.Nameservers) == 0 {
-			a.logger.Errorf("got zero nameservers from os configurator")
+			a.logger.Errorf("got zero nameservers from os configurator, use %s as default", awldns.DefaultUpstreamDNSAddress)
+			a.upstreamDNS = awldns.DefaultUpstreamDNSAddress
 		} else {
 			// TODO: use all nameservers in awldns resolver proxy
 			a.upstreamDNS = net.JoinHostPort(baseOSConfig.Nameservers[0].String(), awldns.DefaultDNSPort)

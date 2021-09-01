@@ -14,10 +14,14 @@ const (
 	defaultTTL        = 60 * time.Second
 	defaultTTLSeconds = uint32(defaultTTL / time.Second)
 	ptrV4Suffix       = ".in-addr.arpa."
-	LocalDomain       = "awl"
-	DNSIp             = "127.0.0.66"
-	DefaultDNSPort    = "53"
-	DNSAddress        = "127.0.0.66:53"
+)
+
+const (
+	LocalDomain               = "awl"
+	DNSIp                     = "127.0.0.66"
+	DefaultDNSPort            = "53"
+	DNSAddress                = "127.0.0.66:53"
+	DefaultUpstreamDNSAddress = "1.1.1.1:53"
 )
 
 type Resolver struct {
@@ -94,7 +98,7 @@ func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[str
 		directMapping[canonicalName] = ip
 		existedName, exists := reverseMapping[ip]
 		// we always have at least two names for one ip: peerName and peerID
-		// for consistency we will take the shortest one (usually peerName, which is more human readable)
+		// for consistency we will take the shortest one (usually peerName, which is more human-readable)
 		if !exists {
 			reverseMapping[ip] = canonicalName
 		} else if exists && canonicalName < existedName {
