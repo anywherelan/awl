@@ -139,6 +139,10 @@ definitions:
       peersWithAddrsCount:
         type: integer
       reachability:
+        enum:
+          - Unknown
+          - Public
+          - Private
         type: string
       routingTableSize:
         type: integer
@@ -200,13 +204,23 @@ definitions:
     type: object
   entity.PeerInfo:
     properties:
+      awlDNSAddress:
+        type: string
       connectedBootstrapPeers:
         type: integer
+      isAwlDNSSetAsSystem:
+        type: boolean
       name:
         type: string
       networkStats:
         $ref: '#/definitions/metrics.Stats'
       peerID:
+        type: string
+      reachability:
+        enum:
+          - Unknown
+          - Public
+          - Private
         type: string
       serverVersion:
         type: string
