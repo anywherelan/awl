@@ -47,6 +47,12 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 		}
 		result = append(result, kpr)
 	}
+
+	// list connected peers first
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].Connected && !result[j].Connected
+	})
+
 	return c.JSON(http.StatusOK, result)
 }
 
