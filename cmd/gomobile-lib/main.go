@@ -19,10 +19,6 @@ var (
 	globalDataDir string
 )
 
-/*
-	gomobile bind -o anywherelan.aar -target=android .
-*/
-
 // All public functions are part of a library
 
 // TODO: возвращать ошибку, а не просто логировать
@@ -40,6 +36,7 @@ func InitServer(dataDir string, tunFD int32) {
 	if err != nil {
 		logger.Errorf("init server: %v", err)
 		app.Close()
+		app = nil
 	}
 }
 
@@ -59,5 +56,8 @@ func ImportConfig(data string) error {
 }
 
 func GetApiAddress() string {
-	return app.Api.Address()
+	if app != nil && app.Api != nil {
+		return app.Api.Address()
+	}
+	return ""
 }
