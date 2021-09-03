@@ -13,8 +13,8 @@ The first step is to clone [awl](https://github.com/anywherelan/awl) and [awl-fl
 
 ```bash
 cd awl
-./build-all.sh
+./build.sh release
 ls build
 ```
 
-See [build-all.sh](build-all.sh) for more details.
+See [build.sh](build.sh) for more details.
