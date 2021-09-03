@@ -183,7 +183,8 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {
 	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNet)
 	if err != nil {
-		logger.Errorf("parse CIDR: %v", err)
+		logger.Errorf("parse CIDR %s: %v", c.VPNConfig.IPNet, err)
+		return nil, nil
 	}
 	return localIP.To4(), ipNet.Mask
 }

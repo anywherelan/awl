@@ -163,6 +163,17 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.HttpListenAddress = "127.0.0.1:" + strconv.Itoa(DefaultHTTPPort)
 	}
 	conf.Version = Version
+
+	if conf.VPNConfig.IPNet == "" {
+		conf.VPNConfig.IPNet = defaultNetworkSubnet
+	}
+	if ip, _ := conf.VPNLocalIPMask(); ip == nil {
+		conf.VPNConfig.IPNet = defaultNetworkSubnet
+	}
+	if conf.VPNConfig.InterfaceName == "" {
+		conf.VPNConfig.InterfaceName = defaultInterfaceName
+	}
+
 	if conf.KnownPeers == nil {
 		conf.KnownPeers = make(map[string]KnownPeer)
 	}
@@ -172,12 +183,6 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 			peer.IPAddr = conf.GenerateNextIpAddr()
 		}
 		conf.KnownPeers[peerID] = peer
-	}
-	if conf.VPNConfig.IPNet == "" {
-		conf.VPNConfig.IPNet = defaultNetworkSubnet
-	}
-	if conf.VPNConfig.InterfaceName == "" {
-		conf.VPNConfig.InterfaceName = defaultInterfaceName
 	}
 
 	if conf.dataDir == "" {
