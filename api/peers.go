@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
@@ -161,6 +162,7 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 		Alias:     req.Alias,
 		IPAddr:    ipAddr,
 		Confirmed: false,
+		CreatedAt: time.Now(),
 	}
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
@@ -225,6 +227,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 		Alias:     req.Alias,
 		IPAddr:    ipAddr,
 		Confirmed: true,
+		CreatedAt: time.Now(),
 	}
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)

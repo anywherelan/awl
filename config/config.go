@@ -62,6 +62,8 @@ type (
 		Alias string `json:"alias"`
 		// IPAddr used for forwarding
 		IPAddr string `json:"ipAddr"`
+		// Time of adding to config (accept/invite)
+		CreatedAt time.Time `json:"createdAt"`
 		// Time of last connection
 		LastSeen time.Time `json:"lastSeen"`
 		// Has remote peer confirmed our invitation
