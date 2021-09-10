@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/anywherelan/awl/protocol"
@@ -40,6 +41,7 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 			Name:         knownPeer.DisplayName(),
 			Version:      h.p2p.PeerVersion(id),
 			IpAddr:       knownPeer.IPAddr,
+			DomainName:   knownPeer.DomainName,
 			Connected:    h.p2p.IsConnected(id),
 			Confirmed:    knownPeer.Confirmed,
 			LastSeen:     knownPeer.LastSeen,
@@ -100,6 +102,8 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	}
 	if err = c.Validate(req); err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
+	} else if !awldns.IsValidDomainName(req.DomainName) {
+		return c.JSON(http.StatusBadRequest, ErrorMessage("invalid domain name"))
 	}
 
 	knownPeer, exists := h.conf.GetPeer(req.PeerID)
@@ -109,6 +113,7 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	peerID := knownPeer.PeerId()
 
 	knownPeer.Alias = req.Alias
+	knownPeer.DomainName = req.DomainName
 	h.conf.UpsertPeer(knownPeer)
 
 	// not necessary now because we do not send anything

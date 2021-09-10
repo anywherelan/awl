@@ -17,8 +17,9 @@ type (
 		PeerID string `validate:"required"`
 	}
 	UpdatePeerSettingsRequest struct {
-		PeerID string `validate:"required"`
-		Alias  string
+		PeerID     string `validate:"required"`
+		Alias      string
+		DomainName string
 	}
 	UpdateMySettingsRequest struct {
 		Name string
@@ -32,6 +33,7 @@ type (
 		Name         string
 		Version      string
 		IpAddr       string
+		DomainName   string
 		Connected    bool
 		Confirmed    bool
 		LastSeen     time.Time

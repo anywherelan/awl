@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/ipfs/go-log/v2"
 	"github.com/miekg/dns"
@@ -233,6 +234,23 @@ func (r *Resolver) dnsProxyHandler(resp dns.ResponseWriter, req *dns.Msg) {
 	}
 
 	_ = resp.WriteMsg(upstreamResp)
+}
+
+func TrimDomainName(domain string) string {
+	domain = strings.TrimSpace(domain)
+	domain = strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return '_'
+		}
+		return r
+	}, domain)
+
+	return strings.ToLower(domain)
+}
+
+func IsValidDomainName(domain string) bool {
+	_, ok := dns.IsDomainName(domain + "." + LocalDomain)
+	return ok && domain == TrimDomainName(domain)
 }
 
 func ptrV4NameToIP(name string) net.IP {

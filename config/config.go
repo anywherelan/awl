@@ -62,6 +62,8 @@ type (
 		Alias string `json:"alias"`
 		// IPAddr used for forwarding
 		IPAddr string `json:"ipAddr"`
+		// DomainName without zone suffix (.awl)
+		DomainName string `json:"domainName"`
 		// Time of adding to config (accept/invite)
 		CreatedAt time.Time `json:"createdAt"`
 		// Time of last connection
@@ -198,8 +200,9 @@ func (c *Config) DNSNamesMapping() map[string]string {
 
 	for _, knownPeer := range c.KnownPeers {
 		mapping[knownPeer.PeerID] = knownPeer.IPAddr
-		// TODO: remove spaces, etc from name
-		mapping[knownPeer.DisplayName()] = knownPeer.IPAddr
+		if knownPeer.DomainName != "" {
+			mapping[knownPeer.DomainName] = knownPeer.IPAddr
+		}
 	}
 
 	return mapping
