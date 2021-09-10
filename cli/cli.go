@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/config"
@@ -13,6 +14,8 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli/v2"
 )
+
+var defaultApiAddr = "127.0.0.1:" + strconv.Itoa(config.DefaultHTTPPort)
 
 type Application struct {
 	logger *log.ZapEventLogger
@@ -51,7 +54,7 @@ func (a *Application) init() {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "api_addr",
-				Usage:       "awl api address, example: 127.0.0.1:8639",
+				Usage:       fmt.Sprintf("awl api address, example: %s", defaultApiAddr),
 				Required:    false,
 				Destination: &apiAddr,
 			},
@@ -74,7 +77,9 @@ func (a *Application) init() {
 			}
 			conf, err := config.LoadConfig(eventbus.NewBus())
 			if err != nil {
-				return fmt.Errorf("could not load config, api_addr does not set, exit (%v)", err)
+				a.logger.Errorf("could not load config, use default api_addr (%s), error: %v", defaultApiAddr, err)
+				addr = defaultApiAddr
+				return nil
 			}
 			addr = conf.HttpListenAddress
 			if addr == "" {
