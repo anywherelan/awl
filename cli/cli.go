@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"strconv"
 
 	"github.com/anywherelan/awl/api/apiclient"
@@ -48,9 +49,10 @@ func (a *Application) Run() {
 func (a *Application) init() {
 	var apiAddr string
 	a.cliapp = &cli.App{
-		Name:    "awl",
-		Version: config.Version,
-		Usage:   "p2p mesh vpn",
+		Name:     "awl",
+		HelpName: path.Base(os.Args[0]) + " cli",
+		Version:  config.Version,
+		Usage:    "p2p mesh vpn",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "api_addr",
