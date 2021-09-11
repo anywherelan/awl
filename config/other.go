@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
@@ -131,7 +132,7 @@ func ImportConfig(data []byte, directory string) error {
 func setDefaults(conf *Config, bus awlevent.Bus) {
 	// P2pNode
 	if len(conf.P2pNode.ListenAddresses) == 0 {
-		multiaddrs := make([]multiaddr.Multiaddr, 0, 4)
+		var multiaddrs []multiaddr.Multiaddr
 		for _, s := range []string{
 			"/ip4/0.0.0.0/tcp/0",
 			"/ip6/::/tcp/0",
@@ -181,6 +182,9 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		peer := conf.KnownPeers[peerID]
 		if peer.IPAddr == "" {
 			peer.IPAddr = conf.GenerateNextIpAddr()
+		}
+		if peer.DomainName == "" {
+			peer.DomainName = awldns.TrimDomainName(peer.DisplayName())
 		}
 		conf.KnownPeers[peerID] = peer
 	}
