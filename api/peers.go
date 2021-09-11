@@ -169,6 +169,7 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 		Confirmed: false,
 		CreatedAt: time.Now(),
 	}
+	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
 	h.tunnel.RefreshPeersList()
@@ -234,6 +235,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 		Confirmed: true,
 		CreatedAt: time.Now(),
 	}
+	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
 	h.tunnel.RefreshPeersList()
