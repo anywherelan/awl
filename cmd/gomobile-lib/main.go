@@ -21,8 +21,7 @@ var (
 
 // All public functions are part of a library
 
-// TODO: возвращать ошибку, а не просто логировать
-func InitServer(dataDir string, tunFD int32) {
+func InitServer(dataDir string, tunFD int32) error {
 	globalDataDir = dataDir
 	_ = os.Setenv(config.AppDataDirEnvKey, dataDir)
 	_ = os.Setenv(vpn.TunFDEnvKey, strconv.Itoa(int(tunFD)))
@@ -34,10 +33,10 @@ func InitServer(dataDir string, tunFD int32) {
 
 	err := app.Init(ctx, nil)
 	if err != nil {
-		logger.Errorf("init server: %v", err)
 		app.Close()
 		app = nil
 	}
+	return err
 }
 
 func StopServer() {
