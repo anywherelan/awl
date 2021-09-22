@@ -32,7 +32,6 @@ import (
 	basichost "github.com/libp2p/go-libp2p/p2p/host/basic"
 	"github.com/libp2p/go-libp2p/p2p/host/relay"
 	"github.com/libp2p/go-tcp-transport"
-	ws "github.com/libp2p/go-ws-transport"
 	"github.com/multiformats/go-multiaddr"
 	"go.uber.org/multierr"
 )
@@ -129,7 +128,6 @@ func (p *P2p) InitHost() (host.Host, error) {
 		libp2p.ChainOptions(
 			libp2p.Transport(quic.NewTransport),
 			libp2p.Transport(tcp.NewTCPTransport),
-			libp2p.Transport(ws.New),
 		),
 		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
 			kademliaDHT, err := dht.New(p.ctx, h,
