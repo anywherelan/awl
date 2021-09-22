@@ -18,7 +18,7 @@ gobuild() {
   name="$1"
   for arch in 386 amd64 arm arm64; do
     filename="$name-linux-$arch-$VERSION"
-    GOOS=linux GOARCH=$arch go build -ldflags "-X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     mv "$filename" "$builddir"
   done
 
@@ -28,7 +28,7 @@ gobuild() {
     cp "/tmp/$wintun_version/wintun/bin/$wintunarch/wintun.dll" wintun.dll
 
     filename="$name-windows-$goarch-$VERSION.exe"
-    GOOS=windows GOARCH=$goarch go build -ldflags "-H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    GOOS=windows GOARCH=$goarch go build -trimpath -ldflags "-H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     mv "$filename" "$builddir"
     rm -f "wintun.dll"
   done
@@ -53,7 +53,7 @@ build-web() {
 build-mobile-lib() {
   cd "$awldir/cmd/gomobile-lib"
   go get -d golang.org/x/mobile/cmd/gomobile
-  gomobile bind -ldflags "-X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
+  gomobile bind -trimpath -ldflags "-X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
   go mod edit -droprequire=golang.org/x/mobile
   go mod tidy
   mv anywherelan.aar "$awlflutterdir/android/app/src/main/libs/"
