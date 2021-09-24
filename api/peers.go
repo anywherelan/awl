@@ -45,7 +45,7 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 			Connected:    h.p2p.IsConnected(id),
 			Confirmed:    knownPeer.Confirmed,
 			LastSeen:     knownPeer.LastSeen,
-			Addresses:    h.p2p.PeerAddresses(id),
+			Connections:  h.p2p.PeerConnectionsInfo(id),
 			NetworkStats: h.p2p.NetworkStatsForPeer(id),
 		}
 		result = append(result, kpr)

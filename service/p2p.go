@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -115,6 +116,21 @@ func (s *P2pService) PeerAddresses(peerID peer.ID) []string {
 		addrs = append(addrs, conn.RemoteMultiaddr().String())
 	}
 	return addrs
+}
+
+func (s *P2pService) PeerConnectionsInfo(peerID peer.ID) []entity.ConnectionInfo {
+	conns := s.p2pServer.ConnsToPeer(peerID)
+	infos := make([]entity.ConnectionInfo, 0, len(conns))
+	for _, conn := range conns {
+		addr := conn.RemoteMultiaddr()
+		info, parsed := parseMultiaddrToInfo(addr)
+		if !parsed {
+			s.logger.DPanicf("could not parse multiaddr %s", addr)
+			// still add unparsed info with multiaddr
+		}
+		infos = append(infos, info)
+	}
+	return infos
 }
 
 // BootstrapPeersStats returns total peers count and connected count.
@@ -286,4 +302,26 @@ func (s *P2pService) onDisconnected(_ network.Network, conn network.Conn) {
 	for _, f := range s.onPeerDisconnected {
 		f(peerID, conn)
 	}
+}
+
+func parseMultiaddrToInfo(addr ma.Multiaddr) (entity.ConnectionInfo, bool) {
+	info := entity.ConnectionInfo{Multiaddr: addr.String()}
+	protocols := addr.Protocols()
+	if len(protocols) == 2 && protocols[1].Code == ma.P_TCP {
+		info.Protocol = protocols[1].Name
+		ip, _ := addr.ValueForProtocol(protocols[0].Code)
+		port, _ := addr.ValueForProtocol(protocols[1].Code)
+		info.Address = net.JoinHostPort(ip, port)
+	} else if len(protocols) == 3 && protocols[2].Code == ma.P_QUIC {
+		info.Protocol = protocols[2].Name
+		ip, _ := addr.ValueForProtocol(protocols[0].Code)
+		port, _ := addr.ValueForProtocol(protocols[1].Code)
+		info.Address = net.JoinHostPort(ip, port)
+	} else if _, err := addr.ValueForProtocol(ma.P_CIRCUIT); err == nil {
+		info.ThroughRelay = true
+		info.RelayPeerID, _ = addr.ValueForProtocol(ma.P_P2P)
+	} else {
+		return info, false
+	}
+	return info, true
 }

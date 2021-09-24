@@ -37,9 +37,17 @@ type (
 		Connected    bool
 		Confirmed    bool
 		LastSeen     time.Time
-		Addresses    []string
+		Connections  []ConnectionInfo
 		NetworkStats metrics.Stats
 	}
+	ConnectionInfo struct {
+		Multiaddr    string
+		ThroughRelay bool
+		RelayPeerID  string
+		Address      string
+		Protocol     string
+	}
+
 	PeerInfo struct {
 		PeerID                  string
 		Name                    string
