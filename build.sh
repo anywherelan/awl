@@ -14,14 +14,17 @@ if [[ ! -e "/tmp/$wintun_version" ]]; then
   rm -f "$wintun_version.zip"
 fi
 
-gobuild() {
+gobuild-linux() {
   name="$1"
   for arch in 386 amd64 arm arm64; do
     filename="$name-linux-$arch-$VERSION"
     GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     mv "$filename" "$builddir"
   done
+}
 
+gobuild-windows() {
+  name="$1"
   for tuple in "386 x86" "amd64 amd64"; do
     goarch=$(echo "$tuple" | cut -f1 -d" ")
     wintunarch=$(echo "$tuple" | cut -f2 -d" ")
@@ -72,17 +75,45 @@ build-mobile() {
 
 build-awl() {
   cd "$awldir/cmd/awl"
-  gobuild awl
+  gobuild-linux awl
+  gobuild-windows awl
 }
 
 build-awl-tray() {
   cd "$awldir/cmd/awl-tray"
-  gobuild awl-tray
+  gobuild-windows awl-tray
+  build-awl-tray-linux-crosscompile
+}
+
+build-awl-tray-linux() {
+  goos="$(go env GOOS)"
+  arch="$(go env GOARCH)"
+  filename="awl-tray-$goos-$arch-$VERSION"
+  cd "$awldir/cmd/awl-tray"
+  go build -trimpath -ldflags "-X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+  # set host's rights because when build from docker it will be root:root
+  host_uid="$(stat -c "%u" "$builddir")"
+  host_gid="$(stat -c "%g" "$builddir")"
+  chown "$host_uid:$host_gid" "$filename"
+  mv "$filename" "$builddir"
+}
+
+build-awl-tray-linux-crosscompile() {
+  cd "$awldir"
+  for arch in 386 amd64 arm arm64; do
+    docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp "awl-cross-$arch" /bin/sh -c './build.sh awl-tray-linux'
+  done
 }
 
 build-desktop() {
   build-awl
   build-awl-tray
+}
+
+build-docker-images() {
+  for arch in 386 amd64 arm arm64; do
+    docker build -t "awl-cross-$arch" "./crosscompile/linux-$arch"
+  done
 }
 
 case "${1:-default}" in
@@ -103,6 +134,15 @@ mobile)
   ;;
 desktop)
   build-desktop
+  ;;
+awl-tray-linux-crosscompile)
+  build-awl-tray-linux-crosscompile
+  ;;
+awl-tray-linux)
+  build-awl-tray-linux
+  ;;
+docker-images)
+  build-docker-images
   ;;
 clean)
   clean
