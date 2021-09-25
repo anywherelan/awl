@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -335,34 +336,36 @@ func (p *P2p) NewStream(id peer.ID, proto protocol.ID) (network.Stream, error) {
 }
 
 func (p *P2p) Bootstrap() error {
+	p.logger.Debug("Bootstrapping the DHT")
+	// connect to the bootstrap nodes first
+	ctx, cancel := context.WithTimeout(p.ctx, 2*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+
+	for _, peerAddr := range p.cfg.GetBootstrapPeers() {
+		peerInfo, err := peer.AddrInfoFromP2pAddr(peerAddr)
+		if err != nil {
+			p.logger.Warnf("invalid addr info from bootstrap peer addr %v: %v", peerAddr, err)
+			continue
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.host.Connect(ctx, *peerInfo); err != nil && err != context.Canceled {
+				p.logger.Warnf("Connect to bootstrap node: %v", err)
+			} else if err == nil {
+				p.logger.Infof("Connection established with bootstrap node: %v", *peerInfo)
+			}
+		}()
+	}
+	wg.Wait()
+	p.logger.Info("Connection established with all bootstrap nodes")
+
 	if err := p.dht.Bootstrap(p.ctx); err != nil {
-		return err
+		return fmt.Errorf("bootstrap dht: %v", err)
 	}
 
-	p.logger.Debug("Bootstrapping the DHT")
-	go func() {
-		// connect to the bootstrap nodes first
-		var wg sync.WaitGroup
-		for _, peerAddr := range p.cfg.GetBootstrapPeers() {
-			peerInfo, err := peer.AddrInfoFromP2pAddr(peerAddr)
-			if err != nil {
-				p.logger.Warnf("invalid addr info from bootstrap peer addr %v: %v", peerAddr, err)
-				continue
-			}
-
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				if err := p.host.Connect(p.ctx, *peerInfo); err != nil && err != context.Canceled {
-					p.logger.Warnf("Connect to bootstrap node: %v", err)
-				} else if err == nil {
-					p.logger.Infof("Connection established with bootstrap node: %v", *peerInfo)
-				}
-			}()
-		}
-		wg.Wait()
-		p.logger.Info("Connection established with all bootstrap nodes")
-	}()
 	return nil
 }
 
