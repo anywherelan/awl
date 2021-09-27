@@ -59,7 +59,7 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 // @Tags Debug
 // @Summary Get logs
 // @Accept json
-// @Produce json
+// @Produce plain
 // @Success 200 {string} string "log text"
 // @Router /debug/log [GET]
 func (h *Handler) GetLog(c echo.Context) (err error) {

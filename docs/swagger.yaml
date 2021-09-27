@@ -30,6 +30,12 @@ definitions:
       confirmed:
         description: Has remote peer confirmed our invitation
         type: boolean
+      createdAt:
+        description: Time of adding to config (accept/invite)
+        type: string
+      domainName:
+        description: DomainName without zone suffix (.awl)
+        type: string
       ipAddr:
         description: IPAddr used for forwarding
         type: string
@@ -107,6 +113,19 @@ definitions:
       error:
         type: string
     type: object
+  entity.ConnectionInfo:
+    properties:
+      address:
+        type: string
+      multiaddr:
+        type: string
+      protocol:
+        type: string
+      relayPeerID:
+        type: string
+      throughRelay:
+        type: boolean
+    type: object
   entity.ConnectionsDebugInfo:
     properties:
       connectedPeersCount:
@@ -163,14 +182,16 @@ definitions:
     type: object
   entity.KnownPeersResponse:
     properties:
-      addresses:
-        items:
-          type: string
-        type: array
       confirmed:
         type: boolean
       connected:
         type: boolean
+      connections:
+        items:
+          $ref: '#/definitions/entity.ConnectionInfo'
+        type: array
+      domainName:
+        type: string
       ipAddr:
         type: string
       lastSeen:
@@ -238,6 +259,8 @@ definitions:
     properties:
       alias:
         type: string
+      domainName:
+        type: string
       peerID:
         type: string
     required:
@@ -266,7 +289,7 @@ paths:
       consumes:
       - application/json
       produces:
-      - application/json
+        - text/plain
       responses:
         "200":
           description: log text
@@ -349,16 +372,16 @@ paths:
       tags:
       - Peers
   /peers/get_known_peer_settings:
-    get:
+    post:
       consumes:
-      - application/json
+        - application/json
       parameters:
-      - description: Params
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/entity.PeerIDRequest'
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.PeerIDRequest'
       produces:
       - application/json
       responses:
@@ -405,16 +428,16 @@ paths:
       tags:
       - Peers
   /peers/update_settings:
-    get:
+    post:
       consumes:
-      - application/json
+        - application/json
       parameters:
-      - description: Params
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/entity.UpdatePeerSettingsRequest'
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.UpdatePeerSettingsRequest'
       produces:
       - application/json
       responses:

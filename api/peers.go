@@ -67,7 +67,7 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 // @Success 200 {object} config.KnownPeer
 // @Failure 400 {object} api.Error
 // @Failure 404 {object} api.Error
-// @Router /peers/get_known_peer_settings [GET]
+// @Router /peers/get_known_peer_settings [POST]
 func (h *Handler) GetKnownPeerSettings(c echo.Context) (err error) {
 	req := entity.PeerIDRequest{}
 	err = c.Bind(&req)
@@ -93,7 +93,7 @@ func (h *Handler) GetKnownPeerSettings(c echo.Context) (err error) {
 // @Success 200 "OK"
 // @Failure 400 {object} api.Error
 // @Failure 404 {object} api.Error
-// @Router /peers/update_settings [GET]
+// @Router /peers/update_settings [POST]
 func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	req := entity.UpdatePeerSettingsRequest{}
 	err = c.Bind(&req)
