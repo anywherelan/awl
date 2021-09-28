@@ -69,6 +69,7 @@ func (h *Handler) SetupAPI() error {
 	e.POST(SendFriendRequestPath, h.SendFriendRequest)
 	e.POST(AcceptPeerInvitationPath, h.AcceptFriend)
 	e.POST(UpdatePeerSettingsPath, h.UpdatePeerSettings)
+	e.POST(RemovePeerSettingsPath, h.RemovePeer)
 	e.GET(GetAuthRequestsPath, h.GetAuthRequests)
 
 	// Settings

@@ -264,3 +264,38 @@ func (h *Handler) GetAuthRequests(c echo.Context) (err error) {
 	}
 	return c.JSON(http.StatusOK, authRequests)
 }
+
+// @Tags Peers
+// @Summary Remove known peer
+// @Accept json
+// @Produce json
+// @Param body body entity.PeerIDRequest true "Params"
+// @Success 200 "OK"
+// @Failure 400 {object} api.Error
+// @Failure 404 {object} api.Error
+// @Router /peers/remove [POST]
+func (h *Handler) RemovePeer(c echo.Context) (err error) {
+	req := entity.PeerIDRequest{}
+	err = c.Bind(&req)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
+	}
+	if err = c.Validate(req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
+	}
+	peerId, err := peer.Decode(req.PeerID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest,
+			ErrorMessage("Invalid hex-encoded multihash representing of a peer ID"))
+	}
+
+	exists := h.conf.RemovePeer(req.PeerID)
+	if !exists {
+		return c.JSON(http.StatusNotFound, ErrorMessage("peer not found"))
+	}
+
+	h.p2p.UnprotectPeer(peerId)
+	h.tunnel.RefreshPeersList()
+
+	return c.NoContent(http.StatusOK)
+}

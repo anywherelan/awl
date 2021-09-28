@@ -96,6 +96,22 @@ func (c *Config) GetPeer(peerID string) (KnownPeer, bool) {
 	return knownPeer, ok
 }
 
+func (c *Config) RemovePeer(peerID string) bool {
+	c.Lock()
+	_, exists := c.KnownPeers[peerID]
+	if exists {
+		delete(c.KnownPeers, peerID)
+		c.save()
+	}
+	c.Unlock()
+
+	if exists {
+		c.emitter.Emit(awlevent.KnownPeerChanged{})
+	}
+
+	return exists
+}
+
 func (c *Config) UpsertPeer(peer KnownPeer) {
 	c.Lock()
 	c.KnownPeers[peer.PeerID] = peer

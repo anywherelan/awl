@@ -426,7 +426,34 @@ paths:
             $ref: '#/definitions/api.Error'
       summary: Invite new peer
       tags:
-      - Peers
+        - Peers
+  /peers/remove:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.PeerIDRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Remove known peer
+      tags:
+        - Peers
   /peers/update_settings:
     post:
       consumes:
