@@ -106,7 +106,7 @@ func (c *Config) RemovePeer(peerID string) bool {
 	c.Unlock()
 
 	if exists {
-		c.emitter.Emit(awlevent.KnownPeerChanged{})
+		_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
 	}
 
 	return exists
@@ -118,7 +118,7 @@ func (c *Config) UpsertPeer(peer KnownPeer) {
 	c.save()
 	c.Unlock()
 
-	c.emitter.Emit(awlevent.KnownPeerChanged{})
+	_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
 }
 
 func (c *Config) UpdatePeerLastSeen(peerID string) {

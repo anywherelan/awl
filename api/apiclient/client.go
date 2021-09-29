@@ -160,5 +160,4 @@ func (c *Client) readResponseBody(resp *http.Response, responseRef interface{}) 
 	}
 
 	return nil
-
 }

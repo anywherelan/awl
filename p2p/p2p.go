@@ -92,8 +92,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 
 	p.bandwidthCounter = metrics.NewBandwidthCounter()
 
-	var datastore ds.Batching
-	datastore = dssync.MutexWrap(ds.NewMapDatastore())
+	var datastore ds.Batching = dssync.MutexWrap(ds.NewMapDatastore())
 	// TODO: check badger2 when it released
 	//datastore, err = badger.NewDatastore(p.cfg.PeerstoreDir(), nil)
 	//datastore, err = leveldb.NewDatastore(p.cfg.PeerstoreDir(), nil)
@@ -112,7 +111,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 	relay.DesiredRelays = DesiredRelays
 	relay.BootDelay = RelayBootDelay
 
-	host, err := libp2p.New(p.ctx,
+	p2pHost, err := libp2p.New(p.ctx,
 		libp2p.EnableAutoRelay(),
 		libp2p.EnableRelay(),
 		//libp2p.StaticRelays(),
@@ -152,7 +151,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 		),
 		libp2p.NATPortMap(),
 	)
-	p.host = host
+	p.host = p2pHost
 
 	if err != nil {
 		return nil, err
@@ -184,7 +183,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 
 	p.listenEventbus()
 
-	return host, nil
+	return p2pHost, nil
 }
 
 func (p *P2p) Close() error {
@@ -285,13 +284,15 @@ func (p *P2p) OpenStreamStats() map[protocol.ID]map[string]int {
 				direction = "inbound"
 			case network.DirOutbound:
 				direction = "outbound"
+			case network.DirUnknown:
+				direction = "unknown"
 			}
 			protocolStats, ok := stats[stream.Protocol()]
 			if !ok {
 				protocolStats = make(map[string]int)
 				stats[stream.Protocol()] = protocolStats
 			}
-			protocolStats[direction] = protocolStats[direction] + 1
+			protocolStats[direction]++
 		}
 	}
 

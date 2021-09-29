@@ -83,17 +83,17 @@ func New() *Application {
 func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.ctx, a.ctxCancel = context.WithCancel(ctx)
 	p2pSrv := p2p.NewP2p(a.ctx, a.Conf)
-	host, err := p2pSrv.InitHost()
+	p2pHost, err := p2pSrv.InitHost()
 	if err != nil {
 		return err
 	}
 	a.p2pServer = p2pSrv
-	a.host = host
+	a.host = p2pHost
 
-	privKey := host.Peerstore().PrivKey(host.ID())
-	a.Conf.SetIdentity(privKey, host.ID())
-	a.logger.Infof("Host created. We are: %s", host.ID().String())
-	a.logger.Infof("Listen interfaces: %v", host.Addrs())
+	privKey := p2pHost.Peerstore().PrivKey(p2pHost.ID())
+	a.Conf.SetIdentity(privKey, p2pHost.ID())
+	a.logger.Infof("Host created. We are: %s", p2pHost.ID().String())
+	a.logger.Infof("Listen interfaces: %v", p2pHost.Addrs())
 
 	localIP, netMask := a.Conf.VPNLocalIPMask()
 	interfaceName := a.Conf.VPNConfig.InterfaceName
@@ -114,9 +114,9 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.AuthStatus = service.NewAuthStatus(a.P2pService, a.Conf, a.Eventbus)
 	a.Tunnel = service.NewTunnel(a.P2pService, vpnDevice, a.Conf)
 
-	host.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
-	host.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
-	host.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
+	p2pHost.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
+	p2pHost.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
+	p2pHost.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
 
 	handler := api.NewHandler(a.Conf, a.P2pService, a.AuthStatus, a.Tunnel, a.LogBuffer, a.Dns)
 	a.Api = handler
@@ -247,7 +247,6 @@ type DNSService struct {
 	dnsOsConfigurator   dns.OSConfigurator
 	dnsResolver         *awldns.Resolver
 	upstreamDNS         string
-	awlDNSAddress       string
 	isAwlDNSSetAsSystem bool
 }
 

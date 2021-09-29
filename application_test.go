@@ -90,7 +90,7 @@ func testPacket(length int) []byte {
 
 	if length > len(data) {
 		packet := make([]byte, length)
-		copy(packet[:], data)
+		copy(packet, data)
 		rand.Read(packet[len(data):])
 		return packet
 	}
