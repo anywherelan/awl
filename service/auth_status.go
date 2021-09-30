@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/protocol"
@@ -164,6 +165,9 @@ func (*AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protoco
 	peer.Name = peerInfo.Name
 	peer.Confirmed = true
 	peer.Declined = false
+	if peer.DomainName == "" {
+		peer.DomainName = awldns.TrimDomainName(peer.DisplayName())
+	}
 
 	return peer
 }
