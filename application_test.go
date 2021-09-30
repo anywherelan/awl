@@ -35,6 +35,59 @@ func TestMakeFriends(t *testing.T) {
 	makeFriends(a, peer2, peer1)
 }
 
+func TestRemovePeer(t *testing.T) {
+	a := require.New(t)
+
+	peer1 := newTestPeer(t, false)
+	defer peer1.Close()
+	peer2 := newTestPeer(t, false)
+	defer peer2.Close()
+
+	makeFriends(a, peer2, peer1)
+
+	// Remove peer2 from peer1
+	err := peer1.api.RemovePeer(peer2.PeerID())
+	a.NoError(err)
+
+	peer2From1, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+	a.EqualError(err, "peer not found")
+	a.Nil(peer2From1)
+	_, declinedPeerExists := peer1.app.Conf.GetDeclinedPeer(peer2.PeerID())
+	a.True(declinedPeerExists)
+
+	time.Sleep(500 * time.Millisecond)
+	peer1From2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+	a.NoError(err)
+	a.NotNil(peer1From2)
+	a.True(peer1From2.Confirmed)
+	a.True(peer1From2.Declined)
+
+	a.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
+	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
+
+	// Add peer2 from peer1 - should succeed
+	err = peer1.api.SendFriendRequest(peer2.PeerID(), "")
+	a.NoError(err)
+	time.Sleep(500 * time.Millisecond)
+
+	peer2From1, err = peer1.api.KnownPeerConfig(peer2.PeerID())
+	a.NoError(err)
+	a.True(peer2From1.Confirmed)
+	a.False(peer2From1.Declined)
+
+	_, declinedPeerExists = peer1.app.Conf.GetDeclinedPeer(peer2.PeerID())
+	a.False(declinedPeerExists)
+
+	peer1From2, err = peer2.api.KnownPeerConfig(peer1.PeerID())
+	a.NoError(err)
+	a.NotNil(peer1From2)
+	a.True(peer1From2.Confirmed)
+	a.False(peer1From2.Declined)
+
+	a.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
+	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
+}
+
 func BenchmarkTunnelPackets(b *testing.B) {
 	a := require.New(b)
 

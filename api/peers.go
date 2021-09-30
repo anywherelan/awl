@@ -170,6 +170,7 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 		CreatedAt: time.Now(),
 	}
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
+	h.conf.RemoveDeclinedPeer(req.PeerID)
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
 	h.tunnel.RefreshPeersList()
@@ -179,6 +180,9 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 			Name: h.conf.P2pNode.Name,
 		}
 		_ = h.authStatus.SendAuthRequest(peerId, authPeer)
+
+		knownPeer, _ := h.conf.GetPeer(req.PeerID)
+		_ = h.authStatus.ExchangeNewStatusInfo(peerId, knownPeer)
 	}()
 
 	return c.NoContent(http.StatusOK)
@@ -236,6 +240,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 		CreatedAt: time.Now(),
 	}
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
+	h.conf.RemoveDeclinedPeer(req.PeerID)
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
 	h.tunnel.RefreshPeersList()
@@ -289,13 +294,14 @@ func (h *Handler) RemovePeer(c echo.Context) (err error) {
 			ErrorMessage("Invalid hex-encoded multihash representing of a peer ID"))
 	}
 
-	exists := h.conf.RemovePeer(req.PeerID)
+	knownPeer, exists := h.conf.RemovePeer(req.PeerID)
 	if !exists {
 		return c.JSON(http.StatusNotFound, ErrorMessage("peer not found"))
 	}
 
 	h.p2p.UnprotectPeer(peerId)
 	h.tunnel.RefreshPeersList()
+	h.authStatus.DeclinePeer(knownPeer)
 
 	return c.NoContent(http.StatusOK)
 }

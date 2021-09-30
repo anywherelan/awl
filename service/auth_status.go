@@ -55,8 +55,9 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 
 	remotePeer := stream.Conn().RemotePeer()
 	peerID := remotePeer.String()
-	peer, known := s.conf.GetPeer(peerID)
-	if !known {
+	knownPeer, known := s.conf.GetPeer(peerID)
+	_, isDeclined := s.conf.GetDeclinedPeer(peerID)
+	if !known && !isDeclined {
 		s.logger.Infof("Unknown peer %s tried to exchange status info", peerID)
 		return
 	}
@@ -72,21 +73,26 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	s.authsLock.Unlock()
 
 	// Sending info
-	myPeerInfo := s.createPeerInfo(peer, s.conf.P2pNode.Name)
+	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isDeclined)
 	err = protocol.SendStatus(stream, myPeerInfo)
 	if err != nil {
 		s.logger.Errorf("sending status info to %s as an answer: %v", peerID, err)
 	}
 
+	s.logger.Infof("successfully exchanged status info with %s (%s)", knownPeer.DisplayName(), peerID)
+	if isDeclined {
+		return
+	}
 	// Processing opposite peer info
-	newPeer := s.processPeerStatusInfo(peer, oppositePeerInfo)
-	s.conf.UpsertPeer(newPeer)
 
-	s.logger.Infof("successfully exchanged status info with %s (%s)", peer.DisplayName(), peerID)
+	// get latest peer config to reduce race time between get and upsert (without locking)
+	// TODO: fix race completely
+	knownPeer, _ = s.conf.GetPeer(peerID)
+	newPeer := s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
+	s.conf.UpsertPeer(newPeer)
 }
 
-// TODO: race in upserting peer config.KnownPeer: update fields separate
-func (s *AuthStatus) ExchangeNewStatusInfo(remotePeerID peer.ID, peer config.KnownPeer) error {
+func (s *AuthStatus) ExchangeNewStatusInfo(remotePeerID peer.ID, knownPeer config.KnownPeer) error {
 	s.authsLock.Lock()
 	delete(s.ingoingAuths, remotePeerID)
 	s.authsLock.Unlock()
@@ -104,7 +110,8 @@ func (s *AuthStatus) ExchangeNewStatusInfo(remotePeerID peer.ID, peer config.Kno
 		_ = stream.Close()
 	}()
 
-	myPeerInfo := s.createPeerInfo(peer, s.conf.P2pNode.Name)
+	_, isDeclined := s.conf.GetDeclinedPeer(remotePeerID.String())
+	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isDeclined)
 	err = protocol.SendStatus(stream, myPeerInfo)
 	if err != nil {
 		return fmt.Errorf("sending status info: %v", err)
@@ -115,24 +122,49 @@ func (s *AuthStatus) ExchangeNewStatusInfo(remotePeerID peer.ID, peer config.Kno
 		return fmt.Errorf("receiving status info: %v", err)
 	}
 
-	newPeer := s.processPeerStatusInfo(peer, oppositePeerInfo)
+	if isDeclined {
+		return nil
+	}
+
+	// get latest peer config to reduce race time between get and upsert (without locking)
+	// TODO: fix race completely
+	knownPeer, _ = s.conf.GetPeer(remotePeerID.String())
+	newPeer := s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
 	s.conf.UpsertPeer(newPeer)
 
 	return nil
 }
 
-func (*AuthStatus) createPeerInfo(_ config.KnownPeer, name string) protocol.PeerStatusInfo {
+func (s *AuthStatus) DeclinePeer(knownPeer config.KnownPeer) {
+	s.conf.UpsertDeclinedPeer(knownPeer)
+	go func() {
+		_ = s.ExchangeNewStatusInfo(knownPeer.PeerId(), knownPeer)
+	}()
+}
+
+func (s *AuthStatus) createPeerInfo(_ config.KnownPeer, myPeerName string, declined bool) protocol.PeerStatusInfo {
+	if declined {
+		return protocol.PeerStatusInfo{
+			Declined: true,
+		}
+	}
 	myPeerInfo := protocol.PeerStatusInfo{
-		Name: name,
+		Name: myPeerName,
 	}
 
 	return myPeerInfo
 }
 
 func (*AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protocol.PeerStatusInfo) config.KnownPeer {
+	peer.LastSeen = time.Now()
+	if peerInfo.Declined {
+		peer.Declined = true
+		return peer
+	}
 	peer.Name = peerInfo.Name
 	peer.Confirmed = true
-	peer.LastSeen = time.Now()
+	peer.Declined = false
+
 	return peer
 }
 
@@ -149,18 +181,20 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 		return
 	}
 
+	_, isDeclined := s.conf.GetDeclinedPeer(peerID)
 	_, confirmed := s.conf.GetPeer(peerID)
-	if !confirmed {
+	if !confirmed && !isDeclined {
 		s.authsLock.Lock()
 		s.ingoingAuths[remotePeer] = authPeer
 		s.authsLock.Unlock()
-		s.authsEmitter.Emit(awlevent.ReceivedAuthRequest{
+		_ = s.authsEmitter.Emit(awlevent.ReceivedAuthRequest{
 			AuthPeer: authPeer,
 			PeerID:   peerID,
 		})
 	}
 
-	err = protocol.SendAuthResponse(stream, protocol.AuthPeerResponse{Confirmed: confirmed})
+	authResponse := protocol.AuthPeerResponse{Confirmed: confirmed, Declined: isDeclined}
+	err = protocol.SendAuthResponse(stream, authResponse)
 	if err != nil {
 		s.logger.Errorf("sending auth response to %s as an answer: %v", peerID, err)
 		return
@@ -197,10 +231,17 @@ func (s *AuthStatus) SendAuthRequest(peerID peer.ID, req protocol.AuthPeer) erro
 		return fmt.Errorf("receiving auth response from %s: %v", peerID, err)
 	}
 
-	if authResponse.Confirmed {
+	if authResponse.Confirmed || authResponse.Declined {
 		s.authsLock.Lock()
 		delete(s.outgoingAuths, peerID)
 		s.authsLock.Unlock()
+	}
+	if authResponse.Declined {
+		knownPeer, exists := s.conf.GetPeer(peerID.String())
+		if exists {
+			knownPeer.Declined = true
+			s.conf.UpsertPeer(knownPeer)
+		}
 	}
 
 	s.logger.Infof("Successfully send auth to %s", peerID)
@@ -266,7 +307,7 @@ func (s *AuthStatus) restoreOutgoingAuths() {
 	peerName := s.conf.P2pNode.Name
 	outgoingAuths := make(map[peer.ID]protocol.AuthPeer)
 	for _, knownPeer := range s.conf.KnownPeers {
-		if !knownPeer.Confirmed {
+		if !knownPeer.Confirmed && !knownPeer.Declined {
 			outgoingAuths[knownPeer.PeerId()] = protocol.AuthPeer{
 				Name: peerName,
 			}

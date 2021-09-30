@@ -85,6 +85,11 @@ func (c *Client) UpdatePeerSettings(request entity.UpdatePeerSettingsRequest) er
 	return c.sendPostRequest(api.UpdatePeerSettingsPath, request, nil)
 }
 
+func (c *Client) RemovePeer(peerID string) error {
+	request := entity.PeerIDRequest{PeerID: peerID}
+	return c.sendPostRequest(api.RemovePeerSettingsPath, request, nil)
+}
+
 func (c *Client) UpdateMySettings(name string) error {
 	request := entity.UpdateMySettingsRequest{
 		Name: name,

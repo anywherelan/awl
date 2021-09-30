@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	Version = "0.2.0"
+	Version = "0.3.0"
 
 	AuthMethod         protocol.ID = "/awl/" + Version + "/auth/"
 	GetStatusMethod    protocol.ID = "/awl/" + Version + "/status/"
@@ -19,7 +19,8 @@ const (
 
 type (
 	PeerStatusInfo struct {
-		Name string
+		Name     string
+		Declined bool
 	}
 )
 
@@ -40,6 +41,7 @@ type AuthPeer struct {
 
 type AuthPeerResponse struct {
 	Confirmed bool
+	Declined  bool
 }
 
 func ReceiveAuth(stream io.Reader) (AuthPeer, error) {

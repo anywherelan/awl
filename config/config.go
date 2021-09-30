@@ -33,12 +33,13 @@ type (
 		dataDir      string
 		emitter      awlevent.Emitter
 
-		Version           string               `json:"version"`
-		LoggerLevel       string               `json:"loggerLevel"`
-		HttpListenAddress string               `json:"httpListenAddress"`
-		P2pNode           P2pNodeConfig        `json:"p2pNode"`
-		VPNConfig         VPNConfig            `json:"vpn"`
-		KnownPeers        map[string]KnownPeer `json:"knownPeers"`
+		Version           string                  `json:"version"`
+		LoggerLevel       string                  `json:"loggerLevel"`
+		HttpListenAddress string                  `json:"httpListenAddress"`
+		P2pNode           P2pNodeConfig           `json:"p2pNode"`
+		VPNConfig         VPNConfig               `json:"vpn"`
+		KnownPeers        map[string]KnownPeer    `json:"knownPeers"`
+		DeclinedPeers     map[string]DeclinedPeer `json:"declinedPeers"`
 	}
 	P2pNodeConfig struct {
 		// Hex-encoded multihash representing a peer ID, calculated from Identity
@@ -70,6 +71,15 @@ type (
 		LastSeen time.Time `json:"lastSeen"`
 		// Has remote peer confirmed our invitation
 		Confirmed bool `json:"confirmed"`
+		// Has remote peer declined our invitation
+		Declined bool `json:"declined"`
+	}
+	DeclinedPeer struct {
+		// Hex-encoded multihash representing a peer ID
+		PeerID      string `json:"peerId"`
+		DisplayName string `json:"displayName"`
+		// Time of adding to config (decline invitation/remove from KnownPeers)
+		CreatedAt time.Time `json:"createdAt"`
 	}
 )
 
@@ -96,9 +106,9 @@ func (c *Config) GetPeer(peerID string) (KnownPeer, bool) {
 	return knownPeer, ok
 }
 
-func (c *Config) RemovePeer(peerID string) bool {
+func (c *Config) RemovePeer(peerID string) (KnownPeer, bool) {
 	c.Lock()
-	_, exists := c.KnownPeers[peerID]
+	knownPeer, exists := c.KnownPeers[peerID]
 	if exists {
 		delete(c.KnownPeers, peerID)
 		c.save()
@@ -109,7 +119,7 @@ func (c *Config) RemovePeer(peerID string) bool {
 		_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
 	}
 
-	return exists
+	return knownPeer, exists
 }
 
 func (c *Config) UpsertPeer(peer KnownPeer) {
@@ -128,6 +138,36 @@ func (c *Config) UpdatePeerLastSeen(peerID string) {
 		knownPeer.LastSeen = time.Now()
 		c.KnownPeers[peerID] = knownPeer
 	}
+	c.Unlock()
+}
+
+func (c *Config) GetDeclinedPeer(peerID string) (DeclinedPeer, bool) {
+	c.RLock()
+	declinedPeer, ok := c.DeclinedPeers[peerID]
+	c.RUnlock()
+	return declinedPeer, ok
+}
+
+func (c *Config) RemoveDeclinedPeer(peerID string) {
+	c.Lock()
+	_, exists := c.DeclinedPeers[peerID]
+	if exists {
+		delete(c.DeclinedPeers, peerID)
+		c.save()
+	}
+	c.Unlock()
+}
+
+func (c *Config) UpsertDeclinedPeer(knownPeer KnownPeer) {
+	c.Lock()
+	declinedPeer, exists := c.DeclinedPeers[knownPeer.PeerID]
+	if !exists {
+		declinedPeer.CreatedAt = time.Now()
+	}
+	declinedPeer.PeerID = knownPeer.PeerID
+	declinedPeer.DisplayName = knownPeer.DisplayName()
+	c.DeclinedPeers[knownPeer.PeerID] = declinedPeer
+	c.save()
 	c.Unlock()
 }
 
