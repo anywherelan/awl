@@ -7,6 +7,10 @@ definitions:
     type: object
   config.Config:
     properties:
+      declinedPeers:
+        additionalProperties:
+          $ref: '#/definitions/config.DeclinedPeer'
+        type: object
       httpListenAddress:
         type: string
       knownPeers:
@@ -22,6 +26,17 @@ definitions:
       vpn:
         $ref: '#/definitions/config.VPNConfig'
     type: object
+  config.DeclinedPeer:
+    properties:
+      createdAt:
+        description: Time of adding to config (decline invitation/remove from KnownPeers)
+        type: string
+      displayName:
+        type: string
+      peerId:
+        description: Hex-encoded multihash representing a peer ID
+        type: string
+    type: object
   config.KnownPeer:
     properties:
       alias:
@@ -33,6 +48,9 @@ definitions:
       createdAt:
         description: Time of adding to config (accept/invite)
         type: string
+      declined:
+        description: Has remote peer declined our invitation
+        type: boolean
       domainName:
         description: DomainName without zone suffix (.awl)
         type: string
@@ -190,6 +208,8 @@ definitions:
         items:
           $ref: '#/definitions/entity.ConnectionInfo'
         type: array
+      declined:
+        type: boolean
       domainName:
         type: string
       ipAddr:

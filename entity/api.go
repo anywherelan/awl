@@ -36,6 +36,7 @@ type (
 		DomainName   string
 		Connected    bool
 		Confirmed    bool
+		Declined     bool
 		LastSeen     time.Time
 		Connections  []ConnectionInfo
 		NetworkStats metrics.Stats

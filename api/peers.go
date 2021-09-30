@@ -42,6 +42,7 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 			DomainName:   knownPeer.DomainName,
 			Connected:    h.p2p.IsConnected(id),
 			Confirmed:    knownPeer.Confirmed,
+			Declined:     knownPeer.Declined,
 			LastSeen:     knownPeer.LastSeen,
 			Connections:  h.p2p.PeerConnectionsInfo(id),
 			NetworkStats: h.p2p.NetworkStatsForPeer(id),
