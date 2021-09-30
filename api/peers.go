@@ -31,9 +31,7 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 	sort.Strings(peers)
 
 	for _, peerID := range peers {
-		h.conf.RLock()
-		knownPeer := h.conf.KnownPeers[peerID]
-		h.conf.RUnlock()
+		knownPeer, _ := h.conf.GetPeer(peerID)
 
 		id := knownPeer.PeerId()
 		kpr := entity.KnownPeersResponse{
