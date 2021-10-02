@@ -153,7 +153,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.P2pNode.BootstrapPeers = make([]string, 0)
 	}
 	if conf.P2pNode.ReconnectionIntervalSec == 0 {
-		conf.P2pNode.ReconnectionIntervalSec = 20
+		conf.P2pNode.ReconnectionIntervalSec = 10
 	}
 
 	// Other
