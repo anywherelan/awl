@@ -71,7 +71,7 @@ func (s *P2pService) ConnectPeer(ctx context.Context, peerID peer.ID) error {
 	if err != nil {
 		return fmt.Errorf("could not find peer %s: %v", peerID.String(), err)
 	}
-	err = s.p2pServer.ConnectPeer(ctx, peerInfo)
+	err = s.p2pServer.ConnectPeerAddr(ctx, peerInfo)
 
 	return err
 }
@@ -234,34 +234,45 @@ func (s *P2pService) RegisterOnPeerDisconnected(f func(peer.ID, network.Conn)) {
 	s.onPeerDisconnected = append(s.onPeerDisconnected, f)
 }
 
-func (s *P2pService) MaintainBackgroundConnections(intervalSec time.Duration) {
-	s.connectToKnownPeers()
-	time.Sleep(5 * time.Second)
-	s.connectToKnownPeers()
+func (s *P2pService) MaintainBackgroundConnections(ctx context.Context, interval time.Duration) {
+	s.connectToKnownPeers(ctx, interval)
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(5 * time.Second):
+	}
+	s.connectToKnownPeers(ctx, interval)
 
-	t := time.NewTicker(intervalSec * time.Second)
+	t := time.NewTicker(interval)
 	defer t.Stop()
 
-	for range t.C {
-		s.connectToKnownPeers()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+
+		s.connectToKnownPeers(ctx, interval)
 		s.p2pServer.TrimOpenConnections()
 	}
 }
 
-func (s *P2pService) connectToKnownPeers() {
+func (s *P2pService) connectToKnownPeers(ctx context.Context, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	var wg sync.WaitGroup
 	for _, peerID := range s.conf.KnownPeersIds() {
 		wg.Add(1)
 		go func(peerID peer.ID) {
 			wg.Done()
-			_ = s.ConnectPeer(context.Background(), peerID)
+			_ = s.ConnectPeer(ctx, peerID)
 		}(peerID)
 	}
 
 	bootstrapsInfo := make(map[string]entity.BootstrapPeerDebugInfo)
 	var mu sync.Mutex
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	for _, peerAddr := range s.conf.GetBootstrapPeers() {
 		peerInfo, err := peer.AddrInfoFromP2pAddr(peerAddr)
@@ -272,7 +283,7 @@ func (s *P2pService) connectToKnownPeers() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := s.p2pServer.ConnectPeer(ctx, *peerInfo)
+			err := s.p2pServer.ConnectPeerAddr(ctx, *peerInfo)
 			var info entity.BootstrapPeerDebugInfo
 			if err != nil {
 				info.Error = err.Error()

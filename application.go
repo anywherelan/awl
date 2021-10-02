@@ -127,7 +127,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	// because of cyclic dependency between api and dns
 	a.Dns.api = a.Api
 
-	go a.P2pService.MaintainBackgroundConnections(a.Conf.P2pNode.ReconnectionIntervalSec)
+	go a.P2pService.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second)
 	go a.AuthStatus.BackgroundRetryAuthRequests()
 	go a.AuthStatus.BackgroundExchangeStatusInfo()
 

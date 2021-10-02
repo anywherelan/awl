@@ -203,7 +203,7 @@ func (p *P2p) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
 	return p.dht.FindPeer(ctx, id)
 }
 
-func (p *P2p) ConnectPeer(ctx context.Context, peerInfo peer.AddrInfo) error {
+func (p *P2p) ConnectPeerAddr(ctx context.Context, peerInfo peer.AddrInfo) error {
 	return p.host.Connect(ctx, peerInfo)
 }
 
