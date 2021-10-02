@@ -64,13 +64,12 @@ func NewP2p(server *p2p.P2p, conf *config.Config) *P2pService {
 }
 
 func (s *P2pService) ConnectPeer(ctx context.Context, peerID peer.ID) error {
-	// TODO: из-за этого бывает, что пир однажды подключился через релей и дальше не будет искать более хороший транспорт
 	if s.IsConnected(peerID) {
 		return nil
 	}
 	peerInfo, err := s.p2pServer.FindPeer(ctx, peerID)
 	if err != nil {
-		return fmt.Errorf("could not find peer %s", peerID.Pretty())
+		return fmt.Errorf("could not find peer %s: %v", peerID.String(), err)
 	}
 	err = s.p2pServer.ConnectPeer(ctx, peerInfo)
 
