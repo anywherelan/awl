@@ -117,7 +117,7 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 
 	// not necessary now because we do not send anything
 	go func() {
-		_ = h.authStatus.ExchangeNewStatusInfo(peerID, knownPeer)
+		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerID, knownPeer)
 	}()
 
 	return c.NoContent(http.StatusOK)
@@ -178,10 +178,10 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 		authPeer := protocol.AuthPeer{
 			Name: h.conf.P2pNode.Name,
 		}
-		_ = h.authStatus.SendAuthRequest(peerId, authPeer)
+		_ = h.authStatus.SendAuthRequest(h.ctx, peerId, authPeer)
 
 		knownPeer, _ := h.conf.GetPeer(req.PeerID)
-		_ = h.authStatus.ExchangeNewStatusInfo(peerId, knownPeer)
+		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerId, knownPeer)
 	}()
 
 	return c.NoContent(http.StatusOK)
@@ -245,7 +245,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	h.tunnel.RefreshPeersList()
 
 	go func() {
-		_ = h.authStatus.ExchangeNewStatusInfo(peerId, newPeerConfig)
+		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerId, newPeerConfig)
 	}()
 
 	return c.NoContent(http.StatusOK)

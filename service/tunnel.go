@@ -161,7 +161,7 @@ func (t *Tunnel) makeTunnelStream(peerID peer.ID) (network.Stream, error) {
 		return nil, err
 	}
 
-	stream, err := t.p2p.NewStream(peerID, protocol.TunnelPacketMethod)
+	stream, err := t.p2p.NewStream(context.Background(), peerID, protocol.TunnelPacketMethod)
 	if err != nil {
 		return nil, err
 	}

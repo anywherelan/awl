@@ -33,10 +33,14 @@ type Handler struct {
 	logBuffer  *ringbuffer.RingBuffer
 
 	echo *echo.Echo
+
+	ctx       context.Context
+	ctxCancel context.CancelFunc
 }
 
 func NewHandler(conf *config.Config, p2p *service.P2pService, authStatus *service.AuthStatus,
 	tunnel *service.Tunnel, logBuffer *ringbuffer.RingBuffer, dns DNSService) *Handler {
+	ctx, ctxCancel := context.WithCancel(context.Background())
 	return &Handler{
 		conf:       conf,
 		p2p:        p2p,
@@ -45,6 +49,8 @@ func NewHandler(conf *config.Config, p2p *service.P2pService, authStatus *servic
 		dns:        dns,
 		logBuffer:  logBuffer,
 		logger:     log.Logger("awl/api"),
+		ctx:        ctx,
+		ctxCancel:  ctxCancel,
 	}
 }
 

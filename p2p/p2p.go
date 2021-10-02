@@ -331,8 +331,8 @@ func (p *P2p) SubscribeConnectionEvents(onConnected, onDisconnected func(network
 	p.host.Network().Notify(notifyBundle)
 }
 
-func (p *P2p) NewStream(id peer.ID, proto protocol.ID) (network.Stream, error) {
-	stream, err := p.host.NewStream(p.ctx, id, proto)
+func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
+	stream, err := p.host.NewStream(ctx, id, proto)
 	return stream, err
 }
 

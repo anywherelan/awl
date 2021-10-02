@@ -76,8 +76,8 @@ func (s *P2pService) ConnectPeer(ctx context.Context, peerID peer.ID) error {
 	return err
 }
 
-func (s *P2pService) NewStream(id peer.ID, proto protocol.ID) (network.Stream, error) {
-	return s.p2pServer.NewStream(id, proto)
+func (s *P2pService) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
+	return s.p2pServer.NewStream(ctx, id, proto)
 }
 
 func (s *P2pService) StreamsToPeer(peerID peer.ID) []network.Stream {

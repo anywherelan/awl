@@ -93,17 +93,17 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	s.conf.UpsertPeer(newPeer)
 }
 
-func (s *AuthStatus) ExchangeNewStatusInfo(remotePeerID peer.ID, knownPeer config.KnownPeer) error {
+func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID peer.ID, knownPeer config.KnownPeer) error {
 	s.authsLock.Lock()
 	delete(s.ingoingAuths, remotePeerID)
 	s.authsLock.Unlock()
 
-	err := s.p2p.ConnectPeer(context.Background(), remotePeerID)
+	err := s.p2p.ConnectPeer(ctx, remotePeerID)
 	if err != nil {
 		return err
 	}
 
-	stream, err := s.p2p.NewStream(remotePeerID, protocol.GetStatusMethod)
+	stream, err := s.p2p.NewStream(ctx, remotePeerID, protocol.GetStatusMethod)
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(remotePeerID peer.ID, knownPeer confi
 func (s *AuthStatus) DeclinePeer(knownPeer config.KnownPeer) {
 	s.conf.UpsertDeclinedPeer(knownPeer)
 	go func() {
-		_ = s.ExchangeNewStatusInfo(knownPeer.PeerId(), knownPeer)
+		_ = s.ExchangeNewStatusInfo(context.Background(), knownPeer.PeerId(), knownPeer)
 	}()
 }
 
@@ -207,17 +207,17 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	s.logger.Infof("Successfully received auth from %s (%s)", authPeer.Name, peerID)
 }
 
-func (s *AuthStatus) SendAuthRequest(peerID peer.ID, req protocol.AuthPeer) error {
+func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req protocol.AuthPeer) error {
 	s.authsLock.Lock()
 	s.outgoingAuths[peerID] = req
 	s.authsLock.Unlock()
 
-	err := s.p2p.ConnectPeer(context.Background(), peerID)
+	err := s.p2p.ConnectPeer(ctx, peerID)
 	if err != nil {
 		return err
 	}
 
-	stream, err := s.p2p.NewStream(peerID, protocol.AuthMethod)
+	stream, err := s.p2p.NewStream(ctx, peerID, protocol.AuthMethod)
 	if err != nil {
 		return err
 	}
@@ -252,26 +252,30 @@ func (s *AuthStatus) SendAuthRequest(peerID peer.ID, req protocol.AuthPeer) erro
 	return nil
 }
 
-func (s *AuthStatus) BackgroundRetryAuthRequests() {
+func (s *AuthStatus) BackgroundRetryAuthRequests(ctx context.Context) {
 	f := func() {
 		for peerID, auth := range s.outgoingAuths {
-			_ = s.SendAuthRequest(peerID, auth)
+			_ = s.SendAuthRequest(ctx, peerID, auth)
 			//if err != nil {
 			//	s.logger.Warnf("retry auth to %s: %v", peerIDStr, err)
 			//}
 		}
 	}
 
-	t := time.NewTicker(backgroundRetryAuthRequests)
+	ticker := time.NewTicker(backgroundRetryAuthRequests)
+	defer ticker.Stop()
 
-	for range t.C {
-		f()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			f()
+		}
 	}
 }
 
-// TODO: сделать так, чтобы отправляла статус только одна из сторон. Например, та, которая подключилась.
-//  Затем можно еще уменьшить интервал
-func (s *AuthStatus) BackgroundExchangeStatusInfo() {
+func (s *AuthStatus) BackgroundExchangeStatusInfo(ctx context.Context) {
 	f := func() {
 		for _, knownPeer := range s.conf.KnownPeers {
 			//if !knownPeer.Confirmed {
@@ -279,17 +283,20 @@ func (s *AuthStatus) BackgroundExchangeStatusInfo() {
 			//}
 
 			peerID := knownPeer.PeerId()
-			if peerID == "" {
-				continue
-			}
-			_ = s.ExchangeNewStatusInfo(peerID, knownPeer)
+			_ = s.ExchangeNewStatusInfo(ctx, peerID, knownPeer)
 		}
 	}
 
 	ticker := time.NewTicker(backgroundExchangeStatusInfoInterval)
+	defer ticker.Stop()
 
-	for range ticker.C {
-		f()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			f()
+		}
 	}
 }
 
@@ -333,7 +340,7 @@ func (s *AuthStatus) onPeerConnected(peerID peer.ID, conn network.Conn) {
 
 	go func() {
 		if hasOutgAuth {
-			err := s.SendAuthRequest(peerID, authPeer)
+			err := s.SendAuthRequest(context.Background(), peerID, authPeer)
 			if err != nil {
 				s.logger.Errorf("send auth to recently connected peer %s: %v", peerID, err)
 			}
@@ -351,7 +358,7 @@ func (s *AuthStatus) onPeerConnected(peerID peer.ID, conn network.Conn) {
 			}
 			s.logger.Infof("peer %s connected, direction %s, address %s", knownPeer.DisplayName(), dir, conn.RemoteMultiaddr())
 
-			err := s.ExchangeNewStatusInfo(peerID, knownPeer)
+			err := s.ExchangeNewStatusInfo(context.Background(), peerID, knownPeer)
 			if err != nil && knownPeer.Confirmed {
 				s.logger.Errorf("exchange status info with recently connected peer %s (%s): %v", knownPeer.DisplayName(), peerID, err)
 			}
