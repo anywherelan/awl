@@ -52,7 +52,7 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 
 	peerID := stream.Conn().RemotePeer()
 	t.peersLock.RLock()
-	vpnPeer, ok := t.peerIDToPeer[peerID]
+	_, ok := t.peerIDToPeer[peerID]
 	t.peersLock.RUnlock()
 	if !ok {
 		t.logger.Infof("Unknown peer %s tried to tunnel packet", peerID)
@@ -76,6 +76,15 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 			t.device.PutTempPacket(packet)
 			return
 		}
+
+		t.peersLock.RLock()
+		vpnPeer, ok := t.peerIDToPeer[peerID]
+		if !ok {
+			t.device.PutTempPacket(packet)
+			t.peersLock.RUnlock()
+			return
+		}
+
 		select {
 		case vpnPeer.inboundCh <- packet:
 		default:
@@ -83,6 +92,7 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 			t.logger.Warnf("inbound reader dropped packet, len %d", len(packet.Packet))
 			t.device.PutTempPacket(packet)
 		}
+		t.peersLock.RUnlock()
 	}
 }
 
@@ -90,7 +100,6 @@ func (t *Tunnel) RefreshPeersList() {
 	t.peersLock.Lock()
 	defer t.peersLock.Unlock()
 
-	// TODO: delete peers from maps when peer has been removed from config
 	t.conf.RLock()
 	defer t.conf.RUnlock()
 	for _, knownPeer := range t.conf.KnownPeers {
@@ -112,8 +121,17 @@ func (t *Tunnel) RefreshPeersList() {
 		}
 		t.peerIDToPeer[peerID] = vpnPeer
 		t.netIPToPeer[string(localIP)] = vpnPeer
-		go vpnPeer.backgroundInboundHandler(t)
-		go vpnPeer.backgroundOutboundHandler(t)
+		vpnPeer.Start(t)
+	}
+
+	for _, vpnPeer := range t.peerIDToPeer {
+		_, exists := t.conf.KnownPeers[vpnPeer.peerID.String()]
+		if exists {
+			continue
+		}
+		vpnPeer.Close(t)
+		delete(t.peerIDToPeer, vpnPeer.peerID)
+		delete(t.netIPToPeer, string(vpnPeer.localIP))
 	}
 }
 
@@ -121,9 +139,9 @@ func (t *Tunnel) backgroundReadPackets() {
 	for packet := range t.device.OutboundChan() {
 		t.peersLock.RLock()
 		vpnPeer, ok := t.netIPToPeer[string(packet.Dst)]
-		t.peersLock.RUnlock()
 		if !ok {
 			t.device.PutTempPacket(packet)
+			t.peersLock.RUnlock()
 			continue
 		}
 
@@ -132,6 +150,7 @@ func (t *Tunnel) backgroundReadPackets() {
 		default:
 			t.device.PutTempPacket(packet)
 		}
+		t.peersLock.RUnlock()
 	}
 }
 
@@ -157,6 +176,22 @@ type VpnPeer struct {
 }
 
 // TODO: remove Tunnel from VpnPeer dependencies
+func (vp *VpnPeer) Start(t *Tunnel) {
+	go vp.backgroundInboundHandler(t)
+	go vp.backgroundOutboundHandler(t)
+}
+
+func (vp *VpnPeer) Close(t *Tunnel) {
+	close(vp.inboundCh)
+	close(vp.outboundCh)
+	for packet := range vp.inboundCh {
+		t.device.PutTempPacket(packet)
+	}
+	for packet := range vp.outboundCh {
+		t.device.PutTempPacket(packet)
+	}
+}
+
 func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 	const (
 		maxPacketsPerStream = 1024 * 1024 * 8 / vpn.InterfaceMTU
@@ -189,10 +224,15 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 		currentPacketsForStream = 0
 	}
 
+	defer closeStream()
 	idleTicker := time.NewTicker(idleStreamTimeout)
+	defer idleTicker.Stop()
 	for {
 		select {
-		case packet := <-vp.outboundCh:
+		case packet, open := <-vp.outboundCh:
+			if !open {
+				return
+			}
 			if currentPacketsForStream == maxPacketsPerStream {
 				closeStream()
 			}
@@ -211,9 +251,12 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 	}
 }
 
-// TODO: remove Tunnel from VpnPeer dependencies
 func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
-	for packet := range vp.inboundCh {
+	for {
+		packet, open := <-vp.inboundCh
+		if !open {
+			return
+		}
 		ok := packet.Parse()
 		if !ok {
 			t.logger.Warnf("got invalid packet from peerID (%s) local ip (%s)", vp.peerID, vp.localIP)
