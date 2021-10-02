@@ -141,6 +141,7 @@ func (d *Device) tunEventsReader() {
 }
 
 func (d *Device) tunPacketsReader() {
+	defer close(d.outboundCh)
 	var data *Packet
 	for {
 		if data == nil {

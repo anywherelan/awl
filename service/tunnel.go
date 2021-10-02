@@ -135,6 +135,17 @@ func (t *Tunnel) RefreshPeersList() {
 	}
 }
 
+func (t *Tunnel) Close() {
+	t.peersLock.Lock()
+	defer t.peersLock.Unlock()
+
+	for _, vpnPeer := range t.peerIDToPeer {
+		vpnPeer.Close(t)
+		delete(t.peerIDToPeer, vpnPeer.peerID)
+		delete(t.netIPToPeer, string(vpnPeer.localIP))
+	}
+}
+
 func (t *Tunnel) backgroundReadPackets() {
 	for packet := range t.device.OutboundChan() {
 		t.peersLock.RLock()

@@ -225,6 +225,9 @@ func (a *Application) Close() {
 			a.logger.Errorf("closing p2p server: %v", err)
 		}
 	}
+	if a.Tunnel != nil {
+		a.Tunnel.Close()
+	}
 	if a.vpnDevice != nil {
 		err := a.vpnDevice.Close()
 		if err != nil {
