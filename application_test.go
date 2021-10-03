@@ -152,7 +152,10 @@ func BenchmarkTunnelPackets(b *testing.B) {
 				peer1.tun.Outbound <- packet
 				atomic.AddInt64(&packetsSent, 1)
 				// to have packet_loss at reasonable level (but more than 0)
-				time.Sleep(4 * time.Microsecond)
+				const sleepEvery = 40
+				if i != 0 && i%sleepEvery == 0 {
+					time.Sleep(sleepEvery * 8 * time.Microsecond)
+				}
 			}
 			close(closeCh)
 			received := atomic.LoadInt64(&packetsReceived)
