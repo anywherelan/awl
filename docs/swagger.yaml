@@ -193,6 +193,17 @@ definitions:
     required:
       - peerID
     type: object
+  entity.FriendRequestReply:
+    properties:
+      alias:
+        type: string
+      decline:
+        type: boolean
+      peerID:
+        type: string
+    required:
+      - peerID
+    type: object
   entity.GeneralDebugInfo:
     properties:
       uptime:
@@ -342,7 +353,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/entity.FriendRequest'
+          $ref: '#/definitions/entity.FriendRequestReply'
       produces:
       - application/json
       responses:

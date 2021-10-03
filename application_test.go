@@ -88,6 +88,37 @@ func TestRemovePeer(t *testing.T) {
 	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 }
 
+func TestDeclinePeerFriendRequest(t *testing.T) {
+	a := require.New(t)
+
+	peer1 := newTestPeer(t, false)
+	defer peer1.Close()
+	peer2 := newTestPeer(t, false)
+	defer peer2.Close()
+
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "")
+	a.NoError(err)
+
+	var authRequests []entity.AuthRequest
+	a.Eventually(func() bool {
+		authRequests, err = peer2.api.AuthRequests()
+		a.NoError(err)
+		return len(authRequests) == 1
+	}, 15*time.Second, 50*time.Millisecond)
+	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "", true)
+	a.NoError(err)
+
+	time.Sleep(500 * time.Millisecond)
+	knownPeer, exists := peer1.app.Conf.GetPeer(peer2.PeerID())
+	a.True(exists)
+	a.False(knownPeer.Confirmed)
+	a.True(knownPeer.Declined)
+
+	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
+	_, declinedPeerExists := peer2.app.Conf.GetDeclinedPeer(peer1.PeerID())
+	a.True(declinedPeerExists)
+}
+
 func BenchmarkTunnelPackets(b *testing.B) {
 	a := require.New(b)
 
@@ -208,11 +239,16 @@ func makeFriends(a *require.Assertions, peer1, peer2 testPeer) {
 		a.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.AcceptFriendRequest(authRequests[0].PeerID, "")
+	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "", false)
 	a.NoError(err)
+	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 
 	time.Sleep(500 * time.Millisecond)
 	knownPeer, exists := peer2.app.Conf.GetPeer(peer1.PeerID())
+	a.True(exists)
+	a.True(knownPeer.Confirmed)
+
+	knownPeer, exists = peer1.app.Conf.GetPeer(peer2.PeerID())
 	a.True(exists)
 	a.True(knownPeer.Confirmed)
 }

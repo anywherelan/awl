@@ -13,6 +13,11 @@ type (
 		PeerID string `validate:"required"`
 		Alias  string
 	}
+	FriendRequestReply struct {
+		PeerID  string `validate:"required"`
+		Alias   string
+		Decline bool
+	}
 	PeerIDRequest struct {
 		PeerID string `validate:"required"`
 	}

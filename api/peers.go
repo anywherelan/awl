@@ -191,13 +191,13 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 // @Summary Accept new peer's invitation
 // @Accept json
 // @Produce json
-// @Param body body entity.FriendRequest true "Params"
+// @Param body body entity.FriendRequestReply true "Params"
 // @Success 200 "OK"
 // @Failure 400 {object} api.Error
 // @Failure 500 {object} api.Error
 // @Router /peers/accept_peer [POST]
 func (h *Handler) AcceptFriend(c echo.Context) (err error) {
-	req := entity.FriendRequest{}
+	req := entity.FriendRequestReply{}
 	err = c.Bind(&req)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
@@ -225,6 +225,11 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	auth, exist := authRequestsMap[req.PeerID]
 	if !exist {
 		return c.JSON(http.StatusBadRequest, ErrorMessage("Peer did not send you friend request"))
+	}
+
+	if req.Decline {
+		h.authStatus.DeclinePeer(peerId, auth.Name)
+		return c.NoContent(http.StatusOK)
 	}
 
 	h.conf.RLock()
@@ -300,7 +305,7 @@ func (h *Handler) RemovePeer(c echo.Context) (err error) {
 
 	h.p2p.UnprotectPeer(peerId)
 	h.tunnel.RefreshPeersList()
-	h.authStatus.DeclinePeer(knownPeer)
+	h.authStatus.DeclinePeer(peerId, knownPeer.DisplayName())
 
 	return c.NoContent(http.StatusOK)
 }

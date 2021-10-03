@@ -64,10 +64,11 @@ func (c *Client) SendFriendRequest(peerID, alias string) error {
 	return c.sendPostRequest(api.SendFriendRequestPath, request, nil)
 }
 
-func (c *Client) AcceptFriendRequest(peerID, alias string) error {
-	request := entity.FriendRequest{
-		PeerID: peerID,
-		Alias:  alias,
+func (c *Client) ReplyFriendRequest(peerID, alias string, decline bool) error {
+	request := entity.FriendRequestReply{
+		PeerID:  peerID,
+		Alias:   alias,
+		Decline: decline,
 	}
 	return c.sendPostRequest(api.AcceptPeerInvitationPath, request, nil)
 }

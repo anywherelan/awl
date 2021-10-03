@@ -120,7 +120,7 @@ func (a *Application) init() {
 						}
 					}
 					if hasRequest {
-						err := a.api.AcceptFriendRequest(peerID, alias)
+						err := a.api.ReplyFriendRequest(peerID, alias, false)
 						return err
 					}
 

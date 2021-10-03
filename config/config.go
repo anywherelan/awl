@@ -158,15 +158,15 @@ func (c *Config) RemoveDeclinedPeer(peerID string) {
 	c.Unlock()
 }
 
-func (c *Config) UpsertDeclinedPeer(knownPeer KnownPeer) {
+func (c *Config) UpsertDeclinedPeer(peerID, displayName string) {
 	c.Lock()
-	declinedPeer, exists := c.DeclinedPeers[knownPeer.PeerID]
+	declinedPeer, exists := c.DeclinedPeers[peerID]
 	if !exists {
 		declinedPeer.CreatedAt = time.Now()
 	}
-	declinedPeer.PeerID = knownPeer.PeerID
-	declinedPeer.DisplayName = knownPeer.DisplayName()
-	c.DeclinedPeers[knownPeer.PeerID] = declinedPeer
+	declinedPeer.PeerID = peerID
+	declinedPeer.DisplayName = displayName
+	c.DeclinedPeers[peerID] = declinedPeer
 	c.save()
 	c.Unlock()
 }

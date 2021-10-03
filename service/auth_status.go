@@ -136,10 +136,10 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 	return nil
 }
 
-func (s *AuthStatus) DeclinePeer(knownPeer config.KnownPeer) {
-	s.conf.UpsertDeclinedPeer(knownPeer)
+func (s *AuthStatus) DeclinePeer(peerID peer.ID, name string) {
+	s.conf.UpsertDeclinedPeer(peerID.String(), name)
 	go func() {
-		_ = s.ExchangeNewStatusInfo(context.Background(), knownPeer.PeerId(), knownPeer)
+		_ = s.ExchangeNewStatusInfo(context.Background(), peerID, config.KnownPeer{})
 	}()
 }
 
