@@ -1,8 +1,10 @@
 package awl
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -13,11 +15,12 @@ import (
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
+	"github.com/anywherelan/awl/vpn"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
-	"golang.zx2c4.com/wireguard/tun/tuntest"
+	"golang.zx2c4.com/wireguard/tun"
 )
 
 func init() {
@@ -134,20 +137,10 @@ func BenchmarkTunnelPackets(b *testing.B) {
 	for _, packetSize := range packetSizes {
 		b.Run(fmt.Sprintf("%d bytes per package", packetSize), func(b *testing.B) {
 			b.SetBytes(int64(packetSize))
-			var packetsReceived int64
 			var packetsSent int64
-			closeCh := make(chan struct{})
-			go func() {
-				for {
-					select {
-					case <-peer2.tun.Inbound:
-						atomic.AddInt64(&packetsReceived, 1)
-					case <-closeCh:
-						return
-					}
-				}
-			}()
 			packet := testPacket(packetSize)
+			peer2.tun.ReferenceInboundPacketLen = len(packet)
+			peer2.tun.ClearInboundCount()
 			for i := 0; i < b.N; i++ {
 				peer1.tun.Outbound <- packet
 				atomic.AddInt64(&packetsSent, 1)
@@ -157,8 +150,7 @@ func BenchmarkTunnelPackets(b *testing.B) {
 					time.Sleep(sleepEvery * 8 * time.Microsecond)
 				}
 			}
-			close(closeCh)
-			received := atomic.LoadInt64(&packetsReceived)
+			received := peer2.tun.InboundCount()
 			sent := atomic.LoadInt64(&packetsSent)
 			packetLoss := (float64(1) - float64(received)/float64(sent)) * 100
 			bandwidth := float64(received) * float64(packetSize) / 1024 / 1024
@@ -175,20 +167,28 @@ func testPacket(length int) []byte {
 		panic(err)
 	}
 
+	packet := data
 	if length > len(data) {
-		packet := make([]byte, length)
+		packet = make([]byte, length)
 		copy(packet, data)
 		rand.Read(packet[len(data):])
-		return packet
 	}
 
-	return data
+	vpnPacket := vpn.Packet{}
+	_, err = vpnPacket.ReadFrom(bytes.NewReader(packet))
+	if err != nil {
+		panic(err)
+	}
+	vpnPacket.Parse()
+	vpnPacket.RecalculateChecksum()
+
+	return vpnPacket.Packet
 }
 
 type testPeer struct {
 	app *Application
 	api *apiclient.Client
-	tun *tuntest.ChannelTUN
+	tun *TestTUN
 }
 
 func (tp testPeer) Close() {
@@ -221,7 +221,7 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 	app.Conf.HttpListenAddress = "127.0.0.1:0"
 	ctx := context.Background()
 
-	testTUN := tuntest.NewChannelTUN()
+	testTUN := NewTestTUN()
 	err := app.Init(ctx, testTUN.TUN())
 	a.NoError(err)
 
@@ -254,4 +254,77 @@ func makeFriends(a *require.Assertions, peer1, peer2 testPeer) {
 	knownPeer, exists = peer1.app.Conf.GetPeer(peer2.PeerID())
 	a.True(exists)
 	a.True(knownPeer.Confirmed)
+}
+
+type TestTUN struct {
+	Outbound                  chan []byte
+	ReferenceInboundPacketLen int
+
+	inboundCount int64
+	closed       chan struct{}
+	events       chan tun.Event
+	tun          testTun
+}
+
+func NewTestTUN() *TestTUN {
+	c := &TestTUN{
+		Outbound: make(chan []byte),
+		closed:   make(chan struct{}),
+		events:   make(chan tun.Event, 1),
+	}
+	c.tun.t = c
+	c.events <- tun.EventUp
+	return c
+}
+
+func (c *TestTUN) TUN() tun.Device {
+	return &c.tun
+}
+
+func (c *TestTUN) InboundCount() int64 {
+	return atomic.LoadInt64(&c.inboundCount)
+}
+
+func (c *TestTUN) ClearInboundCount() {
+	atomic.StoreInt64(&c.inboundCount, 0)
+}
+
+type testTun struct {
+	t *TestTUN
+}
+
+func (t *testTun) File() *os.File { return nil }
+
+func (t *testTun) Read(data []byte, offset int) (int, error) {
+	select {
+	case <-t.t.closed:
+		return 0, os.ErrClosed
+	case msg := <-t.t.Outbound:
+		return copy(data[offset:], msg), nil
+	}
+}
+
+func (t *testTun) Write(data []byte, offset int) (int, error) {
+	msg := data[offset:]
+	if len(msg) != t.t.ReferenceInboundPacketLen {
+		return 0, errors.New("packets length mismatch")
+	}
+	select {
+	case <-t.t.closed:
+		return 0, os.ErrClosed
+	default:
+	}
+	atomic.AddInt64(&t.t.inboundCount, 1)
+
+	return len(msg), nil
+}
+
+func (t *testTun) Flush() error           { return nil }
+func (t *testTun) MTU() (int, error)      { return vpn.InterfaceMTU, nil }
+func (t *testTun) Name() (string, error)  { return "testTun", nil }
+func (t *testTun) Events() chan tun.Event { return t.t.events }
+func (t *testTun) Close() error {
+	close(t.t.closed)
+	close(t.t.events)
+	return nil
 }
