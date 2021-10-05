@@ -59,6 +59,7 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 		return
 	}
 
+	wrappedStream := &io.LimitedReader{}
 	for {
 		packet := t.device.GetTempPacket()
 		packetSize, err := protocol.ReadUint64(stream)
@@ -69,7 +70,8 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 			t.device.PutTempPacket(packet)
 			return
 		}
-		wrappedStream := io.LimitReader(stream, int64(packetSize))
+		wrappedStream.R = stream
+		wrappedStream.N = int64(packetSize)
 		_, err = packet.ReadFrom(wrappedStream)
 		if err != nil {
 			t.logger.Warnf("read to packet: %v", err)
