@@ -232,8 +232,11 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 	c.RLock()
 	result := make([]multiaddr.Multiaddr, 0, len(c.P2pNode.ListenAddresses))
 	for _, val := range c.P2pNode.ListenAddresses {
-		// TODO: check err
-		newMultiaddr, _ := multiaddr.NewMultiaddr(val)
+		newMultiaddr, err := multiaddr.NewMultiaddr(val)
+		if err != nil {
+			logger.Errorf("parse listen address '%s': %v", val, err)
+			continue
+		}
 		result = append(result, newMultiaddr)
 	}
 	c.RUnlock()
