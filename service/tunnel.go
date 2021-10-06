@@ -167,14 +167,13 @@ func (t *Tunnel) backgroundReadPackets() {
 	}
 }
 
-func (t *Tunnel) makeTunnelStream(peerID peer.ID) (network.Stream, error) {
-	// TODO: set timeout on context
-	err := t.p2p.ConnectPeer(context.Background(), peerID)
+func (t *Tunnel) makeTunnelStream(ctx context.Context, peerID peer.ID) (network.Stream, error) {
+	err := t.p2p.ConnectPeer(ctx, peerID)
 	if err != nil {
 		return nil, err
 	}
 
-	stream, err := t.p2p.NewStream(context.Background(), peerID, protocol.TunnelPacketMethod)
+	stream, err := t.p2p.NewStream(ctx, peerID, protocol.TunnelPacketMethod)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +215,9 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 	)
 	sendPacket := func(packet *vpn.Packet) (err error) {
 		if stream == nil {
-			stream, err = t.makeTunnelStream(vp.peerID)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			stream, err = t.makeTunnelStream(ctx, vp.peerID)
+			cancel()
 			if err != nil {
 				return err
 			}
