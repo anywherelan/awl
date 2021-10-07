@@ -252,6 +252,23 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	return nil
 }
 
+func (s *AuthStatus) ExchangeStatusInfoWithAllKnownPeers(ctx context.Context) {
+	s.conf.RLock()
+	peers := make([]string, 0, len(s.conf.KnownPeers))
+	for peerID := range s.conf.KnownPeers {
+		peers = append(peers, peerID)
+	}
+	s.conf.RUnlock()
+
+	for _, peerID := range peers {
+		knownPeer, exists := s.conf.GetPeer(peerID)
+		if !exists {
+			continue
+		}
+		_ = s.ExchangeNewStatusInfo(ctx, knownPeer.PeerId(), knownPeer)
+	}
+}
+
 func (s *AuthStatus) BackgroundRetryAuthRequests(ctx context.Context) {
 	f := func() {
 		for peerID, auth := range s.outgoingAuths {
@@ -276,17 +293,6 @@ func (s *AuthStatus) BackgroundRetryAuthRequests(ctx context.Context) {
 }
 
 func (s *AuthStatus) BackgroundExchangeStatusInfo(ctx context.Context) {
-	f := func() {
-		for _, knownPeer := range s.conf.KnownPeers {
-			//if !knownPeer.Confirmed {
-			//	continue
-			//}
-
-			peerID := knownPeer.PeerId()
-			_ = s.ExchangeNewStatusInfo(ctx, peerID, knownPeer)
-		}
-	}
-
 	ticker := time.NewTicker(backgroundExchangeStatusInfoInterval)
 	defer ticker.Stop()
 
@@ -295,7 +301,7 @@ func (s *AuthStatus) BackgroundExchangeStatusInfo(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			f()
+			s.ExchangeStatusInfoWithAllKnownPeers(ctx)
 		}
 	}
 }

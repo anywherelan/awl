@@ -54,8 +54,9 @@ func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 	h.conf.P2pNode.Name = req.Name
 	h.conf.Unlock()
 
-	// TODO: exchange status info with all connected known peers. it should be in service
-	//_ = h.authStatus.ExchangeNewStatusInfo(peerID, knownPeer)
+	go func() {
+		h.authStatus.ExchangeStatusInfoWithAllKnownPeers(h.ctx)
+	}()
 
 	return c.NoContent(http.StatusOK)
 }
