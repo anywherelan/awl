@@ -338,7 +338,7 @@ func (s *AuthStatus) onPeerConnected(peerID peer.ID, conn network.Conn) {
 	authPeer, hasOutgAuth := s.outgoingAuths[peerID]
 	s.authsLock.RUnlock()
 
-	knownPeer, known := s.conf.GetPeer(peerID.Pretty())
+	knownPeer, known := s.conf.GetPeer(peerID.String())
 
 	if !known && !hasOutgAuth {
 		return

@@ -41,7 +41,7 @@ func NewP2p(server *p2p.P2p, conf *config.Config) *P2pService {
 		bootstrapsInfo: make(map[string]entity.BootstrapPeerDebugInfo),
 	}
 	p.RegisterOnPeerConnected(func(peerID peer.ID, _ network.Conn) {
-		p.conf.UpdatePeerLastSeen(peerID.Pretty())
+		p.conf.UpdatePeerLastSeen(peerID.String())
 	})
 	server.SubscribeConnectionEvents(p.onConnected, p.onDisconnected)
 

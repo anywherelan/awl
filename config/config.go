@@ -177,7 +177,7 @@ func (c *Config) SetIdentity(key crypto.PrivKey, id peer.ID) {
 	identity := base58.Encode(by)
 
 	c.P2pNode.Identity = identity
-	c.P2pNode.PeerID = id.Pretty()
+	c.P2pNode.PeerID = id.String()
 	c.save()
 	c.Unlock()
 }
