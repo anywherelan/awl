@@ -77,6 +77,7 @@ func (h *Handler) SetupAPI() error {
 	e.POST(UpdatePeerSettingsPath, h.UpdatePeerSettings)
 	e.POST(RemovePeerSettingsPath, h.RemovePeer)
 	e.GET(GetAuthRequestsPath, h.GetAuthRequests)
+	e.GET(GetDeclinedPeersPath, h.GetDeclinedPeers)
 
 	// Settings
 	e.GET(GetMyPeerInfoPath, h.GetMyPeerInfo)
@@ -156,10 +157,6 @@ type Error struct {
 
 func (e Error) Error() string {
 	return e.Message
-}
-
-func InternalError() Error {
-	return Error{Message: "Internal Server Error"}
 }
 
 func ErrorMessage(message string) Error {

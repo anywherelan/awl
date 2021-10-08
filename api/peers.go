@@ -309,3 +309,26 @@ func (h *Handler) RemovePeer(c echo.Context) (err error) {
 
 	return c.NoContent(http.StatusOK)
 }
+
+// @Tags Peers
+// @Summary Get declined peers info
+// @Accept json
+// @Produce json
+// @Success 200 {array} config.DeclinedPeer
+// @Router /peers/get_declined [GET]
+func (h *Handler) GetDeclinedPeers(c echo.Context) (err error) {
+	h.conf.RLock()
+	result := make([]config.DeclinedPeer, 0)
+
+	for _, declinedPeer := range h.conf.DeclinedPeers {
+		result = append(result, declinedPeer)
+	}
+
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+
+	h.conf.RUnlock()
+
+	return c.JSON(http.StatusOK, result)
+}
