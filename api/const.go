@@ -6,11 +6,13 @@ const (
 	// Peers
 	GetKnownPeersPath        = V0Prefix + "peers/get_known"
 	GetKnownPeerSettingsPath = V0Prefix + "peers/get_known_peer_settings"
+	UpdatePeerSettingsPath   = V0Prefix + "peers/update_settings"
+	RemovePeerSettingsPath   = V0Prefix + "peers/remove"
+
+	GetDeclinedPeersPath = V0Prefix + "peers/get_declined"
 
 	SendFriendRequestPath    = V0Prefix + "peers/invite_peer"
 	AcceptPeerInvitationPath = V0Prefix + "peers/accept_peer"
-	UpdatePeerSettingsPath   = V0Prefix + "peers/update_settings"
-	RemovePeerSettingsPath   = V0Prefix + "peers/remove"
 	GetAuthRequestsPath      = V0Prefix + "peers/auth_requests"
 
 	// Settings

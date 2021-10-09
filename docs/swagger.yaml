@@ -375,7 +375,7 @@ paths:
       consumes:
       - application/json
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -385,13 +385,29 @@ paths:
             type: array
       summary: Get ingoing auth requests
       tags:
-      - Peers
+        - Peers
+  /peers/get_declined:
+    get:
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/config.DeclinedPeer'
+            type: array
+      summary: Get declined peers info
+      tags:
+        - Peers
   /peers/get_known:
     get:
       consumes:
-      - application/json
+        - application/json
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
