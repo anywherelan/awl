@@ -52,7 +52,7 @@ gobuild-windows() {
   done
 }
 
-# Commands
+# Commands (functions with "cross" build for different arch-es/OS-es)
 
 # create new build dir, delete static dir
 clean() {
@@ -94,21 +94,21 @@ build-mobile() {
 }
 
 # build server version
-build-awl() {
+build-awl-cross() {
   cd "$awldir/cmd/awl"
   gobuild-linux awl
   gobuild-windows awl
 }
 
 # build desktop version for windows and others OS
-build-awl-tray() {
+build-awl-tray-cross() {
   cd "$awldir/cmd/awl-tray"
   gobuild-windows awl-tray
-  build-awl-tray-cur-env-crosscompile
+  build-awl-tray-cross
 }
 
 # build desktop version based on current environment
-build-awl-tray-cur-env() {
+build-awl-tray() {
   goos="$(go env GOOS)"
   arch="$(go env GOARCH)"
   filename="awl-tray-$goos-$arch-$VERSION"
@@ -124,17 +124,17 @@ build-awl-tray-cur-env() {
   mv "$filename" "$builddir"
 }
 
-build-awl-tray-cur-env-crosscompile() {
+build-awl-tray-cross() {
   cd "$awldir"
   for arch in 386 amd64 arm arm64; do
-    docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp "awl-cross-$arch" /bin/sh -c './build.sh awl-tray-cur-env'
+    docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp "awl-cross-$arch" /bin/sh -c './build.sh awl-tray'
   done
 }
 
 # build server and desktop versions
-build-desktop() {
-  build-awl
-  build-awl-tray
+build-desktop-cross() {
+  build-awl-cross
+  build-awl-tray-cross
 }
 
 build-docker-images() {
@@ -149,7 +149,7 @@ release)
   download-wintun
   build-web
   build-mobile
-  build-desktop
+  build-desktop-cross
   ;;
 web)
   build-web
@@ -160,17 +160,13 @@ mobile-lib)
 mobile)
   build-mobile
   ;;
-desktop)
+awl-tray-cross)
   download-wintun
-  build-desktop
+  build-awl-tray-cross
   ;;
-awl-tray-cur-env-crosscompile)
+awl-tray)
   download-wintun
-  build-awl-tray-cur-env-crosscompile
-  ;;
-awl-tray-cur-env)
-  download-wintun
-  build-awl-tray-cur-env
+  build-awl-tray
   ;;
 docker-images)
   build-docker-images
