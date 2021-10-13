@@ -104,7 +104,7 @@ build-awl-cross() {
 build-awl-tray-cross() {
   cd "$awldir/cmd/awl-tray"
   gobuild-windows awl-tray
-  build-awl-tray-cross
+  build-awl-tray-linux-cross
 }
 
 # build desktop version based on current environment
@@ -124,7 +124,7 @@ build-awl-tray() {
   mv "$filename" "$builddir"
 }
 
-build-awl-tray-cross() {
+build-awl-tray-linux-cross() {
   cd "$awldir"
   for arch in 386 amd64 arm arm64; do
     docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp "awl-cross-$arch" /bin/sh -c './build.sh awl-tray'
@@ -159,10 +159,6 @@ mobile-lib)
   ;;
 mobile)
   build-mobile
-  ;;
-awl-tray-cross)
-  download-wintun
-  build-awl-tray-cross
   ;;
 awl-tray)
   download-wintun
