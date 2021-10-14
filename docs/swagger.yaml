@@ -5,11 +5,22 @@ definitions:
       error:
         type: string
     type: object
+  config.BlockedPeer:
+    properties:
+      createdAt:
+        description: Time of adding to config (decline invitation/remove from KnownPeers)
+        type: string
+      displayName:
+        type: string
+      peerId:
+        description: Hex-encoded multihash representing a peer ID
+        type: string
+    type: object
   config.Config:
     properties:
-      declinedPeers:
+      blockedPeers:
         additionalProperties:
-          $ref: '#/definitions/config.DeclinedPeer'
+          $ref: '#/definitions/config.BlockedPeer'
         type: object
       httpListenAddress:
         type: string
@@ -25,17 +36,6 @@ definitions:
         type: string
       vpn:
         $ref: '#/definitions/config.VPNConfig'
-    type: object
-  config.DeclinedPeer:
-    properties:
-      createdAt:
-        description: Time of adding to config (decline invitation/remove from KnownPeers)
-        type: string
-      displayName:
-        type: string
-      peerId:
-        description: Hex-encoded multihash representing a peer ID
-        type: string
     type: object
   config.KnownPeer:
     properties:
@@ -386,7 +386,7 @@ paths:
       summary: Get ingoing auth requests
       tags:
         - Peers
-  /peers/get_declined:
+  /peers/get_blocked:
     get:
       consumes:
         - application/json
@@ -397,9 +397,9 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/config.DeclinedPeer'
+              $ref: '#/definitions/config.BlockedPeer'
             type: array
-      summary: Get declined peers info
+      summary: Get blocked peers info
       tags:
         - Peers
   /peers/get_known:

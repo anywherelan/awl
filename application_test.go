@@ -55,8 +55,8 @@ func TestRemovePeer(t *testing.T) {
 	peer2From1, err := peer1.api.KnownPeerConfig(peer2.PeerID())
 	a.EqualError(err, "peer not found")
 	a.Nil(peer2From1)
-	_, declinedPeerExists := peer1.app.Conf.GetDeclinedPeer(peer2.PeerID())
-	a.True(declinedPeerExists)
+	_, blockedPeerExists := peer1.app.Conf.GetBlockedPeer(peer2.PeerID())
+	a.True(blockedPeerExists)
 
 	time.Sleep(500 * time.Millisecond)
 	peer1From2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
@@ -78,8 +78,8 @@ func TestRemovePeer(t *testing.T) {
 	a.True(peer2From1.Confirmed)
 	a.False(peer2From1.Declined)
 
-	_, declinedPeerExists = peer1.app.Conf.GetDeclinedPeer(peer2.PeerID())
-	a.False(declinedPeerExists)
+	_, blockedPeerExists = peer1.app.Conf.GetBlockedPeer(peer2.PeerID())
+	a.False(blockedPeerExists)
 
 	peer1From2, err = peer2.api.KnownPeerConfig(peer1.PeerID())
 	a.NoError(err)
@@ -118,8 +118,8 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	a.True(knownPeer.Declined)
 
 	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
-	_, declinedPeerExists := peer2.app.Conf.GetDeclinedPeer(peer1.PeerID())
-	a.True(declinedPeerExists)
+	_, blockedPeerExists := peer2.app.Conf.GetBlockedPeer(peer1.PeerID())
+	a.True(blockedPeerExists)
 }
 
 func BenchmarkTunnelPackets(b *testing.B) {
