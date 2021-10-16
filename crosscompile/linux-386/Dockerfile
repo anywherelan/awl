@@ -1,4 +1,4 @@
-FROM golang:1.16-buster
+FROM golang:1.17-buster
 LABEL os=linux
 LABEL arch=i386
 
