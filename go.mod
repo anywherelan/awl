@@ -3,7 +3,7 @@ module github.com/anywherelan/awl
 go 1.16
 
 require (
-	github.com/anywherelan/ts-dns v0.0.0-20210614204238-859a28a4197b
+	github.com/anywherelan/ts-dns v0.0.0-20211016195049-babc83989aee
 	github.com/go-playground/validator/v10 v10.9.0
 	github.com/ipfs/go-datastore v0.4.6
 	github.com/ipfs/go-log/v2 v2.3.0
@@ -29,10 +29,10 @@ require (
 	go.uber.org/multierr v1.7.0
 	go.uber.org/zap v1.19.1
 	golang.org/x/net v0.0.0-20210913180222-943fd674d43e
-	golang.org/x/sys v0.0.0-20210910150752-751e447fb3d0
-	golang.zx2c4.com/wireguard v0.0.0-20210525143454-64cb82f2b3f5
-	golang.zx2c4.com/wireguard/windows v0.3.15-0.20210525143335-94c0476d63e3
-	inet.af/netaddr v0.0.0-20210602152128-50f8686885e3
+	golang.org/x/sys v0.0.0-20210927094055-39ccf1dd6fa6
+	golang.zx2c4.com/wireguard v0.0.0-20210905140043-2ef39d47540c
+	golang.zx2c4.com/wireguard/windows v0.4.10
+	inet.af/netaddr v0.0.0-20210721214506-ce7a8ad02cc1
 )
 
 replace github.com/ipfs/go-log/v2 => github.com/anywherelan/go-log/v2 v2.0.3-0.20210308150645-ad120b957e42

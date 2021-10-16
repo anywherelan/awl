@@ -7,7 +7,7 @@ require (
 	github.com/anywherelan/awl v0.0.0-00010101000000-000000000000
 	github.com/gen2brain/beeep v0.0.0-20210529141713-5586760f0cc1
 	github.com/getlantern/systray v1.1.0
-	github.com/godbus/dbus/v5 v5.0.4
+	github.com/godbus/dbus/v5 v5.0.5
 	github.com/ipfs/go-log/v2 v2.3.0
 	github.com/ncruces/zenity v0.7.7
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
