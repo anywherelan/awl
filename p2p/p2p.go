@@ -344,19 +344,14 @@ func (p *P2p) Bootstrap() error {
 	var wg sync.WaitGroup
 
 	for _, peerAddr := range p.cfg.GetBootstrapPeers() {
-		peerInfo, err := peer.AddrInfoFromP2pAddr(peerAddr)
-		if err != nil {
-			p.logger.Warnf("invalid addr info from bootstrap peer addr %v: %v", peerAddr, err)
-			continue
-		}
-
 		wg.Add(1)
+		peerAddr := peerAddr
 		go func() {
 			defer wg.Done()
-			if err := p.host.Connect(ctx, *peerInfo); err != nil && err != context.Canceled {
-				p.logger.Warnf("Connect to bootstrap node: %v", err)
+			if err := p.host.Connect(ctx, peerAddr); err != nil && err != context.Canceled {
+				p.logger.Warnf("Connect to bootstrap node %v: %v", peerAddr.ID, err)
 			} else if err == nil {
-				p.logger.Infof("Connection established with bootstrap node: %v", *peerInfo)
+				p.logger.Infof("Connection established with bootstrap node: %v", peerAddr.ID)
 			}
 		}()
 	}
