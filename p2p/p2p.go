@@ -133,8 +133,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 			kademliaDHT, err := dht.New(p.ctx, h,
 				dht.Datastore(datastore),
 				dht.ProtocolPrefix(DHTProtocolPrefix),
-				// TODO: переделать через эту опцию?
-				//dht.BootstrapPeers(),
+				dht.BootstrapPeers(p.cfg.GetBootstrapPeers()...),
 				// с помощью этого можно добавлять в роутинг только тех кто использует awl
 				//dht.RoutingTableFilter(),
 				// default to minute
