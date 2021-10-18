@@ -77,7 +77,7 @@ func (h *Handler) SetupAPI() error {
 	e.POST(UpdatePeerSettingsPath, h.UpdatePeerSettings)
 	e.POST(RemovePeerSettingsPath, h.RemovePeer)
 	e.GET(GetAuthRequestsPath, h.GetAuthRequests)
-	e.GET(GetDeclinedPeersPath, h.GetDeclinedPeers)
+	e.GET(GetBlockedPeersPath, h.GetBlockedPeers)
 
 	// Settings
 	e.GET(GetMyPeerInfoPath, h.GetMyPeerInfo)

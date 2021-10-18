@@ -57,8 +57,8 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	remotePeer := stream.Conn().RemotePeer()
 	peerID := remotePeer.String()
 	knownPeer, known := s.conf.GetPeer(peerID)
-	_, isDeclined := s.conf.GetDeclinedPeer(peerID)
-	if !known && !isDeclined {
+	_, isBlocked := s.conf.GetBlockedPeer(peerID)
+	if !known && !isBlocked {
 		s.logger.Infof("Unknown peer %s tried to exchange status info", peerID)
 		return
 	}
@@ -74,14 +74,14 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	s.authsLock.Unlock()
 
 	// Sending info
-	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isDeclined)
+	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isBlocked)
 	err = protocol.SendStatus(stream, myPeerInfo)
 	if err != nil {
 		s.logger.Errorf("sending status info to %s as an answer: %v", peerID, err)
 	}
 
 	s.logger.Infof("successfully exchanged status info with %s (%s)", knownPeer.DisplayName(), peerID)
-	if isDeclined {
+	if isBlocked {
 		return
 	}
 	// Processing opposite peer info
@@ -111,8 +111,8 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 		_ = stream.Close()
 	}()
 
-	_, isDeclined := s.conf.GetDeclinedPeer(remotePeerID.String())
-	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isDeclined)
+	_, isBlocked := s.conf.GetBlockedPeer(remotePeerID.String())
+	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isBlocked)
 	err = protocol.SendStatus(stream, myPeerInfo)
 	if err != nil {
 		return fmt.Errorf("sending status info: %v", err)
@@ -123,7 +123,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 		return fmt.Errorf("receiving status info: %v", err)
 	}
 
-	if isDeclined {
+	if isBlocked {
 		return nil
 	}
 
@@ -136,8 +136,8 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 	return nil
 }
 
-func (s *AuthStatus) DeclinePeer(peerID peer.ID, name string) {
-	s.conf.UpsertDeclinedPeer(peerID.String(), name)
+func (s *AuthStatus) BlockPeer(peerID peer.ID, name string) {
+	s.conf.UpsertBlockedPeer(peerID.String(), name)
 	go func() {
 		_ = s.ExchangeNewStatusInfo(context.Background(), peerID, config.KnownPeer{})
 	}()
@@ -185,9 +185,9 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 		return
 	}
 
-	_, isDeclined := s.conf.GetDeclinedPeer(peerID)
+	_, isBlocked := s.conf.GetBlockedPeer(peerID)
 	_, confirmed := s.conf.GetPeer(peerID)
-	if !confirmed && !isDeclined {
+	if !confirmed && !isBlocked {
 		s.authsLock.Lock()
 		s.ingoingAuths[remotePeer] = authPeer
 		s.authsLock.Unlock()
@@ -197,7 +197,7 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 		})
 	}
 
-	authResponse := protocol.AuthPeerResponse{Confirmed: confirmed, Declined: isDeclined}
+	authResponse := protocol.AuthPeerResponse{Confirmed: confirmed, Declined: isBlocked}
 	err = protocol.SendAuthResponse(stream, authResponse)
 	if err != nil {
 		s.logger.Errorf("sending auth response to %s as an answer: %v", peerID, err)

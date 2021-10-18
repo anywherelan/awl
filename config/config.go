@@ -33,13 +33,13 @@ type (
 		dataDir      string
 		emitter      awlevent.Emitter
 
-		Version           string                  `json:"version"`
-		LoggerLevel       string                  `json:"loggerLevel"`
-		HttpListenAddress string                  `json:"httpListenAddress"`
-		P2pNode           P2pNodeConfig           `json:"p2pNode"`
-		VPNConfig         VPNConfig               `json:"vpn"`
-		KnownPeers        map[string]KnownPeer    `json:"knownPeers"`
-		DeclinedPeers     map[string]DeclinedPeer `json:"declinedPeers"`
+		Version           string                 `json:"version"`
+		LoggerLevel       string                 `json:"loggerLevel"`
+		HttpListenAddress string                 `json:"httpListenAddress"`
+		P2pNode           P2pNodeConfig          `json:"p2pNode"`
+		VPNConfig         VPNConfig              `json:"vpn"`
+		KnownPeers        map[string]KnownPeer   `json:"knownPeers"`
+		BlockedPeers      map[string]BlockedPeer `json:"blockedPeers"`
 	}
 	P2pNodeConfig struct {
 		// Hex-encoded multihash representing a peer ID, calculated from Identity
@@ -74,7 +74,7 @@ type (
 		// Has remote peer declined our invitation
 		Declined bool `json:"declined"`
 	}
-	DeclinedPeer struct {
+	BlockedPeer struct {
 		// Hex-encoded multihash representing a peer ID
 		PeerID      string `json:"peerId"`
 		DisplayName string `json:"displayName"`
@@ -141,32 +141,32 @@ func (c *Config) UpdatePeerLastSeen(peerID string) {
 	c.Unlock()
 }
 
-func (c *Config) GetDeclinedPeer(peerID string) (DeclinedPeer, bool) {
+func (c *Config) GetBlockedPeer(peerID string) (BlockedPeer, bool) {
 	c.RLock()
-	declinedPeer, ok := c.DeclinedPeers[peerID]
+	blockedPeer, ok := c.BlockedPeers[peerID]
 	c.RUnlock()
-	return declinedPeer, ok
+	return blockedPeer, ok
 }
 
-func (c *Config) RemoveDeclinedPeer(peerID string) {
+func (c *Config) RemoveBlockedPeer(peerID string) {
 	c.Lock()
-	_, exists := c.DeclinedPeers[peerID]
+	_, exists := c.BlockedPeers[peerID]
 	if exists {
-		delete(c.DeclinedPeers, peerID)
+		delete(c.BlockedPeers, peerID)
 		c.save()
 	}
 	c.Unlock()
 }
 
-func (c *Config) UpsertDeclinedPeer(peerID, displayName string) {
+func (c *Config) UpsertBlockedPeer(peerID, displayName string) {
 	c.Lock()
-	declinedPeer, exists := c.DeclinedPeers[peerID]
+	blockedPeer, exists := c.BlockedPeers[peerID]
 	if !exists {
-		declinedPeer.CreatedAt = time.Now()
+		blockedPeer.CreatedAt = time.Now()
 	}
-	declinedPeer.PeerID = peerID
-	declinedPeer.DisplayName = displayName
-	c.DeclinedPeers[peerID] = declinedPeer
+	blockedPeer.PeerID = peerID
+	blockedPeer.DisplayName = displayName
+	c.BlockedPeers[peerID] = blockedPeer
 	c.save()
 	c.Unlock()
 }

@@ -189,8 +189,8 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.KnownPeers[peerID] = peer
 	}
 
-	if conf.DeclinedPeers == nil {
-		conf.DeclinedPeers = make(map[string]DeclinedPeer)
+	if conf.BlockedPeers == nil {
+		conf.BlockedPeers = make(map[string]BlockedPeer)
 	}
 
 	if conf.dataDir == "" {

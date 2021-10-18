@@ -169,7 +169,7 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 		CreatedAt: time.Now(),
 	}
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
-	h.conf.RemoveDeclinedPeer(req.PeerID)
+	h.conf.RemoveBlockedPeer(req.PeerID)
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
 	h.tunnel.RefreshPeersList()
@@ -228,7 +228,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	}
 
 	if req.Decline {
-		h.authStatus.DeclinePeer(peerId, auth.Name)
+		h.authStatus.BlockPeer(peerId, auth.Name)
 		return c.NoContent(http.StatusOK)
 	}
 
@@ -244,7 +244,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 		CreatedAt: time.Now(),
 	}
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
-	h.conf.RemoveDeclinedPeer(req.PeerID)
+	h.conf.RemoveBlockedPeer(req.PeerID)
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
 	h.tunnel.RefreshPeersList()
@@ -305,23 +305,23 @@ func (h *Handler) RemovePeer(c echo.Context) (err error) {
 
 	h.p2p.UnprotectPeer(peerId)
 	h.tunnel.RefreshPeersList()
-	h.authStatus.DeclinePeer(peerId, knownPeer.DisplayName())
+	h.authStatus.BlockPeer(peerId, knownPeer.DisplayName())
 
 	return c.NoContent(http.StatusOK)
 }
 
 // @Tags Peers
-// @Summary Get declined peers info
+// @Summary Get blocked peers info
 // @Accept json
 // @Produce json
-// @Success 200 {array} config.DeclinedPeer
-// @Router /peers/get_declined [GET]
-func (h *Handler) GetDeclinedPeers(c echo.Context) (err error) {
+// @Success 200 {array} config.BlockedPeer
+// @Router /peers/get_blocked [GET]
+func (h *Handler) GetBlockedPeers(c echo.Context) (err error) {
 	h.conf.RLock()
-	result := make([]config.DeclinedPeer, 0)
+	result := make([]config.BlockedPeer, 0)
 
-	for _, declinedPeer := range h.conf.DeclinedPeers {
-		result = append(result, declinedPeer)
+	for _, blockedPeer := range h.conf.BlockedPeers {
+		result = append(result, blockedPeer)
 	}
 
 	sort.SliceStable(result, func(i, j int) bool {
