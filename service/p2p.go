@@ -52,11 +52,7 @@ func NewP2p(server *p2p.P2p, conf *config.Config) *P2pService {
 	}
 
 	for _, peerAddr := range conf.GetBootstrapPeers() {
-		peerInfo, err := peer.AddrInfoFromP2pAddr(peerAddr)
-		if err != nil {
-			continue
-		}
-		p.ProtectPeer(peerInfo.ID)
+		p.ProtectPeer(peerAddr.ID)
 	}
 	conf.RUnlock()
 
@@ -135,22 +131,14 @@ func (s *P2pService) PeerConnectionsInfo(peerID peer.ID) []entity.ConnectionInfo
 // BootstrapPeersStats returns total peers count and connected count.
 func (s *P2pService) BootstrapPeersStats() (int, int) {
 	connected := 0
-	peerIds := make(map[peer.ID]struct{})
-	for _, peerAddr := range s.conf.GetBootstrapPeers() {
-		peerInfo, err := peer.AddrInfoFromP2pAddr(peerAddr)
-		if err != nil {
-			continue
-		}
-		peerIds[peerInfo.ID] = struct{}{}
-	}
-
-	for peerID := range peerIds {
-		if s.p2pServer.IsConnected(peerID) {
+	bootstrapPeers := s.conf.GetBootstrapPeers()
+	for _, peerAddr := range bootstrapPeers {
+		if s.p2pServer.IsConnected(peerAddr.ID) {
 			connected += 1
 		}
 	}
 
-	return len(peerIds), connected
+	return len(bootstrapPeers), connected
 }
 
 func (s *P2pService) BootstrapPeersStatsDetailed() map[string]entity.BootstrapPeerDebugInfo {
@@ -275,22 +263,18 @@ func (s *P2pService) connectToKnownPeers(ctx context.Context, timeout time.Durat
 	var mu sync.Mutex
 
 	for _, peerAddr := range s.conf.GetBootstrapPeers() {
-		peerInfo, err := peer.AddrInfoFromP2pAddr(peerAddr)
-		if err != nil {
-			continue
-		}
-
 		wg.Add(1)
+		peerAddr := peerAddr
 		go func() {
 			defer wg.Done()
-			err := s.p2pServer.ConnectPeerAddr(ctx, *peerInfo)
+			err := s.p2pServer.ConnectPeerAddr(ctx, peerAddr)
 			var info entity.BootstrapPeerDebugInfo
 			if err != nil {
 				info.Error = err.Error()
 			}
-			info.Connections = s.PeerAddresses(peerInfo.ID)
+			info.Connections = s.PeerAddresses(peerAddr.ID)
 			mu.Lock()
-			bootstrapsInfo[peerInfo.ID.String()] = info
+			bootstrapsInfo[peerAddr.ID.String()] = info
 			mu.Unlock()
 		}()
 	}

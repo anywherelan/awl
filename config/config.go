@@ -196,26 +196,31 @@ func (c *Config) PrivKey() []byte {
 	return b
 }
 
-func (c *Config) GetBootstrapPeers() []multiaddr.Multiaddr {
+func (c *Config) GetBootstrapPeers() []peer.AddrInfo {
 	c.RLock()
 	allMultiaddrs := make([]multiaddr.Multiaddr, 0, len(c.P2pNode.BootstrapPeers))
 	for _, val := range c.P2pNode.BootstrapPeers {
-		newMultiaddr, _ := multiaddr.NewMultiaddr(val)
+		newMultiaddr, err := multiaddr.NewMultiaddr(val)
+		if err != nil {
+			logger.Warnf("invalid bootstrap multiaddr from config: %v", err)
+			continue
+		}
+
 		allMultiaddrs = append(allMultiaddrs, newMultiaddr)
 	}
 	c.RUnlock()
 
 	allMultiaddrs = append(allMultiaddrs, DefaultBootstrapPeers...)
-
-	result := make([]multiaddr.Multiaddr, 0, len(allMultiaddrs))
-	resultMap := make(map[string]struct{}, len(allMultiaddrs))
-	for _, maddr := range allMultiaddrs {
-		if _, exists := resultMap[maddr.String()]; !exists {
-			resultMap[maddr.String()] = struct{}{}
-			result = append(result, maddr)
+	addrInfos, err := peer.AddrInfosFromP2pAddrs(allMultiaddrs...)
+	if err != nil {
+		logger.Warn("invalid one or more bootstrap addr info from config")
+		addrInfos, err = peer.AddrInfosFromP2pAddrs(DefaultBootstrapPeers...)
+		if err != nil {
+			panic(err)
 		}
 	}
-	return result
+
+	return addrInfos
 }
 
 func (c *Config) SetListenAddresses(multiaddrs []multiaddr.Multiaddr) {
