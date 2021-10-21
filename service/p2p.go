@@ -89,7 +89,7 @@ func (s *P2pService) StreamsToPeer(peerID peer.ID) []network.Stream {
 }
 
 func (s *P2pService) PeerVersion(peerID peer.ID) string {
-	return s.p2pServer.PeerVersion(peerID)
+	return config.VersionFromUserAgent(s.p2pServer.UserAgent(peerID))
 }
 
 func (s *P2pService) IsConnected(peerID peer.ID) bool {

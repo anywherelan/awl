@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/anywherelan/awl/awlevent"
-	"github.com/anywherelan/awl/config"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
@@ -50,7 +49,6 @@ type P2p struct {
 	totalStreamsInbound  int64
 	totalStreamsOutbound int64
 
-	cfg       *config.Config
 	logger    *log.ZapEventLogger
 	ctx       context.Context
 	ctxCancel func()
@@ -60,24 +58,23 @@ type P2p struct {
 	dht              *dht.IpfsDHT
 	bandwidthCounter metrics.Reporter
 	connManager      *connmgr.BasicConnMgr
+	bootstrapPeers   []peer.AddrInfo
 
 	reachability network.Reachability
 }
 
-func NewP2p(ctx context.Context, cfg *config.Config) *P2p {
+func NewP2p(ctx context.Context) *P2p {
 	newCtx, ctxCancel := context.WithCancel(ctx)
 	return &P2p{
-		cfg:       cfg,
 		ctx:       newCtx,
 		ctxCancel: ctxCancel,
 		logger:    log.Logger("awl/p2p"),
 	}
 }
 
-func (p *P2p) InitHost() (host.Host, error) {
+func (p *P2p) InitHost(privKeyBytes []byte, listenAddrs []multiaddr.Multiaddr, userAgent string, bootstrapPeers []peer.AddrInfo) (host.Host, error) {
 	var privKey crypto.PrivKey
 	var err error
-	privKeyBytes := p.cfg.PrivKey()
 	if privKeyBytes == nil {
 		privKey, _, err = crypto.GenerateEd25519Key(rand.Reader)
 		if err != nil {
@@ -91,6 +88,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 	}
 
 	p.bandwidthCounter = metrics.NewBandwidthCounter()
+	p.bootstrapPeers = bootstrapPeers
 
 	var datastore ds.Batching = dssync.MutexWrap(ds.NewMapDatastore())
 	// TODO: check badger2 when it released
@@ -114,17 +112,12 @@ func (p *P2p) InitHost() (host.Host, error) {
 	p2pHost, err := libp2p.New(p.ctx,
 		libp2p.EnableAutoRelay(),
 		libp2p.EnableRelay(),
-		//libp2p.StaticRelays(),
-		//libp2p.DefaultStaticRelays(),
-		// TODO: Использовать для фильтрации подключений - подумать
-		//libp2p.ConnectionGater(),
-		//libp2p.PrivateNetwork(),
 		libp2p.Peerstore(peerstore),
 		libp2p.Identity(privKey),
-		libp2p.UserAgent(config.UserAgent),
+		libp2p.UserAgent(userAgent),
 		libp2p.BandwidthReporter(p.bandwidthCounter),
 		libp2p.ConnectionManager(p.connManager),
-		libp2p.ListenAddrs(p.cfg.GetListenAddresses()...),
+		libp2p.ListenAddrs(listenAddrs...),
 		libp2p.ChainOptions(
 			libp2p.Transport(quic.NewTransport),
 			libp2p.Transport(tcp.NewTCPTransport),
@@ -133,7 +126,7 @@ func (p *P2p) InitHost() (host.Host, error) {
 			kademliaDHT, err := dht.New(p.ctx, h,
 				dht.Datastore(datastore),
 				dht.ProtocolPrefix(DHTProtocolPrefix),
-				dht.BootstrapPeers(p.cfg.GetBootstrapPeers()...),
+				dht.BootstrapPeers(bootstrapPeers...),
 				// с помощью этого можно добавлять в роутинг только тех кто использует awl
 				//dht.RoutingTableFilter(),
 				// default to minute
@@ -218,11 +211,11 @@ func (p *P2p) IsConnected(peerID peer.ID) bool {
 	return p.host.Network().Connectedness(peerID) == network.Connected
 }
 
-func (p *P2p) PeerVersion(peerID peer.ID) string {
+func (p *P2p) UserAgent(peerID peer.ID) string {
 	version, _ := p.host.Peerstore().Get(peerID, "AgentVersion")
 
 	if version != nil {
-		return config.VersionFromUserAgent(version.(string))
+		return version.(string)
 	}
 
 	return ""
@@ -342,7 +335,7 @@ func (p *P2p) Bootstrap() error {
 	defer cancel()
 	var wg sync.WaitGroup
 
-	for _, peerAddr := range p.cfg.GetBootstrapPeers() {
+	for _, peerAddr := range p.bootstrapPeers {
 		wg.Add(1)
 		peerAddr := peerAddr
 		go func() {

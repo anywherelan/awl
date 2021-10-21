@@ -23,7 +23,6 @@ import (
 	"github.com/anywherelan/ts-dns/util/dnsname"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
-	"github.com/libp2p/go-libp2p-core/host"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
@@ -67,7 +66,6 @@ type Application struct {
 	ctx        context.Context
 	ctxCancel  context.CancelFunc
 	p2pServer  *p2p.P2p
-	host       host.Host
 	vpnDevice  *vpn.Device
 	Api        *api.Handler
 	P2pService *service.P2pService
@@ -82,13 +80,12 @@ func New() *Application {
 
 func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.ctx, a.ctxCancel = context.WithCancel(ctx)
-	p2pSrv := p2p.NewP2p(a.ctx, a.Conf)
-	p2pHost, err := p2pSrv.InitHost()
+	p2pSrv := p2p.NewP2p(a.ctx)
+	p2pHost, err := p2pSrv.InitHost(a.Conf.PrivKey(), a.Conf.GetListenAddresses(), config.UserAgent, a.Conf.GetBootstrapPeers())
 	if err != nil {
 		return err
 	}
 	a.p2pServer = p2pSrv
-	a.host = p2pHost
 
 	privKey := p2pHost.Peerstore().PrivKey(p2pHost.ID())
 	a.Conf.SetIdentity(privKey, p2pHost.ID())
