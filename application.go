@@ -21,8 +21,12 @@ import (
 	"github.com/anywherelan/awl/vpn"
 	"github.com/anywherelan/ts-dns/net/dns"
 	"github.com/anywherelan/ts-dns/util/dnsname"
+	ds "github.com/ipfs/go-datastore"
+	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-peerstore/pstoremem"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
@@ -81,7 +85,7 @@ func New() *Application {
 func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.ctx, a.ctxCancel = context.WithCancel(ctx)
 	p2pSrv := p2p.NewP2p(a.ctx)
-	p2pHost, err := p2pSrv.InitHost(a.Conf.PrivKey(), a.Conf.GetListenAddresses(), config.UserAgent, a.Conf.GetBootstrapPeers())
+	p2pHost, err := p2pSrv.InitHost(a.makeP2pHostConfig())
 	if err != nil {
 		return err
 	}
@@ -235,6 +239,31 @@ func (a *Application) Close() {
 		}
 	}
 	a.Conf.Save()
+}
+
+func (a *Application) makeP2pHostConfig() p2p.HostConfig {
+	return p2p.HostConfig{
+		PrivKeyBytes:   a.Conf.PrivKey(),
+		ListenAddrs:    a.Conf.GetListenAddresses(),
+		UserAgent:      config.UserAgent,
+		BootstrapPeers: a.Conf.GetBootstrapPeers(),
+		Libp2pOpts: []libp2p.Option{
+			libp2p.EnableRelay(),
+			libp2p.NATPortMap(),
+		},
+		ConnManager: struct {
+			LowWater    int
+			HighWater   int
+			GracePeriod time.Duration
+		}{
+			LowWater:    50,
+			HighWater:   100,
+			GracePeriod: time.Minute,
+		},
+		// TODO: use persistent datastore. Check out badger2. Old badger datastore constantly use disk io
+		Peerstore:    pstoremem.NewPeerstore(),
+		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
+	}
 }
 
 type DNSService struct {

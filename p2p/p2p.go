@@ -10,7 +10,6 @@ import (
 
 	"github.com/anywherelan/awl/awlevent"
 	ds "github.com/ipfs/go-datastore"
-	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p"
@@ -21,11 +20,11 @@ import (
 	"github.com/libp2p/go-libp2p-core/metrics"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/libp2p/go-libp2p-core/routing"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	noise "github.com/libp2p/go-libp2p-noise"
-	"github.com/libp2p/go-libp2p-peerstore/pstoremem"
 	quic "github.com/libp2p/go-libp2p-quic-transport"
 	swarm "github.com/libp2p/go-libp2p-swarm"
 	tls "github.com/libp2p/go-libp2p-tls"
@@ -42,6 +41,23 @@ const (
 
 	DHTProtocolPrefix protocol.ID = "/awl"
 )
+
+type HostConfig struct {
+	PrivKeyBytes   []byte
+	ListenAddrs    []multiaddr.Multiaddr
+	UserAgent      string
+	BootstrapPeers []peer.AddrInfo
+
+	Libp2pOpts  []libp2p.Option
+	ConnManager struct {
+		LowWater    int
+		HighWater   int
+		GracePeriod time.Duration
+	}
+	Peerstore    peerstore.Peerstore
+	DHTDatastore ds.Batching
+	DHTOpts      []dht.Option
+}
 
 type P2p struct {
 	// has to be 64-bit aligned
@@ -72,38 +88,28 @@ func NewP2p(ctx context.Context) *P2p {
 	}
 }
 
-func (p *P2p) InitHost(privKeyBytes []byte, listenAddrs []multiaddr.Multiaddr, userAgent string, bootstrapPeers []peer.AddrInfo) (host.Host, error) {
+func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 	var privKey crypto.PrivKey
 	var err error
-	if privKeyBytes == nil {
+	if hostConfig.PrivKeyBytes == nil {
 		privKey, _, err = crypto.GenerateEd25519Key(rand.Reader)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		privKey, err = crypto.UnmarshalEd25519PrivateKey(privKeyBytes)
+		privKey, err = crypto.UnmarshalEd25519PrivateKey(hostConfig.PrivKeyBytes)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	p.bandwidthCounter = metrics.NewBandwidthCounter()
-	p.bootstrapPeers = bootstrapPeers
-
-	var datastore ds.Batching = dssync.MutexWrap(ds.NewMapDatastore())
-	// TODO: check badger2 when it released
-	//datastore, err = badger.NewDatastore(p.cfg.PeerstoreDir(), nil)
-	//datastore, err = leveldb.NewDatastore(p.cfg.PeerstoreDir(), nil)
-	//if err != nil {
-	//	p.logger.DPanicf("could not create leveldb datastore: %v", err)
-	//	datastore = dssync.MutexWrap(ds.NewMapDatastore())
-	//}
-	peerstore := pstoremem.NewPeerstore()
+	p.bootstrapPeers = hostConfig.BootstrapPeers
 
 	p.connManager = connmgr.NewConnManager(
-		50,
-		100,
-		time.Minute,
+		hostConfig.ConnManager.LowWater,
+		hostConfig.ConnManager.HighWater,
+		hostConfig.ConnManager.GracePeriod,
 	)
 
 	relay.DesiredRelays = DesiredRelays
@@ -111,27 +117,24 @@ func (p *P2p) InitHost(privKeyBytes []byte, listenAddrs []multiaddr.Multiaddr, u
 
 	p2pHost, err := libp2p.New(p.ctx,
 		libp2p.EnableAutoRelay(),
-		libp2p.EnableRelay(),
-		libp2p.Peerstore(peerstore),
+		libp2p.Peerstore(hostConfig.Peerstore),
 		libp2p.Identity(privKey),
-		libp2p.UserAgent(userAgent),
+		libp2p.UserAgent(hostConfig.UserAgent),
 		libp2p.BandwidthReporter(p.bandwidthCounter),
 		libp2p.ConnectionManager(p.connManager),
-		libp2p.ListenAddrs(listenAddrs...),
+		libp2p.ListenAddrs(hostConfig.ListenAddrs...),
 		libp2p.ChainOptions(
 			libp2p.Transport(quic.NewTransport),
 			libp2p.Transport(tcp.NewTCPTransport),
 		),
 		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
-			kademliaDHT, err := dht.New(p.ctx, h,
-				dht.Datastore(datastore),
+			opts := []dht.Option{
+				dht.Datastore(hostConfig.DHTDatastore),
 				dht.ProtocolPrefix(DHTProtocolPrefix),
-				dht.BootstrapPeers(bootstrapPeers...),
-				// с помощью этого можно добавлять в роутинг только тех кто использует awl
-				//dht.RoutingTableFilter(),
-				// default to minute
-				//dht.RoutingTableLatencyTolerance(),
-			)
+				dht.BootstrapPeers(p.bootstrapPeers...),
+			}
+			opts = append(opts, hostConfig.DHTOpts...)
+			kademliaDHT, err := dht.New(p.ctx, h, opts...)
 			p.dht = kademliaDHT
 			p.basicHost = h.(*basichost.BasicHost)
 			return p.dht, err
@@ -141,7 +144,7 @@ func (p *P2p) InitHost(privKeyBytes []byte, listenAddrs []multiaddr.Multiaddr, u
 			libp2p.Security(tls.ID, tls.New),
 			libp2p.Security(noise.ID, noise.New),
 		),
-		libp2p.NATPortMap(),
+		libp2p.ChainOptions(hostConfig.Libp2pOpts...),
 	)
 	p.host = p2pHost
 
