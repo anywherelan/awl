@@ -1,15 +1,18 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path"
 	"strconv"
+	"strings"
 
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/update"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
 	"github.com/olekukonko/tablewriter"
@@ -47,7 +50,6 @@ func (a *Application) Run() {
 }
 
 func (a *Application) init() {
-	var apiAddr string
 	a.cliapp = &cli.App{
 		Name:     "awl",
 		HelpName: path.Base(os.Args[0]) + " cli",
@@ -55,40 +57,10 @@ func (a *Application) init() {
 		Usage:    "p2p mesh vpn",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:        "api_addr",
-				Usage:       fmt.Sprintf("awl api address, example: %s", defaultApiAddr),
-				Required:    false,
-				Destination: &apiAddr,
+				Name:     "api_addr",
+				Usage:    fmt.Sprintf("awl api address, example: %s", defaultApiAddr),
+				Required: false,
 			},
-		},
-		Before: func(_ *cli.Context) (err error) {
-			var addr string
-			defer func() {
-				if err != nil {
-					return
-				}
-				a.api = apiclient.New(addr)
-				_, err2 := a.api.PeerInfo()
-				if err2 != nil {
-					err = fmt.Errorf("could not access api on address %s: %v", addr, err2)
-				}
-			}()
-			if apiAddr != "" {
-				addr = apiAddr
-				return nil
-			}
-			conf, err := config.LoadConfig(eventbus.NewBus())
-			if err != nil {
-				a.logger.Errorf("could not load config, use default api_addr (%s), error: %v", defaultApiAddr, err)
-				addr = defaultApiAddr
-				return nil
-			}
-			addr = conf.HttpListenAddress
-			if addr == "" {
-				return errors.New("httpListenAddress from config is empty")
-			}
-
-			return nil
 		},
 		Commands: []*cli.Command{
 			{
@@ -104,6 +76,7 @@ func (a *Application) init() {
 						Required: false,
 					},
 				},
+				Before: a.initApiConnection,
 				Action: func(c *cli.Context) error {
 					peerID := c.String("peer_id")
 					alias := c.String("alias")
@@ -129,8 +102,9 @@ func (a *Application) init() {
 				},
 			},
 			{
-				Name:  "auth_requests",
-				Usage: "Print all incoming friend requests",
+				Name:   "auth_requests",
+				Usage:  "Print all incoming friend requests",
+				Before: a.initApiConnection,
 				Action: func(*cli.Context) error {
 					authRequests, err := a.api.AuthRequests()
 					if err != nil {
@@ -148,8 +122,9 @@ func (a *Application) init() {
 				},
 			},
 			{
-				Name:  "p2p_info",
-				Usage: "Print p2p debug info",
+				Name:   "p2p_info",
+				Usage:  "Print p2p debug info",
+				Before: a.initApiConnection,
 				Action: func(*cli.Context) error {
 					debugInfo, err := a.api.P2pDebugInfo()
 					if err != nil {
@@ -175,6 +150,7 @@ func (a *Application) init() {
 						Required: false,
 					},
 				},
+				Before: a.initApiConnection,
 				Action: func(c *cli.Context) error {
 					peers, err := a.api.KnownPeers()
 					if err != nil {
@@ -202,6 +178,114 @@ func (a *Application) init() {
 					return errors.New("print full info is not implemented, use flag --short instead")
 				},
 			},
+			{
+				Name:  "update",
+				Usage: "update awl to the latest version",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:     "without_confirmation",
+						Aliases:  []string{"wc"},
+						Usage:    "update without confirmation message",
+						Required: false,
+					},
+					&cli.BoolFlag{
+						Name:     "run",
+						Aliases:  []string{"r"},
+						Usage:    "run on success update",
+						Required: false,
+					},
+				},
+				Action: func(c *cli.Context) error {
+					conf, err := config.LoadConfig(eventbus.NewBus())
+					if err != nil {
+						return err
+					}
+					updService, err := update.NewUpdateService(conf, a.logger)
+					if err != nil {
+						return err
+					}
+					status, err := updService.CheckForUpdates()
+					if err != nil {
+						return err
+					}
+					if !status {
+						a.logger.Infof("there is no new versions")
+						return nil
+					}
+					if !c.Bool("without_confirmation") {
+						status, err = a.yesNoPrompt(fmt.Sprintf("update to version(%s): %s, %s", updService.NewVersion.VersionTag(),
+							updService.NewVersion.VersionName(), updService.NewVersion.VersionDescription()), true)
+						if !status || err != nil {
+							a.logger.Info("update stopped")
+							return err
+						}
+					}
+					a.logger.Infof("try update to version(%s): %s (success on no errors)", updService.NewVersion.VersionTag(),
+						updService.NewVersion.VersionName())
+					return updService.DoUpdate(c.Bool("run"))
+
+				},
+			},
 		},
+	}
+}
+
+func (a *Application) initApiConnection(c *cli.Context) (err error) {
+	apiAddr := c.String("api_addr")
+	var addr string
+	defer func() {
+		if err != nil {
+			return
+		}
+		a.api = apiclient.New(addr)
+		_, err2 := a.api.PeerInfo()
+		if err2 != nil {
+			err = fmt.Errorf("could not access api on address %s: %v", addr, err2)
+		}
+	}()
+	if apiAddr != "" {
+		addr = apiAddr
+		return nil
+	}
+	conf, err := config.LoadConfig(eventbus.NewBus())
+	if err != nil {
+		a.logger.Errorf("could not load config, use default api_addr (%s), error: %v", defaultApiAddr, err)
+		addr = defaultApiAddr
+		return nil
+	}
+	addr = conf.HttpListenAddress
+	if addr == "" {
+		return errors.New("httpListenAddress from config is empty")
+	}
+
+	return nil
+}
+
+func (a *Application) yesNoPrompt(message string, def bool) (bool, error) {
+	choices := "[Y]es/[n]o"
+	if !def {
+		choices = "[y]es/[N]o"
+	}
+
+	r := bufio.NewReader(a.cliapp.Reader)
+	var s string
+
+	for {
+		_, err := fmt.Fprintf(a.cliapp.Writer, "%s (%s) ", message, choices)
+		if err != nil {
+			return false, err
+		}
+		s, _ = r.ReadString('\n')
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return def, nil
+		}
+		s = strings.ToLower(s)
+		if s == "y" || s == "yes" {
+			return true, nil
+		}
+		if s == "n" || s == "no" {
+			return false, nil
+		}
 	}
 }

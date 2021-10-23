@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -204,4 +205,12 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		panic(err)
 	}
 	conf.emitter = emitter
+
+	if conf.UpdateConfig.UpdateServerURL == "" {
+		conf.UpdateConfig.UpdateServerURL = "http://example/example.json" // TODO replace for real server
+	} else {
+		if _, err := url.Parse(conf.UpdateConfig.UpdateServerURL); err != nil {
+			logger.Warnf("incorrect update server url. err:%v", err)
+		}
+	}
 }

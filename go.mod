@@ -36,6 +36,7 @@ require (
 )
 
 require (
+	github.com/GrigoryKrasnochub/updaterini v0.0.0-20211005210611-52a03d3a06ac // indirect
 	github.com/benbjohnson/clock v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.22.0-beta // indirect

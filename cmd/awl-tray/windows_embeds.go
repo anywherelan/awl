@@ -20,6 +20,10 @@ func init() {
 		return
 	}
 	wintunPath := filepath.Join(filepath.Dir(ex), "wintun.dll")
+	_, wintunFileStatErr :=  os.Stat(wintunPath)
+	if !os.IsNotExist(wintunFileStatErr) {
+		return
+	}
 	err = os.WriteFile(wintunPath, wintunDLL, 664)
 	if err != nil {
 		fmt.Printf("error: write wintun.dll file: %v\n", err)
