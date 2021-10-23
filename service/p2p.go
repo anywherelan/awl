@@ -22,7 +22,32 @@ const (
 	protectedPeerTag = "known"
 )
 
+type P2pServer interface {
+	NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error)
+	IsConnected(peerID peer.ID) bool
+	BootstrapPeersStats() (int, int)
+	ConnectedPeersCount() int
+	RoutingTableSize() int
+	PeersWithAddrsCount() int
+	AnnouncedAs() []ma.Multiaddr
+	OpenConnectionsCount() int
+	OpenStreamsCount() int64
+	TotalStreamsInbound() int64
+	TotalStreamsOutbound() int64
+	ConnectionsLastTrimAgo() time.Duration
+	Reachability() network.Reachability
+	OwnObservedAddrs() []ma.Multiaddr
+	NetworkStats() metrics.Stats
+	NetworkStatsByProtocol() map[protocol.ID]metrics.Stats
+	NetworkStatsByPeer() map[peer.ID]metrics.Stats
+	NetworkStatsForPeer(peerID peer.ID) metrics.Stats
+	Uptime() time.Duration
+}
+
 type P2pService struct {
+	// publicly available methods from p2p.P2p to protocols/api
+	P2pServer
+
 	p2pServer          *p2p.P2p
 	conf               *config.Config
 	logger             *log.ZapEventLogger
@@ -33,6 +58,7 @@ type P2pService struct {
 
 func NewP2p(server *p2p.P2p, conf *config.Config) *P2pService {
 	p := &P2pService{
+		P2pServer:      server,
 		p2pServer:      server,
 		conf:           conf,
 		logger:         log.Logger("awl/service/p2p"),
@@ -66,16 +92,8 @@ func (s *P2pService) ConnectPeer(ctx context.Context, peerID peer.ID) error {
 	return err
 }
 
-func (s *P2pService) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
-	return s.p2pServer.NewStream(ctx, id, proto)
-}
-
 func (s *P2pService) PeerVersion(peerID peer.ID) string {
 	return config.VersionFromUserAgent(s.p2pServer.UserAgent(peerID))
-}
-
-func (s *P2pService) IsConnected(peerID peer.ID) bool {
-	return s.p2pServer.IsConnected(peerID)
 }
 
 func (s *P2pService) ProtectPeer(id peer.ID) {
@@ -101,77 +119,8 @@ func (s *P2pService) PeerConnectionsInfo(peerID peer.ID) []entity.ConnectionInfo
 	return infos
 }
 
-// BootstrapPeersStats returns total peers count and connected count.
-func (s *P2pService) BootstrapPeersStats() (int, int) {
-	return s.p2pServer.BootstrapPeersStats()
-}
-
 func (s *P2pService) BootstrapPeersStatsDetailed() map[string]entity.BootstrapPeerDebugInfo {
 	return s.bootstrapsInfo
-}
-
-func (s *P2pService) ConnectedPeersCount() int {
-	return s.p2pServer.ConnectedPeersCount()
-}
-
-func (s *P2pService) RoutingTableSize() int {
-	return s.p2pServer.RoutingTableSize()
-}
-
-func (s *P2pService) PeersWithAddrsCount() int {
-	return s.p2pServer.PeersWithAddrsCount()
-}
-
-func (s *P2pService) AnnouncedAs() []ma.Multiaddr {
-	return s.p2pServer.AnnouncedAs()
-}
-
-func (s *P2pService) OpenConnectionsCount() int {
-	return s.p2pServer.OpenConnectionsCount()
-}
-
-func (s *P2pService) OpenStreamsCount() int64 {
-	return s.p2pServer.OpenStreamsCount()
-}
-
-func (s *P2pService) TotalStreamsInbound() int64 {
-	return s.p2pServer.TotalStreamsInbound()
-}
-
-func (s *P2pService) TotalStreamsOutbound() int64 {
-	return s.p2pServer.TotalStreamsOutbound()
-}
-
-func (s *P2pService) ConnectionsLastTrimAgo() time.Duration {
-	return s.p2pServer.ConnectionsLastTrimAgo()
-}
-
-func (s *P2pService) Reachability() network.Reachability {
-	return s.p2pServer.Reachability()
-}
-
-func (s *P2pService) OwnObservedAddrs() []ma.Multiaddr {
-	return s.p2pServer.OwnObservedAddrs()
-}
-
-func (s *P2pService) NetworkStats() metrics.Stats {
-	return s.p2pServer.NetworkStats()
-}
-
-func (s *P2pService) NetworkStatsByProtocol() map[protocol.ID]metrics.Stats {
-	return s.p2pServer.NetworkStatsByProtocol()
-}
-
-func (s *P2pService) NetworkStatsByPeer() map[peer.ID]metrics.Stats {
-	return s.p2pServer.NetworkStatsByPeer()
-}
-
-func (s *P2pService) NetworkStatsForPeer(peerID peer.ID) metrics.Stats {
-	return s.p2pServer.NetworkStatsForPeer(peerID)
-}
-
-func (s *P2pService) Uptime() time.Duration {
-	return s.p2pServer.Uptime()
 }
 
 func (s *P2pService) RegisterOnPeerConnected(f func(peer.ID, network.Conn)) {
