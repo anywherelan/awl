@@ -35,7 +35,7 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 			Reachability:        h.p2p.Reachability().String(),
 			ListenAddress:       maToStrings(h.p2p.AnnouncedAs()),
 			PeersWithAddrsCount: h.p2p.PeersWithAddrsCount(),
-			ObservedAddrs:       maToStrings(h.p2p.ObservedAddrs()),
+			ObservedAddrs:       maToStrings(h.p2p.OwnObservedAddrs()),
 			BootstrapPeers:      h.p2p.BootstrapPeersStatsDetailed(),
 		},
 		Connections: entity.ConnectionsDebugInfo{

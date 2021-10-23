@@ -26,7 +26,6 @@ type P2pService struct {
 	p2pServer          *p2p.P2p
 	conf               *config.Config
 	logger             *log.ZapEventLogger
-	startedAt          time.Time
 	bootstrapsInfo     map[string]entity.BootstrapPeerDebugInfo
 	onPeerConnected    []func(peer.ID, network.Conn)
 	onPeerDisconnected []func(peer.ID, network.Conn)
@@ -37,7 +36,6 @@ func NewP2p(server *p2p.P2p, conf *config.Config) *P2pService {
 		p2pServer:      server,
 		conf:           conf,
 		logger:         log.Logger("awl/service/p2p"),
-		startedAt:      time.Now(),
 		bootstrapsInfo: make(map[string]entity.BootstrapPeerDebugInfo),
 	}
 	p.RegisterOnPeerConnected(func(peerID peer.ID, _ network.Conn) {
@@ -72,18 +70,6 @@ func (s *P2pService) NewStream(ctx context.Context, id peer.ID, proto protocol.I
 	return s.p2pServer.NewStream(ctx, id, proto)
 }
 
-func (s *P2pService) StreamsToPeer(peerID peer.ID) []network.Stream {
-	conns := s.p2pServer.ConnsToPeer(peerID)
-	if len(conns) == 1 {
-		return conns[0].GetStreams()
-	}
-	streams := make([]network.Stream, 0)
-	for i := range conns {
-		streams = append(streams, conns[i].GetStreams()...)
-	}
-	return streams
-}
-
 func (s *P2pService) PeerVersion(peerID peer.ID) string {
 	return config.VersionFromUserAgent(s.p2pServer.UserAgent(peerID))
 }
@@ -98,15 +84,6 @@ func (s *P2pService) ProtectPeer(id peer.ID) {
 
 func (s *P2pService) UnprotectPeer(id peer.ID) {
 	s.p2pServer.ChangeProtectedStatus(id, protectedPeerTag, false)
-}
-
-func (s *P2pService) PeerAddresses(peerID peer.ID) []string {
-	conns := s.p2pServer.ConnsToPeer(peerID)
-	addrs := make([]string, 0, len(conns))
-	for _, conn := range conns {
-		addrs = append(addrs, conn.RemoteMultiaddr().String())
-	}
-	return addrs
 }
 
 func (s *P2pService) PeerConnectionsInfo(peerID peer.ID) []entity.ConnectionInfo {
@@ -126,15 +103,7 @@ func (s *P2pService) PeerConnectionsInfo(peerID peer.ID) []entity.ConnectionInfo
 
 // BootstrapPeersStats returns total peers count and connected count.
 func (s *P2pService) BootstrapPeersStats() (int, int) {
-	connected := 0
-	bootstrapPeers := s.conf.GetBootstrapPeers()
-	for _, peerAddr := range bootstrapPeers {
-		if s.p2pServer.IsConnected(peerAddr.ID) {
-			connected += 1
-		}
-	}
-
-	return len(bootstrapPeers), connected
+	return s.p2pServer.BootstrapPeersStats()
 }
 
 func (s *P2pService) BootstrapPeersStatsDetailed() map[string]entity.BootstrapPeerDebugInfo {
@@ -174,20 +143,15 @@ func (s *P2pService) TotalStreamsOutbound() int64 {
 }
 
 func (s *P2pService) ConnectionsLastTrimAgo() time.Duration {
-	lastTrim := s.p2pServer.ConnectionsLastTrim()
-	if lastTrim.IsZero() {
-		lastTrim = s.startedAt
-	}
-	return time.Since(lastTrim)
+	return s.p2pServer.ConnectionsLastTrimAgo()
 }
 
 func (s *P2pService) Reachability() network.Reachability {
 	return s.p2pServer.Reachability()
 }
 
-func (s *P2pService) ObservedAddrs() []ma.Multiaddr {
-	addrs := s.p2pServer.OwnObservedAddrs()
-	return addrs
+func (s *P2pService) OwnObservedAddrs() []ma.Multiaddr {
+	return s.p2pServer.OwnObservedAddrs()
 }
 
 func (s *P2pService) NetworkStats() metrics.Stats {
@@ -207,7 +171,7 @@ func (s *P2pService) NetworkStatsForPeer(peerID peer.ID) metrics.Stats {
 }
 
 func (s *P2pService) Uptime() time.Duration {
-	return time.Since(s.startedAt)
+	return s.p2pServer.Uptime()
 }
 
 func (s *P2pService) RegisterOnPeerConnected(f func(peer.ID, network.Conn)) {
@@ -268,7 +232,7 @@ func (s *P2pService) connectToKnownPeers(ctx context.Context, timeout time.Durat
 			if err != nil {
 				info.Error = err.Error()
 			}
-			info.Connections = s.PeerAddresses(peerAddr.ID)
+			info.Connections = s.peerAddressesString(peerAddr.ID)
 			mu.Lock()
 			bootstrapsInfo[peerAddr.ID.String()] = info
 			mu.Unlock()
@@ -278,6 +242,15 @@ func (s *P2pService) connectToKnownPeers(ctx context.Context, timeout time.Durat
 	wg.Wait()
 
 	s.bootstrapsInfo = bootstrapsInfo
+}
+
+func (s *P2pService) peerAddressesString(peerID peer.ID) []string {
+	conns := s.p2pServer.ConnsToPeer(peerID)
+	addrs := make([]string, 0, len(conns))
+	for _, conn := range conns {
+		addrs = append(addrs, conn.RemoteMultiaddr().String())
+	}
+	return addrs
 }
 
 func (s *P2pService) onConnected(_ network.Network, conn network.Conn) {

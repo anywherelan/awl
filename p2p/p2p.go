@@ -74,6 +74,7 @@ type P2p struct {
 	bandwidthCounter metrics.Reporter
 	connManager      *connmgr.BasicConnMgr
 	bootstrapPeers   []peer.AddrInfo
+	startedAt        time.Time
 }
 
 func NewP2p(ctx context.Context) *P2p {
@@ -142,11 +143,11 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		),
 		libp2p.ChainOptions(hostConfig.Libp2pOpts...),
 	)
-	p.host = p2pHost
-
 	if err != nil {
 		return nil, err
 	}
+	p.host = p2pHost
+	p.startedAt = time.Now()
 
 	logger := p.logger
 	notifyBundle := &network.NotifyBundle{
@@ -288,8 +289,12 @@ func (p *P2p) OpenStreamStats() map[protocol.ID]map[string]int {
 	return stats
 }
 
-func (p *P2p) ConnectionsLastTrim() time.Time {
-	return p.connManager.GetInfo().LastTrim
+func (p *P2p) ConnectionsLastTrimAgo() time.Duration {
+	lastTrim := p.connManager.GetInfo().LastTrim
+	if lastTrim.IsZero() {
+		lastTrim = p.startedAt
+	}
+	return time.Since(lastTrim)
 }
 
 func (p *P2p) OwnObservedAddrs() []multiaddr.Multiaddr {
@@ -310,6 +315,18 @@ func (p *P2p) NetworkStatsByPeer() map[peer.ID]metrics.Stats {
 
 func (p *P2p) NetworkStatsForPeer(peerID peer.ID) metrics.Stats {
 	return p.bandwidthCounter.GetBandwidthForPeer(peerID)
+}
+
+// BootstrapPeersStats returns total peers count and connected count.
+func (p *P2p) BootstrapPeersStats() (int, int) {
+	connected := 0
+	for _, peerAddr := range p.bootstrapPeers {
+		if p.IsConnected(peerAddr.ID) {
+			connected += 1
+		}
+	}
+
+	return len(p.bootstrapPeers), connected
 }
 
 func (p *P2p) SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn)) {
@@ -354,4 +371,8 @@ func (p *P2p) Bootstrap() error {
 	}
 
 	return nil
+}
+
+func (p *P2p) Uptime() time.Duration {
+	return time.Since(p.startedAt)
 }
