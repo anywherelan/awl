@@ -8,14 +8,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/anywherelan/awl/awlevent"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p"
 	connmgr "github.com/libp2p/go-libp2p-connmgr"
 	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/metrics"
 	"github.com/libp2p/go-libp2p-core/network"
@@ -75,8 +72,6 @@ type P2p struct {
 	bandwidthCounter metrics.Reporter
 	connManager      *connmgr.BasicConnMgr
 	bootstrapPeers   []peer.AddrInfo
-
-	reachability network.Reachability
 }
 
 func NewP2p(ctx context.Context) *P2p {
@@ -175,8 +170,6 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 	}
 	p.host.Network().Notify(notifyBundle)
 
-	p.listenEventbus()
-
 	return p2pHost, nil
 }
 
@@ -244,7 +237,7 @@ func (p *P2p) AnnouncedAs() []multiaddr.Multiaddr {
 }
 
 func (p *P2p) Reachability() network.Reachability {
-	return p.reachability
+	return p.basicHost.GetAutoNat().Status()
 }
 
 func (p *P2p) TrimOpenConnections() {
@@ -357,13 +350,4 @@ func (p *P2p) Bootstrap() error {
 	}
 
 	return nil
-}
-
-func (p *P2p) listenEventbus() {
-	//event.EvtPeerConnectednessChanged
-	bufSize := eventbus.BufSize(64)
-	awlevent.WrapSubscriptionToCallback(p.ctx, func(ev interface{}) {
-		evt := ev.(event.EvtLocalReachabilityChanged)
-		p.reachability = evt.Reachability
-	}, p.host.EventBus(), new(event.EvtLocalReachabilityChanged), bufSize)
 }
