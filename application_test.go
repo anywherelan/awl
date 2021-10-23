@@ -233,11 +233,15 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 		})
 	}
 	app.Conf.HttpListenAddress = "127.0.0.1:0"
-	ctx := context.Background()
 
 	testTUN := NewTestTUN()
-	err := app.Init(ctx, testTUN.TUN())
+	err := app.Init(context.Background(), testTUN.TUN())
 	a.NoError(err)
+
+	// sometimes peers can't find each other in dht with error like 'could not find peer %s: routing: not found'
+	// tried to ping bootstrap peers with dht.Ping and <-ping.Ping, doesn't help
+	// sleep a bit to reduce the probability of this
+	time.Sleep(50 * time.Millisecond)
 
 	return testPeer{
 		app: app,
