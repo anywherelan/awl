@@ -37,6 +37,8 @@ const (
 	RelayBootDelay = 10 * time.Second
 
 	DHTProtocolPrefix protocol.ID = "/awl"
+
+	protectedBootstrapPeerTag = "bootstrap"
 )
 
 type HostConfig struct {
@@ -333,6 +335,8 @@ func (p *P2p) Bootstrap() error {
 	for _, peerAddr := range p.bootstrapPeers {
 		wg.Add(1)
 		peerAddr := peerAddr
+		p.ChangeProtectedStatus(peerAddr.ID, protectedBootstrapPeerTag, true)
+
 		go func() {
 			defer wg.Done()
 			if err := p.host.Connect(ctx, peerAddr); err != nil && err != context.Canceled {

@@ -50,10 +50,6 @@ func NewP2p(server *p2p.P2p, conf *config.Config) *P2pService {
 	for _, knownPeer := range conf.KnownPeers {
 		p.ProtectPeer(knownPeer.PeerId())
 	}
-
-	for _, peerAddr := range conf.GetBootstrapPeers() {
-		p.ProtectPeer(peerAddr.ID)
-	}
 	conf.RUnlock()
 
 	return p
