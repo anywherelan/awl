@@ -249,6 +249,7 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		BootstrapPeers: a.Conf.GetBootstrapPeers(),
 		Libp2pOpts: []libp2p.Option{
 			libp2p.EnableRelay(),
+			libp2p.EnableAutoRelay(),
 			libp2p.NATPortMap(),
 		},
 		ConnManager: struct {

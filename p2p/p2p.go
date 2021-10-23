@@ -116,7 +116,6 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 	relay.BootDelay = RelayBootDelay
 
 	p2pHost, err := libp2p.New(p.ctx,
-		libp2p.EnableAutoRelay(),
 		libp2p.Peerstore(hostConfig.Peerstore),
 		libp2p.Identity(privKey),
 		libp2p.UserAgent(hostConfig.UserAgent),

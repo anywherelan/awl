@@ -15,9 +15,16 @@ import (
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
+	"github.com/anywherelan/awl/p2p"
 	"github.com/anywherelan/awl/vpn"
+	ds "github.com/ipfs/go-datastore"
+	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-peerstore/pstoremem"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
@@ -29,6 +36,8 @@ func init() {
 
 func TestMakeFriends(t *testing.T) {
 	a := require.New(t)
+	closeBootstrapNode := initBootstrapNode(t)
+	defer closeBootstrapNode()
 
 	peer1 := newTestPeer(t, false)
 	defer peer1.Close()
@@ -40,6 +49,8 @@ func TestMakeFriends(t *testing.T) {
 
 func TestRemovePeer(t *testing.T) {
 	a := require.New(t)
+	closeBootstrapNode := initBootstrapNode(t)
+	defer closeBootstrapNode()
 
 	peer1 := newTestPeer(t, false)
 	defer peer1.Close()
@@ -93,6 +104,8 @@ func TestRemovePeer(t *testing.T) {
 
 func TestDeclinePeerFriendRequest(t *testing.T) {
 	a := require.New(t)
+	closeBootstrapNode := initBootstrapNode(t)
+	defer closeBootstrapNode()
 
 	peer1 := newTestPeer(t, false)
 	defer peer1.Close()
@@ -124,6 +137,8 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 
 func BenchmarkTunnelPackets(b *testing.B) {
 	a := require.New(b)
+	closeBootstrapNode := initBootstrapNode(b)
+	defer closeBootstrapNode()
 
 	peer1 := newTestPeer(b, true)
 	defer peer1.Close()
@@ -217,7 +232,6 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 			return zapcore.FatalLevel
 		})
 	}
-	// TODO: do not use real bootstrap peers for test
 	app.Conf.HttpListenAddress = "127.0.0.1:0"
 	ctx := context.Background()
 
@@ -229,6 +243,42 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 		app: app,
 		api: apiclient.New(app.Api.Address()),
 		tun: testTUN,
+	}
+}
+
+func initBootstrapNode(t testing.TB) func() {
+	hostConfig := p2p.HostConfig{
+		PrivKeyBytes: nil,
+		ListenAddrs: []multiaddr.Multiaddr{
+			multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
+			multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic"),
+		},
+		UserAgent:      config.UserAgent,
+		BootstrapPeers: []peer.AddrInfo{},
+		Libp2pOpts: []libp2p.Option{
+			libp2p.DisableRelay(),
+			libp2p.ForceReachabilityPublic(),
+		},
+		Peerstore:    pstoremem.NewPeerstore(),
+		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
+	}
+
+	p2pSrv := p2p.NewP2p(context.Background())
+	p2pHost, err := p2pSrv.InitHost(hostConfig)
+	require.NoError(t, err)
+	err = p2pSrv.Bootstrap()
+	require.NoError(t, err)
+
+	peerInfo := peer.AddrInfo{ID: p2pHost.ID(), Addrs: p2pHost.Addrs()}
+	addrs, err := peer.AddrInfoToP2pAddrs(&peerInfo)
+	require.NoError(t, err)
+
+	previousBootstrapPeers := config.DefaultBootstrapPeers
+	config.DefaultBootstrapPeers = addrs
+
+	return func() {
+		config.DefaultBootstrapPeers = previousBootstrapPeers
+		_ = p2pSrv.Close()
 	}
 }
 
