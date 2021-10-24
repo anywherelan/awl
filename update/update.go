@@ -32,28 +32,29 @@ func NewUpdateService(c *config.Config, logger *log.ZapEventLogger) (UpdateServi
 	channels[0] = updaterini.NewReleaseChannel(true)
 
 	// setup all channels
-	lowestInChan := c.UpdateConfig.LowestPriorityChan == ""
+	lowestInChan := c.Update.LowestPriorityChan == ""
 	for _, ch := range updChannels {
 		channels = append(channels, updaterini.NewChannel(ch, !lowestInChan))
-		if ch == c.UpdateConfig.LowestPriorityChan {
+		if ch == c.Update.LowestPriorityChan {
 			lowestInChan = true
 		}
 	}
 
 	// if lowest is custom
 	if !lowestInChan {
-		channels = append(channels, updaterini.NewChannel(c.UpdateConfig.LowestPriorityChan, true))
+		channels = append(channels, updaterini.NewChannel(c.Update.LowestPriorityChan, true))
 	}
-	appConf, err := updaterini.NewApplicationConfig(c.Version, channels, nil)
+	appConf, err := updaterini.NewApplicationConfig(config.Version, channels, nil)
 	if err != nil {
 		return UpdateService{}, err
 	}
+	appConf.ShowPrepareVersionErr = true
 	return UpdateService{
 		updConf: updaterini.UpdateConfig{
 			ApplicationConfig: appConf,
 			Sources: []updaterini.UpdateSource{
 				&updaterini.UpdateSourceServer{
-					UpdatesMapURL: c.UpdateConfig.UpdateServerURL,
+					UpdatesMapURL: c.Update.UpdateServerURL,
 				},
 				&updaterini.UpdateSourceGitRepo{
 					UserName:                 gitUserName,

@@ -206,10 +206,10 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	}
 	conf.emitter = emitter
 
-	if conf.UpdateConfig.UpdateServerURL == "" {
-		conf.UpdateConfig.UpdateServerURL = "http://example/example.json" // TODO replace for real server
+	if conf.Update.UpdateServerURL == "" {
+		conf.Update.UpdateServerURL = "http://example/example.json" // TODO replace for real server
 	} else {
-		if _, err := url.Parse(conf.UpdateConfig.UpdateServerURL); err != nil {
+		if _, err := url.Parse(conf.Update.UpdateServerURL); err != nil {
 			logger.Warnf("incorrect update server url. err:%v", err)
 		}
 	}

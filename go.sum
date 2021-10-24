@@ -43,8 +43,8 @@ github.com/AndreasBriese/bbloom v0.0.0-20190306092124-e2d15f34fcf9/go.mod h1:bOv
 github.com/AndreasBriese/bbloom v0.0.0-20190825152654-46b345b51c96/go.mod h1:bOvUY6CB00SOBii9/FifXqc0awNKxLFCL/+pkDPuyl8=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
-github.com/GrigoryKrasnochub/updaterini v0.0.0-20211005210611-52a03d3a06ac h1:jSSP7IROKxMv9D/boQeDPt6T/56b/n4B46xOMEPGuic=
-github.com/GrigoryKrasnochub/updaterini v0.0.0-20211005210611-52a03d3a06ac/go.mod h1:GIL3kCeXNb2MFFmPsTjaFPMi9nrsK7P7TQCxLtP523g=
+github.com/GrigoryKrasnochub/updaterini v0.0.0-20211024161549-2db29a5df253 h1:kbSPgficKCztkpC5g06VYZaql7ZZCOrV1naYgkb9FB8=
+github.com/GrigoryKrasnochub/updaterini v0.0.0-20211024161549-2db29a5df253/go.mod h1:w+8blQZCZzGmJGXqmXbeSOsUOF6LqyeqckxSiZah7RI=
 github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible/go.mod h1:r7JcOSlj0wfOMncg0iLm8Leh48TZaKVeNIfJntJ2wa0=
 github.com/Kubuxu/go-os-helper v0.0.1/go.mod h1:N8B+I7vPCT80IcP58r50u4+gEEcsZETFUpAzWW2ep1Y=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=

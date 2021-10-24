@@ -40,7 +40,7 @@ type (
 		VPNConfig         VPNConfig              `json:"vpn"`
 		KnownPeers        map[string]KnownPeer   `json:"knownPeers"`
 		BlockedPeers      map[string]BlockedPeer `json:"blockedPeers"`
-		UpdateConfig      UpdateConfig           `json:"updateConfig"`
+		Update            UpdateConfig           `json:"updateConfig"`
 	}
 	P2pNodeConfig struct {
 		// Hex-encoded multihash representing a peer ID, calculated from Identity
