@@ -107,8 +107,11 @@ func (uc *UpdateService) DoUpdate(runAfterUpdate bool) error {
 	}
 	curFile = filepath.Base(curFile)
 
-	res, err := uc.updConf.DoUpdate(uc.NewVersion, "", func(loadedFilename string) (string, error) {
-		return curFile, nil
+	res, err := uc.updConf.DoUpdate(uc.NewVersion, "", func(loadedFilename string) (updaterini.ReplacementFile, error) {
+		return updaterini.ReplacementFile{
+			FileName: curFile,
+			Mode:     updaterini.ReplacementFileInfoUseDefaultOrExistedFilePerm,
+		}, nil
 	}, func() error {
 		return nil
 	})

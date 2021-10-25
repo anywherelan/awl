@@ -3,7 +3,7 @@ module github.com/anywherelan/awl
 go 1.17
 
 require (
-	github.com/GrigoryKrasnochub/updaterini v0.0.0-20211024161549-2db29a5df253
+	github.com/GrigoryKrasnochub/updaterini v0.0.0-20211025184704-2142c133bc5f
 	github.com/anywherelan/ts-dns v0.0.0-20211016195049-babc83989aee
 	github.com/go-playground/validator/v10 v10.9.0
 	github.com/ipfs/go-datastore v0.4.6
