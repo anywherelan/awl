@@ -167,6 +167,8 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 				atomic.AddInt64(&p.totalStreamsInbound, 1)
 			case network.DirOutbound:
 				atomic.AddInt64(&p.totalStreamsOutbound, 1)
+			case network.DirUnknown:
+				// nothing
 			}
 		},
 		ClosedStreamF: func(_ network.Network, _ network.Stream) {

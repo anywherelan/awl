@@ -219,7 +219,7 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 	a := require.New(t)
 
 	tempDir := t.TempDir()
-	a.NoError(os.Setenv(config.AppDataDirEnvKey, tempDir))
+	t.Setenv(config.AppDataDirEnvKey, tempDir)
 	if disableLogging {
 		tempConf := config.NewConfig(eventbus.NewBus())
 		tempConf.LoggerLevel = "fatal"

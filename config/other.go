@@ -197,11 +197,11 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 
 	// Create dirs
 	// TODO: currently PeerstoreDataDir is not used
-	//peerstoreDir := filepath.Join(conf.dataDir, DhtPeerstoreDataDirectory)
-	//err := os.MkdirAll(peerstoreDir, dirsPerm)
-	//if err != nil {
+	// peerstoreDir := filepath.Join(conf.dataDir, DhtPeerstoreDataDirectory)
+	// err := os.MkdirAll(peerstoreDir, dirsPerm)
+	// if err != nil {
 	//	logger.Warnf("could not create peerstore directory: %v", err)
-	//}
+	// }
 
 	emitter, err := bus.Emitter(new(awlevent.KnownPeerChanged), eventbus.Stateful)
 	if err != nil {

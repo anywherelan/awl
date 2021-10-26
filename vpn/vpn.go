@@ -128,11 +128,7 @@ func (d *Device) tunEventsReader() {
 			}
 		}
 
-		if event&tun.EventUp != 0 {
-			//d.logger.Infof("Interface up requested")
-			// TODO
-		}
-
+		// TODO: check for event&tun.EventUp
 		if event&tun.EventDown != 0 {
 			d.logger.Infof("Interface down requested")
 			// TODO
