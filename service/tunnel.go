@@ -21,7 +21,7 @@ const (
 )
 
 type Tunnel struct {
-	p2p          *P2pService
+	p2p          P2p
 	conf         *config.Config
 	device       *vpn.Device
 	logger       *log.ZapEventLogger
@@ -30,7 +30,7 @@ type Tunnel struct {
 	netIPToPeer  map[string]*VpnPeer
 }
 
-func NewTunnel(p2pService *P2pService, device *vpn.Device, conf *config.Config) *Tunnel {
+func NewTunnel(p2pService P2p, device *vpn.Device, conf *config.Config) *Tunnel {
 	tunnel := &Tunnel{
 		p2p:          p2pService,
 		conf:         conf,

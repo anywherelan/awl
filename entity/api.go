@@ -3,6 +3,7 @@ package entity
 import (
 	"time"
 
+	"github.com/anywherelan/awl/p2p"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/libp2p/go-libp2p-core/metrics"
 )
@@ -43,15 +44,8 @@ type (
 		Confirmed    bool
 		Declined     bool
 		LastSeen     time.Time
-		Connections  []ConnectionInfo
+		Connections  []p2p.ConnectionInfo
 		NetworkStats metrics.Stats
-	}
-	ConnectionInfo struct {
-		Multiaddr    string
-		ThroughRelay bool
-		RelayPeerID  string
-		Address      string
-		Protocol     string
 	}
 
 	PeerInfo struct {
@@ -90,11 +84,7 @@ type (
 		ListenAddress       []string
 		PeersWithAddrsCount int
 		ObservedAddrs       []string
-		BootstrapPeers      map[string]BootstrapPeerDebugInfo
-	}
-	BootstrapPeerDebugInfo struct {
-		Error       string   `json:",omitempty"`
-		Connections []string `json:",omitempty"`
+		BootstrapPeers      map[string]p2p.BootstrapPeerDebugInfo
 	}
 	ConnectionsDebugInfo struct {
 		ConnectedPeersCount  int

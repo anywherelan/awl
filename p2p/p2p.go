@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,6 +40,7 @@ const (
 	DHTProtocolPrefix protocol.ID = "/awl"
 
 	protectedBootstrapPeerTag = "bootstrap"
+	protectedPeerTag          = "known"
 )
 
 type HostConfig struct {
@@ -75,6 +77,7 @@ type P2p struct {
 	connManager      *connmgr.BasicConnMgr
 	bootstrapPeers   []peer.AddrInfo
 	startedAt        time.Time
+	bootstrapsInfo   atomic.Value // inside map[string]BootstrapPeerDebugInfo
 }
 
 func NewP2p(ctx context.Context) *P2p {
@@ -189,20 +192,25 @@ func (p *P2p) ClearBackoff(peerID peer.ID) {
 	p.host.Network().(*swarm.Swarm).Backoff().Clear(peerID)
 }
 
+func (p *P2p) ConnectPeer(ctx context.Context, peerID peer.ID) error {
+	if p.IsConnected(peerID) {
+		return nil
+	}
+	peerInfo, err := p.FindPeer(ctx, peerID)
+	if err != nil {
+		return fmt.Errorf("could not find peer %s: %v", peerID.String(), err)
+	}
+	err = p.ConnectPeerAddr(ctx, peerInfo)
+
+	return err
+}
+
 func (p *P2p) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
 	return p.dht.FindPeer(ctx, id)
 }
 
 func (p *P2p) ConnectPeerAddr(ctx context.Context, peerInfo peer.AddrInfo) error {
 	return p.host.Connect(ctx, peerInfo)
-}
-
-func (p *P2p) ChangeProtectedStatus(peerID peer.ID, tag string, protected bool) {
-	if protected {
-		p.host.ConnManager().Protect(peerID, tag)
-	} else {
-		p.host.ConnManager().Unprotect(peerID, tag)
-	}
 }
 
 func (p *P2p) IsConnected(peerID peer.ID) bool {
@@ -221,6 +229,29 @@ func (p *P2p) UserAgent(peerID peer.ID) string {
 
 func (p *P2p) ConnsToPeer(peerID peer.ID) []network.Conn {
 	return p.host.Network().ConnsToPeer(peerID)
+}
+
+func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
+	conns := p.ConnsToPeer(peerID)
+	infos := make([]ConnectionInfo, 0, len(conns))
+	for _, conn := range conns {
+		addr := conn.RemoteMultiaddr()
+		info, parsed := parseMultiaddrToInfo(addr)
+		if !parsed {
+			p.logger.DPanicf("could not parse multiaddr %s", addr)
+			// still add unparsed info with multiaddr
+		}
+		infos = append(infos, info)
+	}
+	return infos
+}
+
+func (p *P2p) ProtectPeer(id peer.ID) {
+	p.host.ConnManager().Protect(id, protectedPeerTag)
+}
+
+func (p *P2p) UnprotectPeer(id peer.ID) {
+	p.host.ConnManager().Unprotect(id, protectedPeerTag)
 }
 
 func (p *P2p) ConnectedPeersCount() int {
@@ -337,6 +368,13 @@ func (p *P2p) SubscribeConnectionEvents(onConnected, onDisconnected func(network
 	p.host.Network().Notify(notifyBundle)
 }
 
+func (p *P2p) RegisterOnPeerConnected(f func(peer.ID, network.Conn)) {
+	p.SubscribeConnectionEvents(func(_ network.Network, conn network.Conn) {
+		peerID := conn.RemotePeer()
+		f(peerID, conn)
+	}, nil)
+}
+
 func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
 	stream, err := p.host.NewStream(ctx, id, proto)
 	return stream, err
@@ -352,7 +390,7 @@ func (p *P2p) Bootstrap() error {
 	for _, peerAddr := range p.bootstrapPeers {
 		wg.Add(1)
 		peerAddr := peerAddr
-		p.ChangeProtectedStatus(peerAddr.ID, protectedBootstrapPeerTag, true)
+		p.host.ConnManager().Protect(peerAddr.ID, protectedBootstrapPeerTag)
 
 		go func() {
 			defer wg.Done()
@@ -375,4 +413,117 @@ func (p *P2p) Bootstrap() error {
 
 func (p *P2p) Uptime() time.Duration {
 	return time.Since(p.startedAt)
+}
+
+func (p *P2p) BootstrapPeersStatsDetailed() map[string]BootstrapPeerDebugInfo {
+	m, _ := p.bootstrapsInfo.Load().(map[string]BootstrapPeerDebugInfo)
+	return m
+}
+
+func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.Duration, knownPeersIdsFunc func() []peer.ID) {
+	const firstTryInterval = 5 * time.Second
+	p.connectToKnownPeers(ctx, firstTryInterval, knownPeersIdsFunc())
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(firstTryInterval):
+	}
+	p.connectToKnownPeers(ctx, interval, knownPeersIdsFunc())
+
+	t := time.NewTicker(interval)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+
+		p.connectToKnownPeers(ctx, interval, knownPeersIdsFunc())
+		p.TrimOpenConnections()
+	}
+}
+
+func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, peerIds []peer.ID) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	for _, peerID := range peerIds {
+		wg.Add(1)
+		p.ProtectPeer(peerID)
+		go func(peerID peer.ID) {
+			wg.Done()
+			_ = p.ConnectPeer(ctx, peerID)
+		}(peerID)
+	}
+
+	bootstrapsInfo := make(map[string]BootstrapPeerDebugInfo)
+	var mu sync.Mutex
+
+	for _, peerAddr := range p.bootstrapPeers {
+		wg.Add(1)
+		peerAddr := peerAddr
+		go func() {
+			defer wg.Done()
+			err := p.ConnectPeerAddr(ctx, peerAddr)
+			var info BootstrapPeerDebugInfo
+			if err != nil {
+				info.Error = err.Error()
+			}
+			info.Connections = p.peerAddressesString(peerAddr.ID)
+			mu.Lock()
+			bootstrapsInfo[peerAddr.ID.String()] = info
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	p.bootstrapsInfo.Store(bootstrapsInfo)
+}
+
+func (p *P2p) peerAddressesString(peerID peer.ID) []string {
+	conns := p.ConnsToPeer(peerID)
+	addrs := make([]string, 0, len(conns))
+	for _, conn := range conns {
+		addrs = append(addrs, conn.RemoteMultiaddr().String())
+	}
+	return addrs
+}
+
+type BootstrapPeerDebugInfo struct {
+	Error       string   `json:",omitempty"`
+	Connections []string `json:",omitempty"`
+}
+
+type ConnectionInfo struct {
+	Multiaddr    string
+	ThroughRelay bool
+	RelayPeerID  string
+	Address      string
+	Protocol     string
+}
+
+func parseMultiaddrToInfo(addr multiaddr.Multiaddr) (ConnectionInfo, bool) {
+	info := ConnectionInfo{Multiaddr: addr.String()}
+	protocols := addr.Protocols()
+	if len(protocols) == 2 && protocols[1].Code == multiaddr.P_TCP {
+		info.Protocol = protocols[1].Name
+		ip, _ := addr.ValueForProtocol(protocols[0].Code)
+		port, _ := addr.ValueForProtocol(protocols[1].Code)
+		info.Address = net.JoinHostPort(ip, port)
+	} else if len(protocols) == 3 && protocols[2].Code == multiaddr.P_QUIC {
+		info.Protocol = protocols[2].Name
+		ip, _ := addr.ValueForProtocol(protocols[0].Code)
+		port, _ := addr.ValueForProtocol(protocols[1].Code)
+		info.Address = net.JoinHostPort(ip, port)
+	} else if _, err := addr.ValueForProtocol(multiaddr.P_CIRCUIT); err == nil {
+		info.ThroughRelay = true
+		info.RelayPeerID, _ = addr.ValueForProtocol(multiaddr.P_P2P)
+	} else {
+		return info, false
+	}
+	return info, true
 }

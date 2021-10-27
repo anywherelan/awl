@@ -10,6 +10,7 @@ import (
 	"runtime/pprof"
 
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/p2p"
 	"github.com/anywherelan/awl/ringbuffer"
 	"github.com/anywherelan/awl/service"
 	"github.com/go-playground/validator/v10"
@@ -26,7 +27,7 @@ type DNSService interface {
 type Handler struct {
 	conf       *config.Config
 	logger     *log.ZapEventLogger
-	p2p        *service.P2pService
+	p2p        *p2p.P2p
 	authStatus *service.AuthStatus
 	tunnel     *service.Tunnel
 	dns        DNSService
@@ -38,7 +39,7 @@ type Handler struct {
 	ctxCancel context.CancelFunc
 }
 
-func NewHandler(conf *config.Config, p2p *service.P2pService, authStatus *service.AuthStatus,
+func NewHandler(conf *config.Config, p2p *p2p.P2p, authStatus *service.AuthStatus,
 	tunnel *service.Tunnel, logBuffer *ringbuffer.RingBuffer, dns DNSService) *Handler {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	return &Handler{

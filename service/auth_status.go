@@ -13,6 +13,7 @@ import (
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
+	libp2pProtocol "github.com/libp2p/go-libp2p-core/protocol"
 )
 
 const (
@@ -20,17 +21,23 @@ const (
 	backgroundRetryAuthRequests          = 5 * time.Minute
 )
 
+type P2p interface {
+	ConnectPeer(ctx context.Context, peerID peer.ID) error
+	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
+	RegisterOnPeerConnected(f func(peer.ID, network.Conn))
+}
+
 type AuthStatus struct {
 	ingoingAuths  map[peer.ID]protocol.AuthPeer
 	outgoingAuths map[peer.ID]protocol.AuthPeer
 	authsLock     sync.RWMutex
 	logger        *log.ZapEventLogger
-	p2p           *P2pService
+	p2p           P2p
 	conf          *config.Config
 	authsEmitter  awlevent.Emitter
 }
 
-func NewAuthStatus(p2pService *P2pService, conf *config.Config, eventbus awlevent.Bus) *AuthStatus {
+func NewAuthStatus(p2pService P2p, conf *config.Config, eventbus awlevent.Bus) *AuthStatus {
 	emitter, err := eventbus.Emitter(new(awlevent.ReceivedAuthRequest))
 	if err != nil {
 		panic(err)
@@ -338,6 +345,7 @@ func (s *AuthStatus) onPeerConnected(peerID peer.ID, conn network.Conn) {
 	authPeer, hasOutgAuth := s.outgoingAuths[peerID]
 	s.authsLock.RUnlock()
 
+	s.conf.UpdatePeerLastSeen(peerID.String())
 	knownPeer, known := s.conf.GetPeer(peerID.String())
 
 	if !known && !hasOutgAuth {
