@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -213,37 +212,12 @@ func (p *P2p) ConnectPeerAddr(ctx context.Context, peerInfo peer.AddrInfo) error
 	return p.host.Connect(ctx, peerInfo)
 }
 
+func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
+	return p.host.NewStream(ctx, id, proto)
+}
+
 func (p *P2p) IsConnected(peerID peer.ID) bool {
 	return p.host.Network().Connectedness(peerID) == network.Connected
-}
-
-func (p *P2p) UserAgent(peerID peer.ID) string {
-	version, _ := p.host.Peerstore().Get(peerID, "AgentVersion")
-
-	if version != nil {
-		return version.(string)
-	}
-
-	return ""
-}
-
-func (p *P2p) ConnsToPeer(peerID peer.ID) []network.Conn {
-	return p.host.Network().ConnsToPeer(peerID)
-}
-
-func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
-	conns := p.ConnsToPeer(peerID)
-	infos := make([]ConnectionInfo, 0, len(conns))
-	for _, conn := range conns {
-		addr := conn.RemoteMultiaddr()
-		info, parsed := parseMultiaddrToInfo(addr)
-		if !parsed {
-			p.logger.DPanicf("could not parse multiaddr %s", addr)
-			// still add unparsed info with multiaddr
-		}
-		infos = append(infos, info)
-	}
-	return infos
 }
 
 func (p *P2p) ProtectPeer(id peer.ID) {
@@ -252,112 +226,6 @@ func (p *P2p) ProtectPeer(id peer.ID) {
 
 func (p *P2p) UnprotectPeer(id peer.ID) {
 	p.host.ConnManager().Unprotect(id, protectedPeerTag)
-}
-
-func (p *P2p) ConnectedPeersCount() int {
-	return len(p.host.Network().Peers())
-}
-
-func (p *P2p) RoutingTableSize() int {
-	return p.dht.RoutingTable().Size()
-}
-
-func (p *P2p) PeersWithAddrsCount() int {
-	return len(p.host.Peerstore().PeersWithAddrs())
-}
-
-func (p *P2p) AnnouncedAs() []multiaddr.Multiaddr {
-	return p.host.Addrs()
-}
-
-func (p *P2p) Reachability() network.Reachability {
-	return p.basicHost.GetAutoNat().Status()
-}
-
-func (p *P2p) TrimOpenConnections() {
-	p.connManager.TrimOpenConns(p.ctx)
-}
-
-func (p *P2p) OpenConnectionsCount() int {
-	return p.connManager.GetInfo().ConnCount
-}
-
-func (p *P2p) OpenStreamsCount() int64 {
-	return atomic.LoadInt64(&p.openedStreams)
-}
-
-func (p *P2p) TotalStreamsInbound() int64 {
-	return atomic.LoadInt64(&p.totalStreamsInbound)
-}
-
-func (p *P2p) TotalStreamsOutbound() int64 {
-	return atomic.LoadInt64(&p.totalStreamsOutbound)
-}
-
-func (p *P2p) OpenStreamStats() map[protocol.ID]map[string]int {
-	stats := make(map[protocol.ID]map[string]int)
-
-	for _, conn := range p.host.Network().Conns() {
-		for _, stream := range conn.GetStreams() {
-			direction := ""
-			switch stream.Stat().Direction {
-			case network.DirInbound:
-				direction = "inbound"
-			case network.DirOutbound:
-				direction = "outbound"
-			case network.DirUnknown:
-				direction = "unknown"
-			}
-			protocolStats, ok := stats[stream.Protocol()]
-			if !ok {
-				protocolStats = make(map[string]int)
-				stats[stream.Protocol()] = protocolStats
-			}
-			protocolStats[direction]++
-		}
-	}
-
-	return stats
-}
-
-func (p *P2p) ConnectionsLastTrimAgo() time.Duration {
-	lastTrim := p.connManager.GetInfo().LastTrim
-	if lastTrim.IsZero() {
-		lastTrim = p.startedAt
-	}
-	return time.Since(lastTrim)
-}
-
-func (p *P2p) OwnObservedAddrs() []multiaddr.Multiaddr {
-	return p.basicHost.IDService().OwnObservedAddrs()
-}
-
-func (p *P2p) NetworkStats() metrics.Stats {
-	return p.bandwidthCounter.GetBandwidthTotals()
-}
-
-func (p *P2p) NetworkStatsByProtocol() map[protocol.ID]metrics.Stats {
-	return p.bandwidthCounter.GetBandwidthByProtocol()
-}
-
-func (p *P2p) NetworkStatsByPeer() map[peer.ID]metrics.Stats {
-	return p.bandwidthCounter.GetBandwidthByPeer()
-}
-
-func (p *P2p) NetworkStatsForPeer(peerID peer.ID) metrics.Stats {
-	return p.bandwidthCounter.GetBandwidthForPeer(peerID)
-}
-
-// BootstrapPeersStats returns total peers count and connected count.
-func (p *P2p) BootstrapPeersStats() (int, int) {
-	connected := 0
-	for _, peerAddr := range p.bootstrapPeers {
-		if p.IsConnected(peerAddr.ID) {
-			connected += 1
-		}
-	}
-
-	return len(p.bootstrapPeers), connected
 }
 
 func (p *P2p) SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn)) {
@@ -373,11 +241,6 @@ func (p *P2p) RegisterOnPeerConnected(f func(peer.ID, network.Conn)) {
 		peerID := conn.RemotePeer()
 		f(peerID, conn)
 	}, nil)
-}
-
-func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
-	stream, err := p.host.NewStream(ctx, id, proto)
-	return stream, err
 }
 
 func (p *P2p) Bootstrap() error {
@@ -409,15 +272,6 @@ func (p *P2p) Bootstrap() error {
 	}
 
 	return nil
-}
-
-func (p *P2p) Uptime() time.Duration {
-	return time.Since(p.startedAt)
-}
-
-func (p *P2p) BootstrapPeersStatsDetailed() map[string]BootstrapPeerDebugInfo {
-	m, _ := p.bootstrapsInfo.Load().(map[string]BootstrapPeerDebugInfo)
-	return m
 }
 
 func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.Duration, knownPeersIdsFunc func() []peer.ID) {
@@ -484,46 +338,15 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 	p.bootstrapsInfo.Store(bootstrapsInfo)
 }
 
+func (p *P2p) connsToPeer(peerID peer.ID) []network.Conn {
+	return p.host.Network().ConnsToPeer(peerID)
+}
+
 func (p *P2p) peerAddressesString(peerID peer.ID) []string {
-	conns := p.ConnsToPeer(peerID)
+	conns := p.connsToPeer(peerID)
 	addrs := make([]string, 0, len(conns))
 	for _, conn := range conns {
 		addrs = append(addrs, conn.RemoteMultiaddr().String())
 	}
 	return addrs
-}
-
-type BootstrapPeerDebugInfo struct {
-	Error       string   `json:",omitempty"`
-	Connections []string `json:",omitempty"`
-}
-
-type ConnectionInfo struct {
-	Multiaddr    string
-	ThroughRelay bool
-	RelayPeerID  string
-	Address      string
-	Protocol     string
-}
-
-func parseMultiaddrToInfo(addr multiaddr.Multiaddr) (ConnectionInfo, bool) {
-	info := ConnectionInfo{Multiaddr: addr.String()}
-	protocols := addr.Protocols()
-	if len(protocols) == 2 && protocols[1].Code == multiaddr.P_TCP {
-		info.Protocol = protocols[1].Name
-		ip, _ := addr.ValueForProtocol(protocols[0].Code)
-		port, _ := addr.ValueForProtocol(protocols[1].Code)
-		info.Address = net.JoinHostPort(ip, port)
-	} else if len(protocols) == 3 && protocols[2].Code == multiaddr.P_QUIC {
-		info.Protocol = protocols[2].Name
-		ip, _ := addr.ValueForProtocol(protocols[0].Code)
-		port, _ := addr.ValueForProtocol(protocols[1].Code)
-		info.Address = net.JoinHostPort(ip, port)
-	} else if _, err := addr.ValueForProtocol(multiaddr.P_CIRCUIT); err == nil {
-		info.ThroughRelay = true
-		info.RelayPeerID, _ = addr.ValueForProtocol(multiaddr.P_P2P)
-	} else {
-		return info, false
-	}
-	return info, true
 }
