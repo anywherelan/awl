@@ -111,6 +111,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	defer peer1.Close()
 	peer2 := newTestPeer(t, false)
 	defer peer2.Close()
+	ensurePeersAvailableInDHT(a, peer1, peer2)
 
 	err := peer1.api.SendFriendRequest(peer2.PeerID(), "")
 	a.NoError(err)
@@ -238,11 +239,6 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 	err := app.Init(context.Background(), testTUN.TUN())
 	a.NoError(err)
 
-	// sometimes peers can't find each other in dht with error like 'could not find peer %s: routing: not found'
-	// tried to ping bootstrap peers with dht.Ping and <-ping.Ping, doesn't help
-	// sleep a bit to reduce the probability of this
-	time.Sleep(50 * time.Millisecond)
-
 	return testPeer{
 		app: app,
 		api: apiclient.New(app.Api.Address()),
@@ -286,7 +282,17 @@ func initBootstrapNode(t testing.TB) func() {
 	}
 }
 
+func ensurePeersAvailableInDHT(a *require.Assertions, peer1, peer2 testPeer) {
+	a.Eventually(func() bool {
+		_, err1 := peer1.app.P2p.FindPeer(context.Background(), peer2.app.P2p.PeerID())
+		_, err2 := peer2.app.P2p.FindPeer(context.Background(), peer1.app.P2p.PeerID())
+
+		return err1 == nil && err2 == nil
+	}, time.Second, 30*time.Millisecond)
+}
+
 func makeFriends(a *require.Assertions, peer1, peer2 testPeer) {
+	ensurePeersAvailableInDHT(a, peer1, peer2)
 	err := peer1.api.SendFriendRequest(peer2.PeerID(), "")
 	a.NoError(err)
 

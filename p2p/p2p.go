@@ -187,6 +187,10 @@ func (p *P2p) Close() error {
 	return err
 }
 
+func (p *P2p) PeerID() peer.ID {
+	return p.host.ID()
+}
+
 func (p *P2p) ClearBackoff(peerID peer.ID) {
 	p.host.Network().(*swarm.Swarm).Backoff().Clear(peerID)
 }
