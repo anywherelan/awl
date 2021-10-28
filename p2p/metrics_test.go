@@ -1,10 +1,9 @@
-package service
+package p2p
 
 import (
 	"reflect"
 	"testing"
 
-	"github.com/anywherelan/awl/entity"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -15,13 +14,13 @@ func Test_parseMultiaddrToInfo(t *testing.T) {
 	tests := []struct {
 		name  string
 		args  args
-		want  entity.ConnectionInfo
+		want  ConnectionInfo
 		want1 bool
 	}{
 		{
 			name: "tcp",
 			args: args{addr: mustNewMultiaddr("/ip4/192.168.1.21/tcp/6300")},
-			want: entity.ConnectionInfo{
+			want: ConnectionInfo{
 				Multiaddr:    "/ip4/192.168.1.21/tcp/6300",
 				ThroughRelay: false,
 				RelayPeerID:  "",
@@ -33,7 +32,7 @@ func Test_parseMultiaddrToInfo(t *testing.T) {
 		{
 			name: "quic",
 			args: args{addr: mustNewMultiaddr("/ip4/192.168.1.21/udp/6400/quic")},
-			want: entity.ConnectionInfo{
+			want: ConnectionInfo{
 				Multiaddr:    "/ip4/192.168.1.21/udp/6400/quic",
 				ThroughRelay: false,
 				RelayPeerID:  "",
@@ -45,7 +44,7 @@ func Test_parseMultiaddrToInfo(t *testing.T) {
 		{
 			name: "relay",
 			args: args{addr: mustNewMultiaddr("/ip4/192.168.1.21/udp/6150/quic/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M/p2p-circuit")},
-			want: entity.ConnectionInfo{
+			want: ConnectionInfo{
 				Multiaddr:    "/ip4/192.168.1.21/udp/6150/quic/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M/p2p-circuit",
 				ThroughRelay: true,
 				RelayPeerID:  "12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",

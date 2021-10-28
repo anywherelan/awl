@@ -21,9 +21,12 @@ import (
 	"github.com/anywherelan/awl/vpn"
 	"github.com/anywherelan/ts-dns/net/dns"
 	"github.com/anywherelan/ts-dns/util/dnsname"
+	ds "github.com/ipfs/go-datastore"
+	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
-	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-peerstore/pstoremem"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
@@ -66,11 +69,9 @@ type Application struct {
 
 	ctx        context.Context
 	ctxCancel  context.CancelFunc
-	p2pServer  *p2p.P2p
-	host       host.Host
 	vpnDevice  *vpn.Device
+	P2p        *p2p.P2p
 	Api        *api.Handler
-	P2pService *service.P2pService
 	AuthStatus *service.AuthStatus
 	Tunnel     *service.Tunnel
 	Dns        *DNSService
@@ -82,13 +83,11 @@ func New() *Application {
 
 func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.ctx, a.ctxCancel = context.WithCancel(ctx)
-	p2pSrv := p2p.NewP2p(a.ctx, a.Conf)
-	p2pHost, err := p2pSrv.InitHost()
+	a.P2p = p2p.NewP2p(a.ctx)
+	p2pHost, err := a.P2p.InitHost(a.makeP2pHostConfig())
 	if err != nil {
 		return err
 	}
-	a.p2pServer = p2pSrv
-	a.host = p2pHost
 
 	privKey := p2pHost.Peerstore().PrivKey(p2pHost.ID())
 	a.Conf.SetIdentity(privKey, p2pHost.ID())
@@ -104,21 +103,20 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.vpnDevice = vpnDevice
 	a.logger.Infof("Created vpn interface %s: %s", interfaceName, &net.IPNet{IP: localIP, Mask: netMask})
 
-	err = p2pSrv.Bootstrap()
+	err = a.P2p.Bootstrap()
 	if err != nil {
 		return err
 	}
 
 	a.Dns = NewDNSService(a.Conf, a.Eventbus, a.ctx, a.logger)
-	a.P2pService = service.NewP2p(p2pSrv, a.Conf)
-	a.AuthStatus = service.NewAuthStatus(a.P2pService, a.Conf, a.Eventbus)
-	a.Tunnel = service.NewTunnel(a.P2pService, vpnDevice, a.Conf)
+	a.AuthStatus = service.NewAuthStatus(a.P2p, a.Conf, a.Eventbus)
+	a.Tunnel = service.NewTunnel(a.P2p, vpnDevice, a.Conf)
 
 	p2pHost.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
 	p2pHost.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
 	p2pHost.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
 
-	handler := api.NewHandler(a.Conf, a.P2pService, a.AuthStatus, a.Tunnel, a.LogBuffer, a.Dns)
+	handler := api.NewHandler(a.Conf, a.P2p, a.AuthStatus, a.Tunnel, a.LogBuffer, a.Dns)
 	a.Api = handler
 	err = handler.SetupAPI()
 	if err != nil {
@@ -127,7 +125,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	// because of cyclic dependency between api and dns
 	a.Dns.api = a.Api
 
-	go a.P2pService.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second)
+	go a.P2p.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second, a.Conf.KnownPeersIds)
 	go a.AuthStatus.BackgroundRetryAuthRequests(a.ctx)
 	go a.AuthStatus.BackgroundExchangeStatusInfo(a.ctx)
 
@@ -219,8 +217,8 @@ func (a *Application) Close() {
 			a.logger.Errorf("closing api server: %v", err)
 		}
 	}
-	if a.p2pServer != nil {
-		err := a.p2pServer.Close()
+	if a.P2p != nil {
+		err := a.P2p.Close()
 		if err != nil {
 			a.logger.Errorf("closing p2p server: %v", err)
 		}
@@ -238,6 +236,32 @@ func (a *Application) Close() {
 		}
 	}
 	a.Conf.Save()
+}
+
+func (a *Application) makeP2pHostConfig() p2p.HostConfig {
+	return p2p.HostConfig{
+		PrivKeyBytes:   a.Conf.PrivKey(),
+		ListenAddrs:    a.Conf.GetListenAddresses(),
+		UserAgent:      config.UserAgent,
+		BootstrapPeers: a.Conf.GetBootstrapPeers(),
+		Libp2pOpts: []libp2p.Option{
+			libp2p.EnableRelay(),
+			libp2p.EnableAutoRelay(),
+			libp2p.NATPortMap(),
+		},
+		ConnManager: struct {
+			LowWater    int
+			HighWater   int
+			GracePeriod time.Duration
+		}{
+			LowWater:    50,
+			HighWater:   100,
+			GracePeriod: time.Minute,
+		},
+		// TODO: use persistent datastore. Check out badger2. Old badger datastore constantly use disk io
+		Peerstore:    pstoremem.NewPeerstore(),
+		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
+	}
 }
 
 type DNSService struct {

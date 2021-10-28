@@ -256,7 +256,7 @@ func refreshPeersSubmenus() {
 	onlinePeers := make([]string, 0)
 	offlinePeers := make([]string, 0)
 	for _, knownPeer := range app.Conf.KnownPeers {
-		online := app.P2pService.IsConnected(knownPeer.PeerId())
+		online := app.P2p.IsConnected(knownPeer.PeerId())
 		peerName := knownPeer.DisplayName()
 		if peerName == "" {
 			peerName = knownPeer.PeerID
