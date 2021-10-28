@@ -10,33 +10,33 @@ func TestRingBuffer_Write_overflow(t *testing.T) {
 	rb := New(10)
 	data := genBytes(0, 9)
 
-	rb.Write(data)
-	real := rb.Bytes()
-	assert.Equal(t, data, real)
+	_, _ = rb.Write(data)
+	realBytes := rb.Bytes()
+	assert.Equal(t, data, realBytes)
 
-	rb.Write(genBytes(10, 14))
-	real = rb.Bytes()
-	assert.Equal(t, genBytes(5, 14), real)
+	_, _ = rb.Write(genBytes(10, 14))
+	realBytes = rb.Bytes()
+	assert.Equal(t, genBytes(5, 14), realBytes)
 
-	rb.Write(genBytes(15, 19))
-	real = rb.Bytes()
-	assert.Equal(t, genBytes(10, 19), real)
+	_, _ = rb.Write(genBytes(15, 19))
+	realBytes = rb.Bytes()
+	assert.Equal(t, genBytes(10, 19), realBytes)
 }
 
 func TestRingBuffer_Write_small(t *testing.T) {
 	rb := New(10)
-	real := rb.Bytes()
-	assert.Equal(t, make([]byte, 0), real)
+	realBytes := rb.Bytes()
+	assert.Equal(t, make([]byte, 0), realBytes)
 
 	data := genBytes(1, 5)
 
-	rb.Write(data)
-	real = rb.Bytes()
-	assert.Equal(t, data, real)
+	_, _ = rb.Write(data)
+	realBytes = rb.Bytes()
+	assert.Equal(t, data, realBytes)
 
-	rb.Write(genBytes(6, 7))
-	real = rb.Bytes()
-	assert.Equal(t, genBytes(1, 7), real)
+	_, _ = rb.Write(genBytes(6, 7))
+	realBytes = rb.Bytes()
+	assert.Equal(t, genBytes(1, 7), realBytes)
 }
 
 func genBytes(from, to int) []byte {

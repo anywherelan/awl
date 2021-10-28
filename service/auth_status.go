@@ -280,9 +280,6 @@ func (s *AuthStatus) BackgroundRetryAuthRequests(ctx context.Context) {
 	f := func() {
 		for peerID, auth := range s.outgoingAuths {
 			_ = s.SendAuthRequest(ctx, peerID, auth)
-			//if err != nil {
-			//	s.logger.Warnf("retry auth to %s: %v", peerIDStr, err)
-			//}
 		}
 	}
 

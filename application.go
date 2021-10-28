@@ -170,18 +170,11 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 	}
 
 	log.SetupLogging(zapCore, func(name string) zapcore.Level {
-		switch {
-		case strings.HasPrefix(name, "awl"):
+		if strings.HasPrefix(name, "awl") {
 			return lvl
-		case name == "swarm2":
-			// TODO: решить какой выставлять
-			//return zapcore.InfoLevel // REMOVE
-			return zapcore.ErrorLevel
-		case name == "relay":
-			return zapcore.WarnLevel
-		case name == "connmgr":
-			return zapcore.WarnLevel
-		case name == "autonat":
+		}
+		switch name {
+		case "swarm2", "relay", "connmgr", "autonat":
 			return zapcore.WarnLevel
 		default:
 			return zapcore.InfoLevel

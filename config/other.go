@@ -136,9 +136,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		for _, s := range []string{
 			"/ip4/0.0.0.0/tcp/0",
 			"/ip6/::/tcp/0",
-			"/ip4/0.0.0.0/udp/0",
 			"/ip4/0.0.0.0/udp/0/quic",
-			"/ip6/::/udp/0",
 			"/ip6/::/udp/0/quic",
 		} {
 			addr, err := multiaddr.NewMultiaddr(s)
@@ -199,11 +197,11 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 
 	// Create dirs
 	// TODO: currently PeerstoreDataDir is not used
-	//peerstoreDir := filepath.Join(conf.dataDir, DhtPeerstoreDataDirectory)
-	//err := os.MkdirAll(peerstoreDir, dirsPerm)
-	//if err != nil {
+	// peerstoreDir := filepath.Join(conf.dataDir, DhtPeerstoreDataDirectory)
+	// err := os.MkdirAll(peerstoreDir, dirsPerm)
+	// if err != nil {
 	//	logger.Warnf("could not create peerstore directory: %v", err)
-	//}
+	// }
 
 	emitter, err := bus.Emitter(new(awlevent.KnownPeerChanged), eventbus.Stateful)
 	if err != nil {
