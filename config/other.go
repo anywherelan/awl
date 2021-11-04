@@ -27,17 +27,13 @@ var DefaultBootstrapPeers []multiaddr.Multiaddr
 
 func init() {
 	for _, s := range []string{
-		"/ip4/45.67.230.153/tcp/6150/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
-		"/ip4/45.67.230.153/udp/6150/quic/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
+		"/dnsaddr/rus-1.bootstrap.anywherelan.com/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
+		"/dnsaddr/rus-2.bootstrap.anywherelan.com/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
+		"/dnsaddr/ita-1.bootstrap.anywherelan.com/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
+		"/dnsaddr/cze-1.bootstrap.anywherelan.com/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
+		"/dnsaddr/can-1.bootstrap.anywherelan.com/p2p/12D3KooWQeAvoyVnRm6T5XzWpKD8AzM1buzBL6o95iCodCZVQAsV",
 
-		"/ip4/45.67.230.223/tcp/6150/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
-		"/ip4/45.67.230.223/udp/6150/quic/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
-
-		"/ip4/212.237.53.149/tcp/6150/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
-		"/ip4/212.237.53.149/udp/6150/quic/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
-		"/ip6/2a00:6d40:72:d95::1/tcp/7250/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
-		"/ip6/2a00:6d40:72:d95::1/udp/7250/quic/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
-
+		// copy of cze-1 in case dns does not work
 		"/ip4/195.181.214.203/tcp/6150/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
 		"/ip4/195.181.214.203/udp/6150/quic/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
 	} {
