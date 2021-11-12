@@ -77,30 +77,26 @@ func (uc *UpdateService) CheckForUpdates() (bool, error) {
 		return status, nil
 	}
 	for _, srcStatus := range srcCheckStatus.SourcesStatuses {
-		if srcStatus.Status == updaterini.CheckSuccess {
-			continue
-		}
 		switch srcStatus.Status {
+		case updaterini.CheckSuccess:
+			continue
 		case updaterini.CheckHasErrors:
 			for _, err := range srcStatus.Errors {
-				uc.logger.Warnf(fmt.Sprintf("update err. src:%s err:%v", srcStatus.Source.SourceLabel(), err))
+				uc.logger.Warnf(fmt.Sprintf("update err. source: %s error: %v", srcStatus.Source.SourceLabel(), err))
 			}
 		case updaterini.CheckFailure:
 			for _, err := range srcStatus.Errors {
-				uc.logger.Errorf(fmt.Sprintf("update err. src:%s err:%v", srcStatus.Source.SourceLabel(), err))
+				uc.logger.Errorf(fmt.Sprintf("update err. source: %s error: %v", srcStatus.Source.SourceLabel(), err))
 			}
 		}
 	}
 	if srcCheckStatus.Status == updaterini.CheckFailure {
-		return false, errors.New("update err, check logs")
+		return false, errors.New("update failed")
 	}
 	return status, nil
 }
 
-func (uc *UpdateService) DoUpdate(runAfterUpdate bool) error {
-	if uc.NewVersion == nil {
-		return errors.New("update version not found")
-	}
+func (uc *UpdateService) DoUpdate(onSuccess func(), runAfterUpdate bool) error {
 	curFile, err := os.Executable()
 	if err != nil {
 		return err
@@ -118,6 +114,7 @@ func (uc *UpdateService) DoUpdate(runAfterUpdate bool) error {
 	if err != nil {
 		return err
 	}
+	onSuccess()
 
 	if runAfterUpdate {
 		return res.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)

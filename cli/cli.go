@@ -183,15 +183,15 @@ func (a *Application) init() {
 				Usage: "update awl to the latest version",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
-						Name:     "without_confirmation",
-						Aliases:  []string{"wc"},
+						Name:     "quiet",
+						Aliases:  []string{"q"},
 						Usage:    "update without confirmation message",
 						Required: false,
 					},
 					&cli.BoolFlag{
 						Name:     "run",
 						Aliases:  []string{"r"},
-						Usage:    "run on success update",
+						Usage:    "run after a successful update",
 						Required: false,
 					},
 				},
@@ -209,21 +209,22 @@ func (a *Application) init() {
 						return err
 					}
 					if !status {
-						a.logger.Infof("there is no new versions")
+						a.logger.Infof("app is already up-to-date")
 						return nil
 					}
-					if !c.Bool("without_confirmation") {
-						status, err = a.yesNoPrompt(fmt.Sprintf("update to version(%s): %s, %s", updService.NewVersion.VersionTag(),
+					if !c.Bool("quiet") {
+						status, err = a.yesNoPrompt(fmt.Sprintf("update to version %s: %s, %s", updService.NewVersion.VersionTag(),
 							updService.NewVersion.VersionName(), updService.NewVersion.VersionDescription()), true)
 						if !status || err != nil {
 							a.logger.Info("update stopped")
 							return err
 						}
 					}
-					a.logger.Infof("try update to version(%s): %s (success on no errors)", updService.NewVersion.VersionTag(),
+					a.logger.Infof("try update to version %s: %s", updService.NewVersion.VersionTag(),
 						updService.NewVersion.VersionName())
-					return updService.DoUpdate(c.Bool("run"))
-
+					return updService.DoUpdate(func() {
+						a.logger.Infof("update successfully %s -> %s", conf.Version, updService.NewVersion.VersionTag())
+					}, c.Bool("run"))
 				},
 			},
 		},
@@ -262,9 +263,9 @@ func (a *Application) initApiConnection(c *cli.Context) (err error) {
 }
 
 func (a *Application) yesNoPrompt(message string, def bool) (bool, error) {
-	choices := "[Y]es/[n]o"
+	choices := "Yes/no, default yes"
 	if !def {
-		choices = "[y]es/[N]o"
+		choices = "yes/No, default no"
 	}
 
 	r := bufio.NewReader(a.cliapp.Reader)
