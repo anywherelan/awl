@@ -26,6 +26,13 @@ jobs:
       - name: Create stub wintun.dll
         run: touch cmd/awl/wintun.dll
         if: matrix.os == 'windows-latest'
+      - name: gofmt && go mod tidy
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          go mod tidy
+          cd cmd/awl-tray && go mod tidy && cd ../..
+          test -z "$(gofmt -d .)" || (gofmt -d . && false)
+          test -z "$(git status --porcelain)" || (git status; git diff && false)
       - name: Test
         run: go test -count=1 ./...
       - name: Test with -race
