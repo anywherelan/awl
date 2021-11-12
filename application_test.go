@@ -304,9 +304,9 @@ func makeFriends(a *require.Assertions, peer1, peer2 testPeer) {
 	}, 15*time.Second, 50*time.Millisecond)
 	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "", false)
 	a.NoError(err)
-	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 
 	time.Sleep(500 * time.Millisecond)
+	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 	knownPeer, exists := peer2.app.Conf.GetPeer(peer1.PeerID())
 	a.True(exists)
 	a.True(knownPeer.Confirmed)
