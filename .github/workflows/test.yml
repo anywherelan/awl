@@ -1,11 +1,5 @@
 name: Test
-on:
-  push:
-    tags:
-      - v*
-    branches:
-      - master
-  pull_request:
+on: [ push, pull_request ]
 jobs:
   test:
     strategy:
