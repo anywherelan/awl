@@ -220,7 +220,7 @@ func (a *Application) init() {
 							return err
 						}
 					}
-					a.logger.Infof("try update to version %s: %s", updService.NewVersion.VersionTag(),
+					a.logger.Infof("trying to update to version %s: %s", updService.NewVersion.VersionTag(),
 						updService.NewVersion.VersionName())
 					return updService.DoUpdate(func() {
 						a.logger.Infof("update successfully %s -> %s", conf.Version, updService.NewVersion.VersionTag())
