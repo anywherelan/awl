@@ -2,7 +2,6 @@ package update
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -82,11 +81,11 @@ func (uc *UpdateService) CheckForUpdates() (bool, error) {
 			continue
 		case updaterini.CheckHasErrors:
 			for _, err := range srcStatus.Errors {
-				uc.logger.Warnf(fmt.Sprintf("update err. source: %s error: %v", srcStatus.Source.SourceLabel(), err))
+				uc.logger.Warnf("update err. source: %s error: %v", srcStatus.Source.SourceLabel(), err)
 			}
 		case updaterini.CheckFailure:
 			for _, err := range srcStatus.Errors {
-				uc.logger.Errorf(fmt.Sprintf("update err. source: %s error: %v", srcStatus.Source.SourceLabel(), err))
+				uc.logger.Errorf("update err. source: %s error: %v", srcStatus.Source.SourceLabel(), err)
 			}
 		}
 	}
