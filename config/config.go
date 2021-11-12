@@ -40,6 +40,7 @@ type (
 		VPNConfig         VPNConfig              `json:"vpn"`
 		KnownPeers        map[string]KnownPeer   `json:"knownPeers"`
 		BlockedPeers      map[string]BlockedPeer `json:"blockedPeers"`
+		Update            UpdateConfig           `json:"update"`
 	}
 	P2pNodeConfig struct {
 		// Hex-encoded multihash representing a peer ID, calculated from Identity
@@ -80,6 +81,10 @@ type (
 		DisplayName string `json:"displayName"`
 		// Time of adding to config (decline invitation/remove from KnownPeers)
 		CreatedAt time.Time `json:"createdAt"`
+	}
+	UpdateConfig struct {
+		LowestPriorityChan string
+		UpdateServerURL    string
 	}
 )
 
