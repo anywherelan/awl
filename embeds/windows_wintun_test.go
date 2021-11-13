@@ -1,21 +1,24 @@
-package libs
+//go:build windows
+// +build windows
+
+package embeds
 
 import (
 	"bytes"
 	"testing"
 )
 
-type compareTest struct {
-	i1     interface{}
-	i2     interface{}
+type streamsEqualTest struct {
+	i1     []byte
+	i2     []byte
 	result bool
 }
 
-func streamsEqualByBytesSlice(tests []compareTest, t *testing.T) {
+func streamsEqualByBytesSlices(tests []streamsEqualTest, t *testing.T) {
 	for i, test := range tests {
-		r1 := bytes.NewReader(test.i1.([]byte))
-		r2 := bytes.NewReader(test.i2.([]byte))
-		res, err := StreamsEqual(r1, r2)
+		r1 := bytes.NewReader(test.i1)
+		r2 := bytes.NewReader(test.i2)
+		res, err := streamsEqual(r1, r2)
 		if err != nil {
 			t.Error(err)
 		}
@@ -26,7 +29,7 @@ func streamsEqualByBytesSlice(tests []compareTest, t *testing.T) {
 }
 
 func TestStreamsEqual1(t *testing.T) {
-	compareTests := []compareTest{
+	compareTests := []streamsEqualTest{
 		{
 			i1:     []byte("pymq is the greatest developer"),
 			i2:     []byte("pymq is the greatest developer"),
@@ -38,11 +41,11 @@ func TestStreamsEqual1(t *testing.T) {
 			result: false,
 		},
 	}
-	streamsEqualByBytesSlice(compareTests, t)
+	streamsEqualByBytesSlices(compareTests, t)
 }
 
 func TestStreamsEqual2(t *testing.T) {
-	compareTests := []compareTest{
+	compareTests := []streamsEqualTest{
 		{
 			i1:     []byte("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua"),
 			i2:     []byte("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua"),
@@ -54,5 +57,5 @@ func TestStreamsEqual2(t *testing.T) {
 			result: false,
 		},
 	}
-	streamsEqualByBytesSlice(compareTests, t)
+	streamsEqualByBytesSlices(compareTests, t)
 }
