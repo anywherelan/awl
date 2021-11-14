@@ -314,7 +314,7 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 		wg.Add(1)
 		p.ProtectPeer(peerID)
 		go func(peerID peer.ID) {
-			wg.Done()
+			defer wg.Done()
 			_ = p.ConnectPeer(ctx, peerID)
 		}(peerID)
 	}
