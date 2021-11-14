@@ -24,7 +24,7 @@ jobs:
       - name: Create stub static/
         run: mkdir static && touch static/index.html
       - name: Create stub wintun.dll
-        run: touch cmd/awl/wintun.dll
+        run: touch embeds/wintun.dll
         if: matrix.os == 'windows-latest'
       - name: gofmt && go mod tidy
         if: matrix.os == 'ubuntu-latest'
