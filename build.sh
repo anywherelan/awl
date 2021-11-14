@@ -77,6 +77,7 @@ build-mobile-lib() {
   gomobile bind -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
   go mod edit -droprequire=golang.org/x/mobile
   go mod tidy
+  mkdir -p "$awlflutterdir/android/app/src/main/libs"
   mv anywherelan.aar "$awlflutterdir/android/app/src/main/libs/"
 }
 

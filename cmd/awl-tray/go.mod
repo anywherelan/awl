@@ -14,10 +14,12 @@ require (
 )
 
 require (
+	github.com/GrigoryKrasnochub/updaterini v0.0.0-20211110192337-7f7b3499aaba // indirect
 	github.com/akavel/rsrc v0.8.0 // indirect
 	github.com/anywherelan/ts-dns v0.0.0-20211016195049-babc83989aee // indirect
 	github.com/benbjohnson/clock v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/btcsuite/btcd v0.22.0-beta // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/cheekybits/genny v1.0.0 // indirect
@@ -169,7 +171,7 @@ require (
 	golang.org/x/sys v0.0.0-20210927094055-39ccf1dd6fa6 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	golang.org/x/time v0.0.0-20201208040808-7e3f01d25324 // indirect
-	golang.org/x/tools v0.1.5 // indirect
+	golang.org/x/tools v0.1.8-0.20211022200916-316ba0b74098 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20210905140043-2ef39d47540c // indirect
 	golang.zx2c4.com/wireguard/windows v0.4.10 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect

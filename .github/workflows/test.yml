@@ -1,11 +1,5 @@
 name: Test
-on:
-  push:
-    tags:
-      - v*
-    branches:
-      - master
-  pull_request:
+on: [ push, pull_request ]
 jobs:
   test:
     strategy:
@@ -21,11 +15,24 @@ jobs:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
         uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Create stub static/
         run: mkdir static && touch static/index.html
       - name: Create stub wintun.dll
         run: touch cmd/awl/wintun.dll
         if: matrix.os == 'windows-latest'
+      - name: gofmt && go mod tidy
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          go mod tidy
+          cd cmd/awl-tray && go mod tidy && cd ../..
+          test -z "$(gofmt -d .)" || (gofmt -d . && false)
+          test -z "$(git status --porcelain)" || (git status; git diff && false)
       - name: Test
         run: go test -count=1 ./...
       - name: Test with -race
