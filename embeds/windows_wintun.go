@@ -45,17 +45,24 @@ func EmbedWintun() {
 		fmt.Printf("error: read wintun.dll file: %v\n", err)
 		return
 	}
-	defer func() {
+	existedWintunClosed := false
+	closeExistedWintun := func() {
+		if existedWintunClosed {
+			return
+		}
 		err := existedWintun.Close()
 		if err != nil {
 			fmt.Printf("error: close read wintun.dll file: %v\n", err)
 		}
-	}()
+		existedWintunClosed = true
+	}
+	defer closeExistedWintun()
 	equal, err := streamsEqual(bytes.NewReader(wintunDLL), bufio.NewReader(existedWintun))
 	if err != nil {
 		fmt.Printf("error: compare wintun.dll files: %v\n", err)
 	}
 	if !equal {
+		closeExistedWintun()
 		writeWintun()
 	}
 }

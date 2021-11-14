@@ -43,7 +43,7 @@ gobuild-windows() {
   for tuple in "386 x86" "amd64 amd64"; do
     goarch=$(echo "$tuple" | cut -f1 -d" ")
     wintunarch=$(echo "$tuple" | cut -f2 -d" ")
-    cp "$tempdir/$wintun_version/wintun/bin/$wintunarch/wintun.dll" wintun.dll
+    cp "$tempdir/$wintun_version/wintun/bin/$wintunarch/wintun.dll" "$awldir/embeds/wintun.dll"
 
     filename="$name-windows-$goarch-$VERSION.exe"
     GOOS=windows GOARCH=$goarch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"

@@ -5,7 +5,9 @@ package embeds
 
 import (
 	"bytes"
+	"io"
 	"testing"
+	"testing/iotest"
 )
 
 type streamsEqualTest struct {
@@ -15,16 +17,23 @@ type streamsEqualTest struct {
 }
 
 func streamsEqualByBytesSlices(tests []streamsEqualTest, t *testing.T) {
-	for i, test := range tests {
-		r1 := bytes.NewReader(test.i1)
-		r2 := bytes.NewReader(test.i2)
+	compareStreams := func(r1, r2 io.Reader, test streamsEqualTest, testIndex int, readerType string) {
 		res, err := streamsEqual(r1, r2)
 		if err != nil {
 			t.Error(err)
 		}
 		if res != test.result {
-			t.Errorf("stream equals test %d failed with result: %t", i+1, res)
+			t.Errorf("stream equals test %d failed with result: %t; reader type: %s", testIndex+1, res, readerType)
 		}
+	}
+
+	for i, test := range tests {
+		r1 := bytes.NewReader(test.i1)
+		r2 := bytes.NewReader(test.i2)
+		compareStreams(r1, r2, test, i, "bytes reader")
+		r1 = bytes.NewReader(test.i1)
+		r2 = bytes.NewReader(test.i2)
+		compareStreams(r1, iotest.OneByteReader(r2), test, i, "oneByteReader")
 	}
 }
 
