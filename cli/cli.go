@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/GrigoryKrasnochub/updaterini"
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/update"
@@ -222,9 +223,15 @@ func (a *Application) init() {
 					}
 					a.logger.Infof("trying to update to version %s: %s", updService.NewVersion.VersionTag(),
 						updService.NewVersion.VersionName())
-					return updService.DoUpdate(func() {
-						a.logger.Infof("updated successfully %s -> %s", conf.Version, updService.NewVersion.VersionTag())
-					}, c.Bool("run"))
+					updResult, err := updService.DoUpdate()
+					if err != nil {
+						return err
+					}
+					a.logger.Infof("updated successfully %s -> %s", conf.Version, updService.NewVersion.VersionTag())
+					if c.Bool("run") {
+						return updResult.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
+					}
+					return updResult.DeletePreviousVersionFiles(updaterini.DeleteModKillProcess)
 				},
 			},
 		},

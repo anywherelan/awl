@@ -13,10 +13,13 @@ import (
 	"sort"
 	"syscall"
 
+	"github.com/GrigoryKrasnochub/updaterini"
 	ico "github.com/Kodeworks/golang-image-ico"
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/cli"
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/update"
 	"github.com/gen2brain/beeep"
 	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
@@ -42,7 +45,10 @@ var (
 	peersMenu       *systray.MenuItem
 	startStopMenu   *systray.MenuItem
 	restartMenu     *systray.MenuItem
+	updateMenu      *systray.MenuItem
 )
+
+const updateMenuLabel = "Check for updates"
 
 func main() {
 	cli.New().Run()
@@ -116,6 +122,15 @@ func onReady() {
 		for range restartMenu.ClickedCh {
 			StopServer()
 			err := InitServer()
+			handleErrorWithDialog(err)
+		}
+	}()
+
+	systray.AddSeparator()
+	updateMenu = systray.AddMenuItem(updateMenuLabel, "Check for new version of awl tray")
+	go func() {
+		for range updateMenu.ClickedCh {
+			err := onClickUpdateMenu()
 			handleErrorWithDialog(err)
 		}
 	}()
@@ -226,6 +241,24 @@ func handleErrorWithDialog(err error) {
 	}
 }
 
+func showInfoDialog(message string, options ...zenity.Option) {
+	err := zenity.Info(message, append(options, zenity.InfoIcon)...)
+	if err != nil {
+		logger.Errorf("show info dialog error: %v", err)
+	}
+}
+
+func showQuestionDialog(message string, options ...zenity.Option) bool {
+	err := zenity.Question(message, append(options, zenity.QuestionIcon)...)
+	switch {
+	case err == zenity.ErrCanceled:
+		return false
+	case err != nil:
+		logger.Errorf("show update confirm dialog error: %v", err)
+	}
+	return true
+}
+
 func refreshMenusOnStartedServer() {
 	statusMenu.SetTitle("Status: running")
 	openBrowserMenu.Enable()
@@ -292,4 +325,36 @@ func refreshPeersSubmenus() {
 		submenu.Disable()
 		peersSubmenus = append(peersSubmenus, submenu)
 	}
+}
+
+func onClickUpdateMenu() error {
+	updateMenu.SetTitle("Checking...")
+	updateMenu.Disable()
+	defer func() {
+		updateMenu.SetTitle(updateMenuLabel)
+		updateMenu.Enable()
+	}()
+	updService, err := update.NewUpdateService(app.Conf, logger)
+	if err != nil {
+		return err
+	}
+	updStatus, err := updService.CheckForUpdates()
+	if err != nil {
+		return err
+	}
+	if !updStatus {
+		showInfoDialog("App is already up-to-date", zenity.Title("Anywherelan app is up-to-date"), zenity.Width(250))
+		return nil
+	}
+
+	if !showQuestionDialog(fmt.Sprintf("New version available!\nAvailable version %s: %s.\nCurrent version %s.\n\nDo you want to continue?",
+		updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), config.Version),
+		zenity.Title("Anywherelan new version available"), zenity.OKLabel("Do Update"), zenity.Width(250)) {
+		return nil
+	}
+	updResult, err := updService.DoUpdate()
+	if err != nil {
+		return err
+	}
+	return updResult.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
 }

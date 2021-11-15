@@ -95,14 +95,14 @@ func (uc *UpdateService) CheckForUpdates() (bool, error) {
 	return status, nil
 }
 
-func (uc *UpdateService) DoUpdate(onSuccess func(), runAfterUpdate bool) error {
+func (uc *UpdateService) DoUpdate() (updaterini.UpdateResult, error) {
 	curFile, err := os.Executable()
 	if err != nil {
-		return err
+		return updaterini.UpdateResult{}, err
 	}
 	curFile = filepath.Base(curFile)
 
-	res, err := uc.updConf.DoUpdate(uc.NewVersion, "", func(loadedFilename string) (updaterini.ReplacementFile, error) {
+	return uc.updConf.DoUpdate(uc.NewVersion, "", func(loadedFilename string) (updaterini.ReplacementFile, error) {
 		return updaterini.ReplacementFile{
 			FileName: curFile,
 			Mode:     updaterini.ReplacementFileInfoUseDefaultOrExistedFilePerm,
@@ -110,13 +110,4 @@ func (uc *UpdateService) DoUpdate(onSuccess func(), runAfterUpdate bool) error {
 	}, func() error {
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	onSuccess()
-
-	if runAfterUpdate {
-		return res.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
-	}
-	return res.DeletePreviousVersionFiles(updaterini.DeleteModKillProcess)
 }
