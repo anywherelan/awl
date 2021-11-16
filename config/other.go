@@ -213,4 +213,10 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 			logger.Warnf("incorrect update server url. err:%v", err)
 		}
 	}
+	if !conf.Update.TrayAutoCheckEnabled && conf.Update.TrayAutoCheckInterval == "" {
+		conf.Update.TrayAutoCheckEnabled = true
+	}
+	if conf.Update.TrayAutoCheckInterval == "" {
+		conf.Update.TrayAutoCheckInterval = "24h"
+	}
 }

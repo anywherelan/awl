@@ -3,18 +3,19 @@ module awl-tray
 go 1.17
 
 require (
+	github.com/GrigoryKrasnochub/updaterini v0.0.0-20211110192337-7f7b3499aaba
 	github.com/Kodeworks/golang-image-ico v0.0.0-20141118225523-73f0f4cfade9
 	github.com/anywherelan/awl v0.0.0-00010101000000-000000000000
 	github.com/gen2brain/beeep v0.0.0-20210529141713-5586760f0cc1
 	github.com/getlantern/systray v1.1.0
 	github.com/godbus/dbus/v5 v5.0.5
 	github.com/ipfs/go-log/v2 v2.3.0
+	github.com/libp2p/go-eventbus v0.2.1
 	github.com/ncruces/zenity v0.7.7
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 )
 
 require (
-	github.com/GrigoryKrasnochub/updaterini v0.0.0-20211110192337-7f7b3499aaba // indirect
 	github.com/akavel/rsrc v0.8.0 // indirect
 	github.com/anywherelan/ts-dns v0.0.0-20211016195049-babc83989aee // indirect
 	github.com/benbjohnson/clock v1.1.0 // indirect
@@ -74,7 +75,6 @@ require (
 	github.com/libp2p/go-buffer-pool v0.0.2 // indirect
 	github.com/libp2p/go-cidranger v1.1.0 // indirect
 	github.com/libp2p/go-conn-security-multistream v0.2.1 // indirect
-	github.com/libp2p/go-eventbus v0.2.1 // indirect
 	github.com/libp2p/go-flow-metrics v0.0.3 // indirect
 	github.com/libp2p/go-libp2p v0.15.1 // indirect
 	github.com/libp2p/go-libp2p-asn-util v0.0.0-20200825225859-85005c6cf052 // indirect

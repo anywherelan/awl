@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"syscall"
+	"time"
 
 	"github.com/GrigoryKrasnochub/updaterini"
 	ico "github.com/Kodeworks/golang-image-ico"
@@ -23,6 +24,7 @@ import (
 	"github.com/gen2brain/beeep"
 	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-eventbus"
 	"github.com/ncruces/zenity"
 	"github.com/skratchdot/open-golang/open"
 )
@@ -54,6 +56,13 @@ func main() {
 	cli.New().Run()
 
 	systray.Run(onReady, onExit)
+}
+
+func getConfig() (*config.Config, error) {
+	if app != nil {
+		return app.Conf, nil
+	}
+	return config.LoadConfig(eventbus.NewBus())
 }
 
 func onReady() {
@@ -146,6 +155,27 @@ func onReady() {
 	refreshMenusOnStoppedServer()
 	err := InitServer()
 	handleErrorWithDialog(err)
+
+	conf, err := getConfig()
+	if err != nil {
+		logger.Errorf("load config error: %v", err)
+		return
+	}
+	if conf.Update.TrayAutoCheckEnabled {
+		go func() {
+			interval, err := time.ParseDuration(conf.Update.TrayAutoCheckInterval)
+			if err != nil {
+				logger.Errorf("tray auto update interval parse error: %v", err)
+				return
+			}
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			checkForUpdatesWithDesktopNotification()
+			for range ticker.C {
+				checkForUpdatesWithDesktopNotification()
+			}
+		}()
+	}
 }
 
 func onExit() {
@@ -334,7 +364,11 @@ func onClickUpdateMenu() error {
 		updateMenu.SetTitle(updateMenuLabel)
 		updateMenu.Enable()
 	}()
-	updService, err := update.NewUpdateService(app.Conf, logger)
+	conf, err := getConfig()
+	if err != nil {
+		return err
+	}
+	updService, err := update.NewUpdateService(conf, logger)
 	if err != nil {
 		return err
 	}
@@ -362,4 +396,29 @@ func onClickUpdateMenu() error {
 		return err
 	}
 	return updResult.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
+}
+
+func checkForUpdatesWithDesktopNotification() {
+	conf, err := getConfig()
+	if err != nil {
+		logger.Errorf("updates auto check load config error: %v", err)
+		return
+	}
+	updService, err := update.NewUpdateService(conf, logger)
+	if err != nil {
+		logger.Errorf("updates auto check creating update service error: %v", err)
+		return
+	}
+	updStatus, err := updService.CheckForUpdates()
+	if err != nil {
+		logger.Errorf("updates auto check for updates error: %v", err)
+		return
+	}
+	if updStatus {
+		notifyErr := beeep.Notify("Anywherelan: new version available!", fmt.Sprintf("Version %s: %s available for installation\n",
+			updService.NewVersion.VersionTag(), updService.NewVersion.VersionName()), tempIconFilepath)
+		if notifyErr != nil {
+			logger.Errorf("show new version available notification error: %v", notifyErr)
+		}
+	}
 }

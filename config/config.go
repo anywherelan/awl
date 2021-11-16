@@ -83,8 +83,10 @@ type (
 		CreatedAt time.Time `json:"createdAt"`
 	}
 	UpdateConfig struct {
-		LowestPriorityChan string
-		UpdateServerURL    string
+		LowestPriorityChan    string `json:"lowestPriorityChan"`
+		UpdateServerURL       string `json:"updateServerURL"`
+		TrayAutoCheckEnabled  bool   `json:"trayAutoCheckEnabled"`
+		TrayAutoCheckInterval string `json:"trayAutoCheckInterval"`
 	}
 )
 
