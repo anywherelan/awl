@@ -347,11 +347,16 @@ func onClickUpdateMenu() error {
 		return nil
 	}
 
-	if !showQuestionDialog(fmt.Sprintf("New version available!\nAvailable version %s: %s.\nCurrent version %s.\n\nDo you want to continue?",
-		updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), config.Version),
+	var serverMessage string
+	if app != nil {
+		serverMessage = " Server will be stopped!"
+	}
+	if !showQuestionDialog(fmt.Sprintf("New version available!\nAvailable version %s: %s.\nCurrent version %s.\n\nDo you want to continue?%s",
+		updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), config.Version, serverMessage),
 		zenity.Title("Anywherelan new version available"), zenity.OKLabel("Do Update"), zenity.Width(250)) {
 		return nil
 	}
+	StopServer()
 	updResult, err := updService.DoUpdate()
 	if err != nil {
 		return err
