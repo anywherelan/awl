@@ -12,14 +12,19 @@ import (
 	"runtime"
 	"sort"
 	"syscall"
+	"time"
 
+	"github.com/GrigoryKrasnochub/updaterini"
 	ico "github.com/Kodeworks/golang-image-ico"
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/cli"
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/update"
 	"github.com/gen2brain/beeep"
 	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-eventbus"
 	"github.com/ncruces/zenity"
 	"github.com/skratchdot/open-golang/open"
 )
@@ -42,12 +47,22 @@ var (
 	peersMenu       *systray.MenuItem
 	startStopMenu   *systray.MenuItem
 	restartMenu     *systray.MenuItem
+	updateMenu      *systray.MenuItem
 )
+
+const updateMenuLabel = "Check for updates"
 
 func main() {
 	cli.New().Run()
 
 	systray.Run(onReady, onExit)
+}
+
+func getConfig() (*config.Config, error) {
+	if app != nil {
+		return app.Conf, nil
+	}
+	return config.LoadConfig(eventbus.NewBus())
 }
 
 func onReady() {
@@ -121,6 +136,15 @@ func onReady() {
 	}()
 
 	systray.AddSeparator()
+	updateMenu = systray.AddMenuItem(updateMenuLabel, "Check for new version of awl tray")
+	go func() {
+		for range updateMenu.ClickedCh {
+			err := onClickUpdateMenu()
+			handleErrorWithDialog(err)
+		}
+	}()
+
+	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
 	go func() {
 		for range mQuit.ClickedCh {
@@ -131,6 +155,27 @@ func onReady() {
 	refreshMenusOnStoppedServer()
 	err := InitServer()
 	handleErrorWithDialog(err)
+
+	conf, err := getConfig()
+	if err != nil {
+		logger.Errorf("init awl tray: load config %v", err)
+		return
+	}
+	if conf.Update.TrayAutoCheckEnabled {
+		go func() {
+			interval, err := time.ParseDuration(conf.Update.TrayAutoCheckInterval)
+			if err != nil {
+				logger.Errorf("update auto check: interval parse: %v", err)
+				return
+			}
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			checkForUpdatesWithDesktopNotification()
+			for range ticker.C {
+				checkForUpdatesWithDesktopNotification()
+			}
+		}()
+	}
 }
 
 func onExit() {
@@ -187,7 +232,7 @@ func subscribeToNotifications(app *awl.Application) {
 		}
 		notifyErr := beeep.Notify(title, "PeerID: \n"+authRequest.PeerID, tempIconFilepath)
 		if notifyErr != nil {
-			logger.Errorf("show incoming friend request notification: %v", notifyErr)
+			logger.Errorf("show notification: incoming friend request: %v", notifyErr)
 		}
 	}, app.Eventbus, new(awlevent.ReceivedAuthRequest))
 }
@@ -222,8 +267,26 @@ func handleErrorWithDialog(err error) {
 	logger.Error(err)
 	dialogErr := zenity.Error(err.Error(), zenity.Title("Anywherelan error"), zenity.ErrorIcon)
 	if dialogErr != nil {
-		logger.Errorf("show dialog error: %v", dialogErr)
+		logger.Errorf("show dialog: error handling: %v", dialogErr)
 	}
+}
+
+func showInfoDialog(message string, options ...zenity.Option) {
+	err := zenity.Info(message, append(options, zenity.InfoIcon)...)
+	if err != nil {
+		logger.Errorf("show dialog: info: %v", err)
+	}
+}
+
+func showQuestionDialog(message string, options ...zenity.Option) bool {
+	err := zenity.Question(message, append(options, zenity.QuestionIcon)...)
+	switch {
+	case err == zenity.ErrCanceled:
+		return false
+	case err != nil:
+		logger.Errorf("show dialog: question: %v", err)
+	}
+	return true
 }
 
 func refreshMenusOnStartedServer() {
@@ -291,5 +354,72 @@ func refreshPeersSubmenus() {
 		submenu := peersMenu.AddSubMenuItem(peerName, "")
 		submenu.Disable()
 		peersSubmenus = append(peersSubmenus, submenu)
+	}
+}
+
+func onClickUpdateMenu() error {
+	updateMenu.SetTitle("Checking...")
+	updateMenu.Disable()
+	defer func() {
+		updateMenu.SetTitle(updateMenuLabel)
+		updateMenu.Enable()
+	}()
+	conf, err := getConfig()
+	if err != nil {
+		return fmt.Errorf("update: read config: %v", err)
+	}
+	updService, err := update.NewUpdateService(conf, logger, update.AppTypeAwlTray)
+	if err != nil {
+		return fmt.Errorf("update: create update service: %v", err)
+	}
+	updStatus, err := updService.CheckForUpdates()
+	if err != nil {
+		return fmt.Errorf("update: check for updates: %v", err)
+	}
+	if !updStatus {
+		showInfoDialog("App is already up-to-date", zenity.Title("Anywherelan app is up-to-date"), zenity.Width(250))
+		return nil
+	}
+
+	var serverMessage string
+	if app != nil {
+		serverMessage = " Server will be stopped!"
+	}
+	if !showQuestionDialog(fmt.Sprintf("New version available!\nAvailable version %s: %s.\nCurrent version %s.\n\nDo you want to continue?%s",
+		updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), config.Version, serverMessage),
+		zenity.Title("Anywherelan new version available"), zenity.OKLabel("Do Update"), zenity.Width(250)) {
+		return nil
+	}
+	updResult, err := updService.DoUpdate()
+	if err != nil {
+		return fmt.Errorf("update: updating process: %v", err)
+	}
+	StopServer()
+	return updResult.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
+}
+
+func checkForUpdatesWithDesktopNotification() {
+	conf, err := getConfig()
+	if err != nil {
+		logger.Errorf("update auto check: load config: %v", err)
+		return
+	}
+	updService, err := update.NewUpdateService(conf, logger, update.AppTypeAwlTray)
+	if err != nil {
+		logger.Errorf("update auto check: creating update service: %v", err)
+		return
+	}
+	updStatus, err := updService.CheckForUpdates()
+	if err != nil {
+		logger.Errorf("update auto check: check for updates: %v", err)
+		return
+	}
+	if updStatus {
+		notifyErr := beeep.Notify("Anywherelan: new version available!",
+			fmt.Sprintf("Version %s: %s available for installation!\nUse tray menu option %q\n",
+				updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), updateMenuLabel), tempIconFilepath)
+		if notifyErr != nil {
+			logger.Errorf("show notification: new version available: %v", notifyErr)
+		}
 	}
 }

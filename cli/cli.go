@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/GrigoryKrasnochub/updaterini"
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/update"
@@ -198,15 +199,15 @@ func (a *Application) init() {
 				Action: func(c *cli.Context) error {
 					conf, err := config.LoadConfig(eventbus.NewBus())
 					if err != nil {
-						return err
+						return fmt.Errorf("update: read config: %v", err)
 					}
-					updService, err := update.NewUpdateService(conf, a.logger)
+					updService, err := update.NewUpdateService(conf, a.logger, update.AppTypeAwl)
 					if err != nil {
-						return err
+						return fmt.Errorf("update: create update service: %v", err)
 					}
 					status, err := updService.CheckForUpdates()
 					if err != nil {
-						return err
+						return fmt.Errorf("update: check for updates: %v", err)
 					}
 					if !status {
 						a.logger.Infof("app is already up-to-date")
@@ -222,9 +223,15 @@ func (a *Application) init() {
 					}
 					a.logger.Infof("trying to update to version %s: %s", updService.NewVersion.VersionTag(),
 						updService.NewVersion.VersionName())
-					return updService.DoUpdate(func() {
-						a.logger.Infof("updated successfully %s -> %s", conf.Version, updService.NewVersion.VersionTag())
-					}, c.Bool("run"))
+					updResult, err := updService.DoUpdate()
+					if err != nil {
+						return fmt.Errorf("update: updating process: %v", err)
+					}
+					a.logger.Infof("updated successfully %s -> %s", conf.Version, updService.NewVersion.VersionTag())
+					if c.Bool("run") {
+						return updResult.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
+					}
+					return updResult.DeletePreviousVersionFiles(updaterini.DeleteModKillProcess)
 				},
 			},
 		},
