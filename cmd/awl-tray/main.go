@@ -366,15 +366,15 @@ func onClickUpdateMenu() error {
 	}()
 	conf, err := getConfig()
 	if err != nil {
-		return err
+		return fmt.Errorf("updates read config error: %v", err)
 	}
-	updService, err := update.NewUpdateService(conf, logger)
+	updService, err := update.NewUpdateService(conf, logger, update.AppTypeAwlTray)
 	if err != nil {
-		return err
+		return fmt.Errorf("updates create update service error: %v", err)
 	}
 	updStatus, err := updService.CheckForUpdates()
 	if err != nil {
-		return err
+		return fmt.Errorf("updates check for updates error: %v", err)
 	}
 	if !updStatus {
 		showInfoDialog("App is already up-to-date", zenity.Title("Anywherelan app is up-to-date"), zenity.Width(250))
@@ -390,11 +390,11 @@ func onClickUpdateMenu() error {
 		zenity.Title("Anywherelan new version available"), zenity.OKLabel("Do Update"), zenity.Width(250)) {
 		return nil
 	}
-	StopServer()
 	updResult, err := updService.DoUpdate()
 	if err != nil {
-		return err
+		return fmt.Errorf("updates updating process error: %v", err)
 	}
+	StopServer()
 	return updResult.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
 }
 
@@ -404,7 +404,7 @@ func checkForUpdatesWithDesktopNotification() {
 		logger.Errorf("updates auto check load config error: %v", err)
 		return
 	}
-	updService, err := update.NewUpdateService(conf, logger)
+	updService, err := update.NewUpdateService(conf, logger, update.AppTypeAwlTray)
 	if err != nil {
 		logger.Errorf("updates auto check creating update service error: %v", err)
 		return
@@ -415,8 +415,9 @@ func checkForUpdatesWithDesktopNotification() {
 		return
 	}
 	if updStatus {
-		notifyErr := beeep.Notify("Anywherelan: new version available!", fmt.Sprintf("Version %s: %s available for installation\n",
-			updService.NewVersion.VersionTag(), updService.NewVersion.VersionName()), tempIconFilepath)
+		notifyErr := beeep.Notify("Anywherelan: new version available!",
+			fmt.Sprintf("Version %s: %s available for installation!\nUse tray menu option %q\n",
+				updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), updateMenuLabel), tempIconFilepath)
 		if notifyErr != nil {
 			logger.Errorf("show new version available notification error: %v", notifyErr)
 		}

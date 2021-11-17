@@ -199,15 +199,15 @@ func (a *Application) init() {
 				Action: func(c *cli.Context) error {
 					conf, err := config.LoadConfig(eventbus.NewBus())
 					if err != nil {
-						return err
+						return fmt.Errorf("updates read config error: %v", err)
 					}
-					updService, err := update.NewUpdateService(conf, a.logger)
+					updService, err := update.NewUpdateService(conf, a.logger, update.AppTypeAwl)
 					if err != nil {
-						return err
+						return fmt.Errorf("updates create update service error: %v", err)
 					}
 					status, err := updService.CheckForUpdates()
 					if err != nil {
-						return err
+						return fmt.Errorf("updates check for updates error: %v", err)
 					}
 					if !status {
 						a.logger.Infof("app is already up-to-date")
@@ -225,7 +225,7 @@ func (a *Application) init() {
 						updService.NewVersion.VersionName())
 					updResult, err := updService.DoUpdate()
 					if err != nil {
-						return err
+						return fmt.Errorf("updates updating process error: %v", err)
 					}
 					a.logger.Infof("updated successfully %s -> %s", conf.Version, updService.NewVersion.VersionTag())
 					if c.Bool("run") {

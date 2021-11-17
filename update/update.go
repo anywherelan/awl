@@ -2,8 +2,11 @@ package update
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 
 	"github.com/GrigoryKrasnochub/updaterini"
 	"github.com/anywherelan/awl/config"
@@ -26,7 +29,19 @@ type UpdateService struct {
 	logger     *log.ZapEventLogger
 }
 
-func NewUpdateService(c *config.Config, logger *log.ZapEventLogger) (UpdateService, error) {
+type ApplicationType int
+
+const (
+	AppTypeAwl ApplicationType = iota
+	AppTypeAwlTray
+)
+
+var (
+	awlFilenamesRegex     = regexp.MustCompile(fmt.Sprintf(".*_awl_%s_%s.*", runtime.GOOS, runtime.GOARCH)) // TODO sync with build scripts
+	awlTrayFilenamesRegex = regexp.MustCompile(fmt.Sprintf(".*_awl-tray_%s_%s.*", runtime.GOOS, runtime.GOARCH))
+)
+
+func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType ApplicationType) (UpdateService, error) {
 	channels := make([]updaterini.Channel, 1)
 	channels[0] = updaterini.NewReleaseChannel(true)
 
@@ -43,7 +58,16 @@ func NewUpdateService(c *config.Config, logger *log.ZapEventLogger) (UpdateServi
 	if !lowestInChan {
 		channels = append(channels, updaterini.NewChannel(c.Update.LowestPriorityChan, true))
 	}
-	appConf, err := updaterini.NewApplicationConfig(config.Version, channels, nil)
+
+	filenamesRegex := make([]*regexp.Regexp, 1, 1)
+	switch appType {
+	case AppTypeAwl:
+		filenamesRegex[0] = awlFilenamesRegex
+	case AppTypeAwlTray:
+		filenamesRegex[0] = awlTrayFilenamesRegex
+	}
+
+	appConf, err := updaterini.NewApplicationConfig(config.Version, channels, filenamesRegex)
 	if err != nil {
 		return UpdateService{}, err
 	}
@@ -81,11 +105,11 @@ func (uc *UpdateService) CheckForUpdates() (bool, error) {
 			continue
 		case updaterini.CheckHasErrors:
 			for _, err := range srcStatus.Errors {
-				uc.logger.Warnf("update err. source: %s error: %v", srcStatus.Source.SourceLabel(), err)
+				uc.logger.Warnf("updates check sources error: source: %s error: %v", srcStatus.Source.SourceLabel(), err)
 			}
 		case updaterini.CheckFailure:
 			for _, err := range srcStatus.Errors {
-				uc.logger.Errorf("update err. source: %s error: %v", srcStatus.Source.SourceLabel(), err)
+				uc.logger.Errorf("updates check sources error: source: %s error: %v", srcStatus.Source.SourceLabel(), err)
 			}
 		}
 	}
