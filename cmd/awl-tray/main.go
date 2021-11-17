@@ -158,14 +158,14 @@ func onReady() {
 
 	conf, err := getConfig()
 	if err != nil {
-		logger.Errorf("load config error: %v", err)
+		logger.Errorf("init awl tray: load config %v", err)
 		return
 	}
 	if conf.Update.TrayAutoCheckEnabled {
 		go func() {
 			interval, err := time.ParseDuration(conf.Update.TrayAutoCheckInterval)
 			if err != nil {
-				logger.Errorf("tray auto update interval parse error: %v", err)
+				logger.Errorf("update auto check: interval parse: %v", err)
 				return
 			}
 			ticker := time.NewTicker(interval)
@@ -232,7 +232,7 @@ func subscribeToNotifications(app *awl.Application) {
 		}
 		notifyErr := beeep.Notify(title, "PeerID: \n"+authRequest.PeerID, tempIconFilepath)
 		if notifyErr != nil {
-			logger.Errorf("show incoming friend request notification: %v", notifyErr)
+			logger.Errorf("show notification: incoming friend request: %v", notifyErr)
 		}
 	}, app.Eventbus, new(awlevent.ReceivedAuthRequest))
 }
@@ -267,14 +267,14 @@ func handleErrorWithDialog(err error) {
 	logger.Error(err)
 	dialogErr := zenity.Error(err.Error(), zenity.Title("Anywherelan error"), zenity.ErrorIcon)
 	if dialogErr != nil {
-		logger.Errorf("show dialog error: %v", dialogErr)
+		logger.Errorf("show dialog: error handling: %v", dialogErr)
 	}
 }
 
 func showInfoDialog(message string, options ...zenity.Option) {
 	err := zenity.Info(message, append(options, zenity.InfoIcon)...)
 	if err != nil {
-		logger.Errorf("show info dialog error: %v", err)
+		logger.Errorf("show dialog: info: %v", err)
 	}
 }
 
@@ -284,7 +284,7 @@ func showQuestionDialog(message string, options ...zenity.Option) bool {
 	case err == zenity.ErrCanceled:
 		return false
 	case err != nil:
-		logger.Errorf("show update confirm dialog error: %v", err)
+		logger.Errorf("show dialog: question: %v", err)
 	}
 	return true
 }
@@ -366,15 +366,15 @@ func onClickUpdateMenu() error {
 	}()
 	conf, err := getConfig()
 	if err != nil {
-		return fmt.Errorf("updates read config error: %v", err)
+		return fmt.Errorf("update: read config: %v", err)
 	}
 	updService, err := update.NewUpdateService(conf, logger, update.AppTypeAwlTray)
 	if err != nil {
-		return fmt.Errorf("updates create update service error: %v", err)
+		return fmt.Errorf("update: create update service: %v", err)
 	}
 	updStatus, err := updService.CheckForUpdates()
 	if err != nil {
-		return fmt.Errorf("updates check for updates error: %v", err)
+		return fmt.Errorf("update: check for updates: %v", err)
 	}
 	if !updStatus {
 		showInfoDialog("App is already up-to-date", zenity.Title("Anywherelan app is up-to-date"), zenity.Width(250))
@@ -392,7 +392,7 @@ func onClickUpdateMenu() error {
 	}
 	updResult, err := updService.DoUpdate()
 	if err != nil {
-		return fmt.Errorf("updates updating process error: %v", err)
+		return fmt.Errorf("update: updating process: %v", err)
 	}
 	StopServer()
 	return updResult.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
@@ -401,17 +401,17 @@ func onClickUpdateMenu() error {
 func checkForUpdatesWithDesktopNotification() {
 	conf, err := getConfig()
 	if err != nil {
-		logger.Errorf("updates auto check load config error: %v", err)
+		logger.Errorf("update auto check: load config: %v", err)
 		return
 	}
 	updService, err := update.NewUpdateService(conf, logger, update.AppTypeAwlTray)
 	if err != nil {
-		logger.Errorf("updates auto check creating update service error: %v", err)
+		logger.Errorf("update auto check: creating update service: %v", err)
 		return
 	}
 	updStatus, err := updService.CheckForUpdates()
 	if err != nil {
-		logger.Errorf("updates auto check for updates error: %v", err)
+		logger.Errorf("update auto check: check for updates: %v", err)
 		return
 	}
 	if updStatus {
@@ -419,7 +419,7 @@ func checkForUpdatesWithDesktopNotification() {
 			fmt.Sprintf("Version %s: %s available for installation!\nUse tray menu option %q\n",
 				updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), updateMenuLabel), tempIconFilepath)
 		if notifyErr != nil {
-			logger.Errorf("show new version available notification error: %v", notifyErr)
+			logger.Errorf("show notification: new version available: %v", notifyErr)
 		}
 	}
 }

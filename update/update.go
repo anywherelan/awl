@@ -105,11 +105,11 @@ func (uc *UpdateService) CheckForUpdates() (bool, error) {
 			continue
 		case updaterini.CheckHasErrors:
 			for _, err := range srcStatus.Errors {
-				uc.logger.Warnf("updates check sources error: source: %s error: %v", srcStatus.Source.SourceLabel(), err)
+				uc.logger.Warnf("update: check sources: source: %s: %v", srcStatus.Source.SourceLabel(), err)
 			}
 		case updaterini.CheckFailure:
 			for _, err := range srcStatus.Errors {
-				uc.logger.Errorf("updates check sources error: source: %s error: %v", srcStatus.Source.SourceLabel(), err)
+				uc.logger.Errorf("update: check sources: source: %s: %v", srcStatus.Source.SourceLabel(), err)
 			}
 		}
 	}
