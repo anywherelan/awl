@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
+	"github.com/libp2p/go-libp2p-kbucket"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -60,6 +61,10 @@ func (p *P2p) ConnectedPeersCount() int {
 
 func (p *P2p) RoutingTableSize() int {
 	return p.dht.RoutingTable().Size()
+}
+
+func (p *P2p) RoutingTablePeers() []kbucket.PeerInfo {
+	return p.dht.RoutingTable().GetPeerInfos()
 }
 
 func (p *P2p) PeersWithAddrsCount() int {

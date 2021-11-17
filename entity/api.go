@@ -6,6 +6,7 @@ import (
 	"github.com/anywherelan/awl/p2p"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/libp2p/go-libp2p-core/metrics"
+	kbucket "github.com/libp2p/go-libp2p-kbucket"
 )
 
 // Requests
@@ -80,6 +81,7 @@ type (
 	}
 	DhtDebugInfo struct {
 		RoutingTableSize    int
+		RoutingTable        []kbucket.PeerInfo
 		Reachability        string `enums:"Unknown,Public,Private"`
 		ListenAddress       []string
 		PeersWithAddrsCount int

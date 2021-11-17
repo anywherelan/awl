@@ -32,6 +32,7 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 		},
 		DHT: entity.DhtDebugInfo{
 			RoutingTableSize:    h.p2p.RoutingTableSize(),
+			RoutingTable:        h.p2p.RoutingTablePeers(),
 			Reachability:        h.p2p.Reachability().String(),
 			ListenAddress:       maToStrings(h.p2p.AnnouncedAs()),
 			PeersWithAddrsCount: h.p2p.PeersWithAddrsCount(),
@@ -49,7 +50,6 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 		Bandwidth: entity.BandwidthDebugInfo{
 			Total:      makeBandwidthInfo(h.p2p.NetworkStats()),
 			ByProtocol: bandwidthByProtocol,
-			//ByPeer:     h.p2p.NetworkStatsByPeer(),
 		},
 	}
 
