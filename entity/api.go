@@ -77,7 +77,8 @@ type (
 	}
 
 	GeneralDebugInfo struct {
-		Uptime string
+		Version string
+		Uptime  string
 	}
 	DhtDebugInfo struct {
 		RoutingTableSize    int

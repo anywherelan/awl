@@ -7,6 +7,7 @@ import (
 	"sort"
 	"unicode/utf8"
 
+	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/labstack/echo/v4"
 	"github.com/libp2p/go-libp2p-core/metrics"
@@ -28,7 +29,8 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 
 	debugInfo := entity.P2pDebugInfo{
 		General: entity.GeneralDebugInfo{
-			Uptime: h.p2p.Uptime().String(),
+			Version: config.Version,
+			Uptime:  h.p2p.Uptime().String(),
 		},
 		DHT: entity.DhtDebugInfo{
 			RoutingTableSize:    h.p2p.RoutingTableSize(),
