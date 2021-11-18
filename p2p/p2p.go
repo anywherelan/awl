@@ -59,6 +59,14 @@ type HostConfig struct {
 	DHTOpts      []dht.Option
 }
 
+type IDService interface {
+	Close() error
+	OwnObservedAddrs() []multiaddr.Multiaddr
+	ObservedAddrsFor(local multiaddr.Multiaddr) []multiaddr.Multiaddr
+	IdentifyConn(c network.Conn)
+	IdentifyWait(c network.Conn) <-chan struct{}
+}
+
 type P2p struct {
 	// has to be 64-bit aligned
 	openedStreams        int64
@@ -191,6 +199,14 @@ func (p *P2p) Close() error {
 
 func (p *P2p) PeerID() peer.ID {
 	return p.host.ID()
+}
+
+func (p *P2p) Host() host.Host {
+	return p.host
+}
+
+func (p *P2p) IDService() IDService {
+	return p.basicHost.IDService()
 }
 
 func (p *P2p) ClearBackoff(peerID peer.ID) {
