@@ -205,17 +205,13 @@ func (p *P2p) ConnectPeer(ctx context.Context, peerID peer.ID) error {
 	if err != nil {
 		return fmt.Errorf("could not find peer %s: %v", peerID.String(), err)
 	}
-	err = p.ConnectPeerAddr(ctx, peerInfo)
+	err = p.host.Connect(ctx, peerInfo)
 
 	return err
 }
 
 func (p *P2p) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
 	return p.dht.FindPeer(ctx, id)
-}
-
-func (p *P2p) ConnectPeerAddr(ctx context.Context, peerInfo peer.AddrInfo) error {
-	return p.host.Connect(ctx, peerInfo)
 }
 
 func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
@@ -301,7 +297,7 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 		}
 
 		p.connectToKnownPeers(ctx, interval, knownPeersIdsFunc())
-		p.TrimOpenConnections()
+		p.connManager.TrimOpenConns(p.ctx)
 	}
 }
 
@@ -327,7 +323,7 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 		peerAddr := peerAddr
 		go func() {
 			defer wg.Done()
-			err := p.ConnectPeerAddr(ctx, peerAddr)
+			err := p.host.Connect(ctx, peerAddr)
 			var info BootstrapPeerDebugInfo
 			if err != nil {
 				info.Error = err.Error()

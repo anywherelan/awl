@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -358,15 +359,7 @@ func (s *AuthStatus) onPeerConnected(peerID peer.ID, conn network.Conn) {
 		}
 
 		if known {
-			var dir string
-			switch conn.Stat().Direction {
-			case network.DirOutbound:
-				dir = "outbound"
-			case network.DirInbound:
-				dir = "inbound"
-			case network.DirUnknown:
-				dir = "unknown"
-			}
+			dir := strings.ToLower(conn.Stat().Direction.String())
 			s.logger.Infof("peer %s connected, direction %s, address %s", knownPeer.DisplayName(), dir, conn.RemoteMultiaddr())
 
 			err := s.ExchangeNewStatusInfo(context.Background(), peerID, knownPeer)
