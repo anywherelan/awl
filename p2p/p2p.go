@@ -254,13 +254,6 @@ func (p *P2p) SubscribeConnectionEvents(onConnected, onDisconnected func(network
 	p.host.Network().Notify(notifyBundle)
 }
 
-func (p *P2p) RegisterOnPeerConnected(f func(peer.ID, network.Conn)) {
-	p.SubscribeConnectionEvents(func(_ network.Network, conn network.Conn) {
-		peerID := conn.RemotePeer()
-		f(peerID, conn)
-	}, nil)
-}
-
 func (p *P2p) Bootstrap() error {
 	p.logger.Debug("Bootstrapping the DHT")
 	// connect to the bootstrap nodes first

@@ -25,7 +25,7 @@ const (
 type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
-	RegisterOnPeerConnected(f func(peer.ID, network.Conn))
+	SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn))
 }
 
 type AuthStatus struct {
@@ -53,7 +53,7 @@ func NewAuthStatus(p2pService P2p, conf *config.Config, eventbus awlevent.Bus) *
 		authsEmitter:  emitter,
 	}
 	auth.restoreOutgoingAuths()
-	p2pService.RegisterOnPeerConnected(auth.onPeerConnected)
+	p2pService.SubscribeConnectionEvents(auth.onPeerConnected, auth.onPeerDisconnected)
 	return auth
 }
 
@@ -338,7 +338,8 @@ func (s *AuthStatus) restoreOutgoingAuths() {
 	s.outgoingAuths = outgoingAuths
 }
 
-func (s *AuthStatus) onPeerConnected(peerID peer.ID, conn network.Conn) {
+func (s *AuthStatus) onPeerConnected(_ network.Network, conn network.Conn) {
+	peerID := conn.RemotePeer()
 	s.authsLock.RLock()
 	authPeer, hasOutgAuth := s.outgoingAuths[peerID]
 	s.authsLock.RUnlock()
@@ -360,7 +361,7 @@ func (s *AuthStatus) onPeerConnected(peerID peer.ID, conn network.Conn) {
 
 		if known {
 			dir := strings.ToLower(conn.Stat().Direction.String())
-			s.logger.Infof("peer %s connected, direction %s, address %s", knownPeer.DisplayName(), dir, conn.RemoteMultiaddr())
+			s.logger.Infof("peer '%s' connected, direction %s, address %s", knownPeer.DisplayName(), dir, conn.RemoteMultiaddr())
 
 			err := s.ExchangeNewStatusInfo(context.Background(), peerID, knownPeer)
 			if err != nil && knownPeer.Confirmed {
@@ -368,4 +369,14 @@ func (s *AuthStatus) onPeerConnected(peerID peer.ID, conn network.Conn) {
 			}
 		}
 	}()
+}
+
+func (s *AuthStatus) onPeerDisconnected(_ network.Network, conn network.Conn) {
+	peerID := conn.RemotePeer()
+	knownPeer, known := s.conf.GetPeer(peerID.String())
+	if !known {
+		return
+	}
+	s.conf.UpdatePeerLastSeen(peerID.String())
+	s.logger.Infof("peer '%s' disconnected, address %s", knownPeer.DisplayName(), conn.RemoteMultiaddr())
 }
