@@ -234,6 +234,7 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 		})
 	}
 	app.Conf.HttpListenAddress = "127.0.0.1:0"
+	app.Conf.SetListenAddresses(p2p.UnicastListenAddrs())
 
 	testTUN := NewTestTUN()
 	err := app.Init(context.Background(), testTUN.TUN())

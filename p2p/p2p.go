@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,6 +41,10 @@ const (
 
 	protectedBootstrapPeerTag = "bootstrap"
 	protectedPeerTag          = "known"
+
+	// Port is unassigned by IANA and seems quite unused.
+	// https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.txt
+	defaultP2pPort = 4363
 )
 
 type HostConfig struct {
@@ -120,6 +125,11 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		hostConfig.ConnManager.GracePeriod,
 	)
 
+	listenAddrs := hostConfig.ListenAddrs
+	if len(listenAddrs) == 0 {
+		listenAddrs = findListenAddrs()
+	}
+
 	relay.DesiredRelays = DesiredRelays
 	relay.BootDelay = RelayBootDelay
 
@@ -129,7 +139,7 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		libp2p.UserAgent(hostConfig.UserAgent),
 		libp2p.BandwidthReporter(p.bandwidthCounter),
 		libp2p.ConnectionManager(p.connManager),
-		libp2p.ListenAddrs(hostConfig.ListenAddrs...),
+		libp2p.ListenAddrs(listenAddrs...),
 		libp2p.ChainOptions(
 			libp2p.Transport(quic.NewTransport),
 			libp2p.Transport(tcp.NewTCPTransport),
@@ -360,4 +370,39 @@ func (p *P2p) peerAddressesString(peerID peer.ID) []string {
 		addrs = append(addrs, conn.RemoteMultiaddr().String())
 	}
 	return addrs
+}
+
+func findListenAddrs() []multiaddr.Multiaddr {
+	// check if default port is open on tcp and udp
+	tcpListener, err := net.ListenTCP("tcp", &net.TCPAddr{Port: defaultP2pPort})
+	if err != nil {
+		return UnicastListenAddrs()
+	}
+	_ = tcpListener.Close()
+
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{Port: defaultP2pPort})
+	if err != nil {
+		return UnicastListenAddrs()
+	}
+	_ = udpConn.Close()
+
+	return DefaultListenAddrs()
+}
+
+func UnicastListenAddrs() []multiaddr.Multiaddr {
+	return []multiaddr.Multiaddr{
+		multiaddr.StringCast("/ip4/0.0.0.0/tcp/0"),
+		multiaddr.StringCast("/ip6/::/tcp/0"),
+		multiaddr.StringCast("/ip4/0.0.0.0/udp/0/quic"),
+		multiaddr.StringCast("/ip6/::/udp/0/quic"),
+	}
+}
+
+func DefaultListenAddrs() []multiaddr.Multiaddr {
+	return []multiaddr.Multiaddr{
+		multiaddr.StringCast(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", defaultP2pPort)),
+		multiaddr.StringCast(fmt.Sprintf("/ip6/::/tcp/%d", defaultP2pPort)),
+		multiaddr.StringCast(fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic", defaultP2pPort)),
+		multiaddr.StringCast(fmt.Sprintf("/ip6/::/udp/%d/quic", defaultP2pPort)),
+	}
 }
