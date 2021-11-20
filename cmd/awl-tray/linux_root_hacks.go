@@ -13,7 +13,6 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-// TODO: update godbus/dbus and remove module replace when https://github.com/godbus/dbus/pull/247 will be merged
 func init() {
 	sudoUidStr := os.Getenv("SUDO_UID")
 	sudoUid, sudoUiderr := strconv.Atoi(sudoUidStr)

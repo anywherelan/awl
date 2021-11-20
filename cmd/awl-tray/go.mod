@@ -8,7 +8,7 @@ require (
 	github.com/anywherelan/awl v0.0.0-00010101000000-000000000000
 	github.com/gen2brain/beeep v0.0.0-20210529141713-5586760f0cc1
 	github.com/getlantern/systray v1.1.0
-	github.com/godbus/dbus/v5 v5.0.5
+	github.com/godbus/dbus/v5 v5.0.6
 	github.com/ipfs/go-log/v2 v2.3.0
 	github.com/libp2p/go-eventbus v0.2.1
 	github.com/ncruces/zenity v0.7.7
@@ -182,6 +182,5 @@ require (
 replace (
 	github.com/anywherelan/awl => ../../
 	github.com/getlantern/systray => github.com/anywherelan/systray v0.0.0-20210712192351-1da45426321d
-	github.com/godbus/dbus/v5 => github.com/pymq/dbus/v5 v5.0.5-0.20210710104724-7ba66a7d9a5a
 	github.com/ipfs/go-log/v2 => github.com/anywherelan/go-log/v2 v2.0.3-0.20211026204512-98dc57159cb7
 )
