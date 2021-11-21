@@ -7,6 +7,7 @@ import (
 	"sort"
 	"unicode/utf8"
 
+	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/labstack/echo/v4"
 	"github.com/libp2p/go-libp2p-core/metrics"
@@ -28,10 +29,12 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 
 	debugInfo := entity.P2pDebugInfo{
 		General: entity.GeneralDebugInfo{
-			Uptime: h.p2p.Uptime().String(),
+			Version: config.Version,
+			Uptime:  h.p2p.Uptime().String(),
 		},
 		DHT: entity.DhtDebugInfo{
 			RoutingTableSize:    h.p2p.RoutingTableSize(),
+			RoutingTable:        h.p2p.RoutingTablePeers(),
 			Reachability:        h.p2p.Reachability().String(),
 			ListenAddress:       maToStrings(h.p2p.AnnouncedAs()),
 			PeersWithAddrsCount: h.p2p.PeersWithAddrsCount(),
@@ -49,7 +52,6 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 		Bandwidth: entity.BandwidthDebugInfo{
 			Total:      makeBandwidthInfo(h.p2p.NetworkStats()),
 			ByProtocol: bandwidthByProtocol,
-			//ByPeer:     h.p2p.NetworkStatsByPeer(),
 		},
 	}
 

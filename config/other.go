@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 
 	"github.com/anywherelan/awl/awldns"
@@ -128,22 +129,20 @@ func ImportConfig(data []byte, directory string) error {
 
 func setDefaults(conf *Config, bus awlevent.Bus) {
 	// P2pNode
-	if len(conf.P2pNode.ListenAddresses) == 0 {
-		var multiaddrs []multiaddr.Multiaddr
-		for _, s := range []string{
-			"/ip4/0.0.0.0/tcp/0",
-			"/ip6/::/tcp/0",
-			"/ip4/0.0.0.0/udp/0/quic",
-			"/ip6/::/udp/0/quic",
-		} {
-			addr, err := multiaddr.NewMultiaddr(s)
-			if err != nil {
-				logger.DPanicf("parse multiaddr: %v", err)
-			}
-			multiaddrs = append(multiaddrs, addr)
-		}
-		conf.SetListenAddresses(multiaddrs)
+
+	// Previously these addresses were used as default, but not anymore. Remove them from config to use new real defaults
+	default4ListenAddrs := []string{
+		"/ip4/0.0.0.0/tcp/0",
+		"/ip6/::/tcp/0",
+		"/ip4/0.0.0.0/udp/0/quic",
+		"/ip6/::/udp/0/quic",
 	}
+	default6ListenAddrs := append([]string{"/ip4/0.0.0.0/udp/0", "/ip6/::/udp/0"}, default4ListenAddrs...)
+	if stringSlicesEqual(conf.P2pNode.ListenAddresses, default4ListenAddrs) ||
+		stringSlicesEqual(conf.P2pNode.ListenAddresses, default6ListenAddrs) || conf.P2pNode.ListenAddresses == nil {
+		conf.P2pNode.ListenAddresses = []string{}
+	}
+
 	if conf.P2pNode.BootstrapPeers == nil {
 		conf.P2pNode.BootstrapPeers = make([]string, 0)
 	}
@@ -219,4 +218,25 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.Update.TrayAutoCheckInterval == "" {
 		conf.Update.TrayAutoCheckInterval = "24h"
 	}
+}
+
+// stringSlicesEqual compares slices by content and ignores order. It also allocates copies of s1, s2.
+func stringSlicesEqual(s1, s2 []string) bool {
+	if len(s1) != len(s2) {
+		return false
+	}
+	s1Copy := make([]string, len(s1))
+	copy(s1Copy, s1)
+	s2Copy := make([]string, len(s2))
+	copy(s2Copy, s2)
+	sort.Strings(s1Copy)
+	sort.Strings(s2Copy)
+
+	for i := range s1Copy {
+		if s1Copy[i] != s2Copy[i] {
+			return false
+		}
+	}
+
+	return true
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,6 +41,10 @@ const (
 
 	protectedBootstrapPeerTag = "bootstrap"
 	protectedPeerTag          = "known"
+
+	// Port is unassigned by IANA and seems quite unused.
+	// https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.txt
+	defaultP2pPort = 4363
 )
 
 type HostConfig struct {
@@ -57,6 +62,14 @@ type HostConfig struct {
 	Peerstore    peerstore.Peerstore
 	DHTDatastore ds.Batching
 	DHTOpts      []dht.Option
+}
+
+type IDService interface {
+	Close() error
+	OwnObservedAddrs() []multiaddr.Multiaddr
+	ObservedAddrsFor(local multiaddr.Multiaddr) []multiaddr.Multiaddr
+	IdentifyConn(c network.Conn)
+	IdentifyWait(c network.Conn) <-chan struct{}
 }
 
 type P2p struct {
@@ -112,6 +125,11 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		hostConfig.ConnManager.GracePeriod,
 	)
 
+	listenAddrs := hostConfig.ListenAddrs
+	if len(listenAddrs) == 0 {
+		listenAddrs = findListenAddrs()
+	}
+
 	relay.DesiredRelays = DesiredRelays
 	relay.BootDelay = RelayBootDelay
 
@@ -121,7 +139,7 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		libp2p.UserAgent(hostConfig.UserAgent),
 		libp2p.BandwidthReporter(p.bandwidthCounter),
 		libp2p.ConnectionManager(p.connManager),
-		libp2p.ListenAddrs(hostConfig.ListenAddrs...),
+		libp2p.ListenAddrs(listenAddrs...),
 		libp2p.ChainOptions(
 			libp2p.Transport(quic.NewTransport),
 			libp2p.Transport(tcp.NewTCPTransport),
@@ -193,6 +211,14 @@ func (p *P2p) PeerID() peer.ID {
 	return p.host.ID()
 }
 
+func (p *P2p) Host() host.Host {
+	return p.host
+}
+
+func (p *P2p) IDService() IDService {
+	return p.basicHost.IDService()
+}
+
 func (p *P2p) ClearBackoff(peerID peer.ID) {
 	p.host.Network().(*swarm.Swarm).Backoff().Clear(peerID)
 }
@@ -205,17 +231,13 @@ func (p *P2p) ConnectPeer(ctx context.Context, peerID peer.ID) error {
 	if err != nil {
 		return fmt.Errorf("could not find peer %s: %v", peerID.String(), err)
 	}
-	err = p.ConnectPeerAddr(ctx, peerInfo)
+	err = p.host.Connect(ctx, peerInfo)
 
 	return err
 }
 
 func (p *P2p) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
 	return p.dht.FindPeer(ctx, id)
-}
-
-func (p *P2p) ConnectPeerAddr(ctx context.Context, peerInfo peer.AddrInfo) error {
-	return p.host.Connect(ctx, peerInfo)
 }
 
 func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
@@ -240,13 +262,6 @@ func (p *P2p) SubscribeConnectionEvents(onConnected, onDisconnected func(network
 		DisconnectedF: onDisconnected,
 	}
 	p.host.Network().Notify(notifyBundle)
-}
-
-func (p *P2p) RegisterOnPeerConnected(f func(peer.ID, network.Conn)) {
-	p.SubscribeConnectionEvents(func(_ network.Network, conn network.Conn) {
-		peerID := conn.RemotePeer()
-		f(peerID, conn)
-	}, nil)
 }
 
 func (p *P2p) Bootstrap() error {
@@ -301,7 +316,7 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 		}
 
 		p.connectToKnownPeers(ctx, interval, knownPeersIdsFunc())
-		p.TrimOpenConnections()
+		p.connManager.TrimOpenConns(p.ctx)
 	}
 }
 
@@ -314,7 +329,7 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 		wg.Add(1)
 		p.ProtectPeer(peerID)
 		go func(peerID peer.ID) {
-			wg.Done()
+			defer wg.Done()
 			_ = p.ConnectPeer(ctx, peerID)
 		}(peerID)
 	}
@@ -327,7 +342,7 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 		peerAddr := peerAddr
 		go func() {
 			defer wg.Done()
-			err := p.ConnectPeerAddr(ctx, peerAddr)
+			err := p.host.Connect(ctx, peerAddr)
 			var info BootstrapPeerDebugInfo
 			if err != nil {
 				info.Error = err.Error()
@@ -355,4 +370,39 @@ func (p *P2p) peerAddressesString(peerID peer.ID) []string {
 		addrs = append(addrs, conn.RemoteMultiaddr().String())
 	}
 	return addrs
+}
+
+func findListenAddrs() []multiaddr.Multiaddr {
+	// check if default port is open on tcp and udp
+	tcpListener, err := net.ListenTCP("tcp", &net.TCPAddr{Port: defaultP2pPort})
+	if err != nil {
+		return UnicastListenAddrs()
+	}
+	_ = tcpListener.Close()
+
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{Port: defaultP2pPort})
+	if err != nil {
+		return UnicastListenAddrs()
+	}
+	_ = udpConn.Close()
+
+	return DefaultListenAddrs()
+}
+
+func UnicastListenAddrs() []multiaddr.Multiaddr {
+	return []multiaddr.Multiaddr{
+		multiaddr.StringCast("/ip4/0.0.0.0/tcp/0"),
+		multiaddr.StringCast("/ip6/::/tcp/0"),
+		multiaddr.StringCast("/ip4/0.0.0.0/udp/0/quic"),
+		multiaddr.StringCast("/ip6/::/udp/0/quic"),
+	}
+}
+
+func DefaultListenAddrs() []multiaddr.Multiaddr {
+	return []multiaddr.Multiaddr{
+		multiaddr.StringCast(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", defaultP2pPort)),
+		multiaddr.StringCast(fmt.Sprintf("/ip6/::/tcp/%d", defaultP2pPort)),
+		multiaddr.StringCast(fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic", defaultP2pPort)),
+		multiaddr.StringCast(fmt.Sprintf("/ip6/::/udp/%d/quic", defaultP2pPort)),
+	}
 }

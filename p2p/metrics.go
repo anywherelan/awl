@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
+	"github.com/libp2p/go-libp2p-kbucket"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -18,6 +20,9 @@ type ConnectionInfo struct {
 	RelayPeerID  string
 	Address      string
 	Protocol     string
+	Direction    string
+	Opened       time.Time
+	Transient    bool
 }
 
 type BootstrapPeerDebugInfo struct {
@@ -49,6 +54,10 @@ func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
 			p.logger.DPanicf("could not parse multiaddr %s", addr)
 			// still add unparsed info with multiaddr
 		}
+		stat := conn.Stat()
+		info.Direction = strings.ToLower(stat.Direction.String())
+		info.Opened = stat.Opened
+		info.Transient = stat.Transient
 		infos = append(infos, info)
 	}
 	return infos
@@ -62,6 +71,10 @@ func (p *P2p) RoutingTableSize() int {
 	return p.dht.RoutingTable().Size()
 }
 
+func (p *P2p) RoutingTablePeers() []kbucket.PeerInfo {
+	return p.dht.RoutingTable().GetPeerInfos()
+}
+
 func (p *P2p) PeersWithAddrsCount() int {
 	return len(p.host.Peerstore().PeersWithAddrs())
 }
@@ -72,10 +85,6 @@ func (p *P2p) AnnouncedAs() []multiaddr.Multiaddr {
 
 func (p *P2p) Reachability() network.Reachability {
 	return p.basicHost.GetAutoNat().Status()
-}
-
-func (p *P2p) TrimOpenConnections() {
-	p.connManager.TrimOpenConns(p.ctx)
 }
 
 func (p *P2p) OpenConnectionsCount() int {
@@ -99,15 +108,7 @@ func (p *P2p) OpenStreamStats() map[protocol.ID]map[string]int {
 
 	for _, conn := range p.host.Network().Conns() {
 		for _, stream := range conn.GetStreams() {
-			direction := ""
-			switch stream.Stat().Direction {
-			case network.DirInbound:
-				direction = "inbound"
-			case network.DirOutbound:
-				direction = "outbound"
-			case network.DirUnknown:
-				direction = "unknown"
-			}
+			direction := strings.ToLower(stream.Stat().Direction.String())
 			protocolStats, ok := stats[stream.Protocol()]
 			if !ok {
 				protocolStats = make(map[string]int)
