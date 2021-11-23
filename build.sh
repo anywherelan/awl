@@ -36,14 +36,19 @@ download-wintun() {
     rm -f "$wintun_version.zip"
   fi
 
-  arch="$(go env GOARCH)"
+  echo "dependencies loaded successfully"
+}
+
+install-wintun() {
+  if [[ ! -e "$tempdir/$wintun_version" ]]; then
+    return
+  fi
+  arch="$1"
   wintunarch="$arch"
   if [ "$arch" == "386" ]; then
     wintunarch="x86"
   fi
   cp "$tempdir/$wintun_version/wintun/bin/$wintunarch/wintun.dll" "$awldir/embeds/wintun.dll"
-
-  echo "dependencies loaded successfully"
 }
 
 # build for linux OS
@@ -59,11 +64,8 @@ gobuild-linux() {
 # build for windows OS
 gobuild-windows() {
   name="$1"
-  for tuple in "386 x86" "amd64 amd64"; do
-    goarch=$(echo "$tuple" | cut -f1 -d" ")
-    wintunarch=$(echo "$tuple" | cut -f2 -d" ")
-    cp "$tempdir/$wintun_version/wintun/bin/$wintunarch/wintun.dll" "$awldir/embeds/wintun.dll"
-
+  for goarch in 386 amd64; do
+    install-wintun "$goarch"
     filename="$name-windows-$goarch-$VERSION.exe"
     GOOS=windows GOARCH=$goarch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     mv "$filename" "$builddir"
@@ -132,6 +134,7 @@ build-awl-tray() {
   arch="$(go env GOARCH)"
   filename="awl-tray-$goos-$arch-$VERSION"
   if [ "$goos" == "windows" ]; then
+    install-wintun "$arch"
     filename="$filename.exe"
   fi
   cd "$awldir/cmd/awl-tray"
@@ -188,6 +191,7 @@ docker-images)
   ;;
 deps)
   download-wintun
+  install-wintun "$(go env GOARCH)"
   ;;
 clean)
   clean
