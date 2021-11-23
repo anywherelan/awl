@@ -7,24 +7,43 @@ tempdir=$(dirname $(mktemp -u))
 
 wintun_version="wintun-0.13"
 
-
 # until https://github.com/golang/go/issues/37475 is implemented
 VERSION=$(git describe --tags --always --abbrev=8 --dirty)
-
 
 # download dependencies
 download-wintun() {
   echo "check dependencies"
+
+  goos="$(go env GOOS)"
+  local force_download="$1"
+  if [ "$force_download" != "true" ] && [ "$goos" != "windows" ]; then
+    echo "dependencies loaded successfully"
+    return
+  fi
+
   if [[ ! -e "$tempdir/$wintun_version" ]]; then
-    if ! type "wget" > /dev/null; then
-        echo "wget util could not be found. Please install it"
-        exit
+    download_url="https://www.wintun.net/builds/$wintun_version.zip"
+    if type "wget" >/dev/null; then
+      wget "$download_url"
+    elif type "curl" >/dev/null; then
+      curl -sSL "$download_url" >"$wintun_version.zip"
+    else
+      echo "wget or curl could not be found. Please install it"
+      exit 1
     fi
-    wget "https://www.wintun.net/builds/$wintun_version.zip"
+
     unzip "$wintun_version.zip" -d "$tempdir/$wintun_version"
     rm -f "$wintun_version.zip"
   fi
-  echo "dependencies are loaded successfully"
+
+  arch="$(go env GOARCH)"
+  wintunarch="$arch"
+  if [ "$arch" == "386" ]; then
+    wintunarch="x86"
+  fi
+  cp "$tempdir/$wintun_version/wintun/bin/$wintunarch/wintun.dll" "$awldir/embeds/wintun.dll"
+
+  echo "dependencies loaded successfully"
 }
 
 # build for linux OS
@@ -48,7 +67,6 @@ gobuild-windows() {
     filename="$name-windows-$goarch-$VERSION.exe"
     GOOS=windows GOARCH=$goarch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     mv "$filename" "$builddir"
-    rm -f "wintun.dll"
   done
 }
 
@@ -113,7 +131,7 @@ build-awl-tray() {
   goos="$(go env GOOS)"
   arch="$(go env GOARCH)"
   filename="awl-tray-$goos-$arch-$VERSION"
-  if [ "$goos" == "windows" ] ;then
+  if [ "$goos" == "windows" ]; then
     filename="$filename.exe"
   fi
   cd "$awldir/cmd/awl-tray"
@@ -147,7 +165,7 @@ build-docker-images() {
 case "${1:-default}" in
 release)
   clean
-  download-wintun
+  download-wintun true
   build-web
   build-mobile
   build-desktop-cross
@@ -167,6 +185,9 @@ awl-tray)
   ;;
 docker-images)
   build-docker-images
+  ;;
+deps)
+  download-wintun
   ;;
 clean)
   clean
