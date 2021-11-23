@@ -7,14 +7,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go-version: [ 1.17.x ]
         os: [ ubuntu-latest, windows-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: 1.17.x
       - name: Checkout code
         uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -25,9 +24,9 @@ jobs:
             ${{ runner.os }}-go-
       - name: Create stub static/
         run: mkdir static && touch static/index.html
-      - name: Create stub wintun.dll
-        run: touch embeds/wintun.dll
-        if: matrix.os == 'windows-latest'
+      - name: Check deps
+        shell: bash
+        run: ./build.sh deps
       - name: gofmt && go mod tidy
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -41,3 +40,77 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Build cmd/awl
         run: go build github.com/anywherelan/awl/cmd/awl
+      - name: Upload cmd/awl build
+        uses: actions/upload-artifact@v2
+        with:
+          name: awl-build-${{ runner.os }}
+          path: |
+            awl
+            awl.exe
+          if-no-files-found: error
+
+  end-to-end-test:
+    # run only on pushes because we use repository secrets which are unavailable to forks
+    if: ${{ github.event_name == 'push' }}
+    needs: [ test ]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Retrieve saved cmd/awl build
+        uses: actions/download-artifact@v2
+        with:
+          name: awl-build-${{ runner.os }}
+      - name: Download librespeed-cli
+        env:
+          CONFIG_AWL: ${{ secrets.CONFIG_AWL }}
+          CONFIG_LIBRESPEED: ${{ secrets.CONFIG_LIBRESPEED }}
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+               curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.9/librespeed-cli_1.0.9_linux_amd64.tar.gz | tar -xzf -
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+               curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.9/librespeed-cli_1.0.9_windows_amd64.zip > download.zip
+               unzip download.zip
+          else
+               echo "$RUNNER_OS not supported"
+               exit 1
+          fi
+
+          echo $CONFIG_LIBRESPEED > config_librespeed.json
+          echo $CONFIG_AWL > config_awl.json
+
+      - name: Run librespeed-cli, awl, librespeed-cli through awl
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          chmod +x awl
+          ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share | python3 -m json.tool
+
+          sudo ./awl &
+          awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
+          sleep 5
+          ./awl cli peers_status --short
+
+          ./librespeed-cli --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
+          sleep 1
+          sudo kill -SIGINT $awl_pid
+          sleep 1
+      - name: Run librespeed-cli, awl, librespeed-cli through awl
+        if: matrix.os == 'windows-latest'
+        run: |
+          chmod +x awl.exe
+          ./librespeed-cli.exe --local-json config_librespeed.json --server 1 --json --share | python3 -m json.tool
+
+          ./awl.exe &
+          awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
+          sleep 5
+          ./awl.exe cli peers_status --short
+          ./librespeed-cli.exe --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
+
+          sleep 1
+          kill -SIGINT $awl_pid
+          sleep 1
