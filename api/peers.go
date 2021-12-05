@@ -172,7 +172,6 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 	h.conf.RemoveBlockedPeer(req.PeerID)
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
-	h.tunnel.RefreshPeersList()
 
 	go func() {
 		authPeer := protocol.AuthPeer{
@@ -247,7 +246,6 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	h.conf.RemoveBlockedPeer(req.PeerID)
 	h.conf.UpsertPeer(newPeerConfig)
 	h.p2p.ProtectPeer(peerId)
-	h.tunnel.RefreshPeersList()
 
 	go func() {
 		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerId, newPeerConfig)
@@ -304,7 +302,6 @@ func (h *Handler) RemovePeer(c echo.Context) (err error) {
 	}
 
 	h.p2p.UnprotectPeer(peerId)
-	h.tunnel.RefreshPeersList()
 	h.authStatus.BlockPeer(peerId, knownPeer.DisplayName())
 
 	return c.NoContent(http.StatusOK)
