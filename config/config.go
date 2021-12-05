@@ -50,6 +50,7 @@ type (
 		BootstrapPeers          []string      `json:"bootstrapPeers"`
 		ListenAddresses         []string      `json:"listenAddresses"`
 		ReconnectionIntervalSec time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"`
+		AutoAcceptAuthRequests  bool          `json:"autoAcceptAuthRequests"`
 	}
 	VPNConfig struct {
 		InterfaceName string `json:"interfaceName"`

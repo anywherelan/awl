@@ -196,7 +196,11 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 
 	_, isBlocked := s.conf.GetBlockedPeer(peerID)
 	_, confirmed := s.conf.GetPeer(peerID)
-	if !confirmed && !isBlocked {
+	s.conf.RLock()
+	autoAccept := s.conf.P2pNode.AutoAcceptAuthRequests
+	s.conf.RUnlock()
+
+	if !confirmed && !isBlocked && !autoAccept {
 		s.authsLock.Lock()
 		s.ingoingAuths[remotePeer] = authPeer
 		s.authsLock.Unlock()
@@ -204,6 +208,11 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 			AuthPeer: authPeer,
 			PeerID:   peerID,
 		})
+	}
+	if !confirmed && !isBlocked && autoAccept {
+		defer func() {
+			s.AddPeer(context.Background(), remotePeer, authPeer.Name, "", true)
+		}()
 	}
 
 	authResponse := protocol.AuthPeerResponse{Confirmed: confirmed, Declined: isBlocked}
@@ -279,6 +288,8 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias st
 	s.p2p.ProtectPeer(peerID)
 
 	go func() {
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 		if !confirmed {
 			authPeer := protocol.AuthPeer{
 				Name: s.conf.P2pNode.Name,
