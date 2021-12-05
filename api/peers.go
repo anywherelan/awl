@@ -18,9 +18,8 @@ import (
 // @Success 200 {array} entity.KnownPeersResponse
 // @Router /peers/get_known [GET]
 func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
-	result := make([]entity.KnownPeersResponse, 0, len(h.conf.KnownPeers))
-
 	h.conf.RLock()
+	result := make([]entity.KnownPeersResponse, 0, len(h.conf.KnownPeers))
 	peers := make([]string, 0, len(h.conf.KnownPeers))
 	for peerID := range h.conf.KnownPeers {
 		peers = append(peers, peerID)
