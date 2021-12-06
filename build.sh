@@ -55,20 +55,26 @@ install-wintun() {
 gobuild-linux() {
   name="$1"
   for arch in 386 amd64 arm arm64; do
-    filename="$name-linux-$arch-$VERSION"
+    archive_name="$name-linux-$arch-$VERSION.tar.gz"
+    filename="$name"
     GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
-    mv "$filename" "$builddir"
+    tar -czf "$archive_name" "$filename"
+    rm "$filename"
+    mv "$archive_name" "$builddir"
   done
 }
 
 # build for windows OS
 gobuild-windows() {
   name="$1"
-  for goarch in 386 amd64; do
-    install-wintun "$goarch"
-    filename="$name-windows-$goarch-$VERSION.exe"
-    GOOS=windows GOARCH=$goarch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
-    mv "$filename" "$builddir"
+  for arch in 386 amd64; do
+    install-wintun "$arch"
+    archive_name="$name-windows-$arch-$VERSION.zip"
+    filename="$name.exe"
+    GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    zip "$archive_name" "$filename"
+    rm "$filename"
+    mv "$archive_name" "$builddir"
   done
 }
 
@@ -105,7 +111,7 @@ build-mobile-lib() {
 build-mobile-apk() {
   cd "$awlflutterdir"
   flutter build apk --release
-  mv "$awlflutterdir/build/app/outputs/flutter-apk/app-release.apk" "$builddir/awl-android-multiarch-$VERSION.apk"
+  mv "$awlflutterdir/build/app/outputs/flutter-apk/app-release.apk" "$builddir/awl-android-$VERSION.apk"
 }
 
 # build for android
@@ -132,10 +138,14 @@ build-awl-tray-cross() {
 build-awl-tray() {
   goos="$(go env GOOS)"
   arch="$(go env GOARCH)"
-  filename="awl-tray-$goos-$arch-$VERSION"
+  filename="awl-tray"
+  archive_name="awl-tray-$goos-$arch-$VERSION"
   if [ "$goos" == "windows" ]; then
     install-wintun "$arch"
     filename="$filename.exe"
+    archive_name="$archive_name.zip"
+  elif [ "$goos" == "linux" ]; then
+    archive_name="$archive_name.tar.gz"
   fi
   cd "$awldir/cmd/awl-tray"
   go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
@@ -143,7 +153,14 @@ build-awl-tray() {
   host_uid="$(stat -c "%u" "$builddir")"
   host_gid="$(stat -c "%g" "$builddir")"
   chown "$host_uid:$host_gid" "$filename"
-  mv "$filename" "$builddir"
+  if [ "$goos" == "windows" ]; then
+    zip "$archive_name" "$filename"
+  elif [ "$goos" == "linux" ]; then
+    tar -czf "$archive_name" "$filename"
+  fi
+  chown "$host_uid:$host_gid" "$archive_name"
+  rm "$filename"
+  mv "$archive_name" "$builddir"
 }
 
 build-awl-tray-linux-cross() {

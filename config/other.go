@@ -205,8 +205,8 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	}
 	conf.emitter = emitter
 
-	if conf.Update.UpdateServerURL == "" {
-		conf.Update.UpdateServerURL = "http://example/example.json" // TODO replace for real server
+	if u := conf.Update.UpdateServerURL; u == "" || u == "http://example/example.json" {
+		conf.Update.UpdateServerURL = "https://build.anywherelan.com/repository/releases.json"
 	} else {
 		if _, err := url.Parse(conf.Update.UpdateServerURL); err != nil {
 			logger.Warnf("incorrect update server url. err:%v", err)
@@ -215,8 +215,8 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if !conf.Update.TrayAutoCheckEnabled && conf.Update.TrayAutoCheckInterval == "" {
 		conf.Update.TrayAutoCheckEnabled = true
 	}
-	if conf.Update.TrayAutoCheckInterval == "" {
-		conf.Update.TrayAutoCheckInterval = "24h"
+	if i := conf.Update.TrayAutoCheckInterval; i == "" || i == "24h" {
+		conf.Update.TrayAutoCheckInterval = "8h"
 	}
 }
 

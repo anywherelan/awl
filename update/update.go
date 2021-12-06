@@ -37,8 +37,8 @@ const (
 )
 
 var (
-	awlFilenamesRegex     = regexp.MustCompile(fmt.Sprintf(".*_awl_%s_%s.*", runtime.GOOS, runtime.GOARCH)) // TODO sync with build scripts
-	awlTrayFilenamesRegex = regexp.MustCompile(fmt.Sprintf(".*_awl-tray_%s_%s.*", runtime.GOOS, runtime.GOARCH))
+	awlFilenamesRegex     = regexp.MustCompile(fmt.Sprintf("awl-%s-%s.*", runtime.GOOS, runtime.GOARCH))
+	awlTrayFilenamesRegex = regexp.MustCompile(fmt.Sprintf("awl-tray-%s-%s.*", runtime.GOOS, runtime.GOARCH))
 )
 
 func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType ApplicationType) (UpdateService, error) {
