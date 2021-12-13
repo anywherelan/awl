@@ -26,6 +26,7 @@ type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn))
+	ProtectPeer(id peer.ID)
 }
 
 type AuthStatus struct {
@@ -195,7 +196,11 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 
 	_, isBlocked := s.conf.GetBlockedPeer(peerID)
 	_, confirmed := s.conf.GetPeer(peerID)
-	if !confirmed && !isBlocked {
+	s.conf.RLock()
+	autoAccept := s.conf.P2pNode.AutoAcceptAuthRequests
+	s.conf.RUnlock()
+
+	if !confirmed && !isBlocked && !autoAccept {
 		s.authsLock.Lock()
 		s.ingoingAuths[remotePeer] = authPeer
 		s.authsLock.Unlock()
@@ -203,6 +208,11 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 			AuthPeer: authPeer,
 			PeerID:   peerID,
 		})
+	}
+	if !confirmed && !isBlocked && autoAccept {
+		defer func() {
+			s.AddPeer(context.Background(), remotePeer, authPeer.Name, "", true)
+		}()
 	}
 
 	authResponse := protocol.AuthPeerResponse{Confirmed: confirmed, Declined: isBlocked}
@@ -258,6 +268,38 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 
 	s.logger.Infof("Successfully send auth to %s", peerID)
 	return nil
+}
+
+func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias string, confirmed bool) {
+	s.conf.RLock()
+	ipAddr := s.conf.GenerateNextIpAddr()
+	s.conf.RUnlock()
+	newPeerConfig := config.KnownPeer{
+		PeerID:    peerID.String(),
+		Name:      name,
+		Alias:     alias,
+		IPAddr:    ipAddr,
+		Confirmed: confirmed,
+		CreatedAt: time.Now(),
+	}
+	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
+	s.conf.RemoveBlockedPeer(peerID.String())
+	s.conf.UpsertPeer(newPeerConfig)
+	s.p2p.ProtectPeer(peerID)
+
+	go func() {
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if !confirmed {
+			authPeer := protocol.AuthPeer{
+				Name: s.conf.P2pNode.Name,
+			}
+			_ = s.SendAuthRequest(ctx, peerID, authPeer)
+		}
+
+		knownPeer, _ := s.conf.GetPeer(peerID.String())
+		_ = s.ExchangeNewStatusInfo(ctx, peerID, knownPeer)
+	}()
 }
 
 func (s *AuthStatus) ExchangeStatusInfoWithAllKnownPeers(ctx context.Context) {

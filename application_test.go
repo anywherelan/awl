@@ -136,6 +136,42 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	a.True(blockedPeerExists)
 }
 
+func TestAutoAcceptFriendRequest(t *testing.T) {
+	a := require.New(t)
+	closeBootstrapNode := initBootstrapNode(t)
+	defer closeBootstrapNode()
+
+	peer1 := newTestPeer(t, false)
+	defer peer1.Close()
+	peer2 := newTestPeer(t, false)
+	defer peer2.Close()
+	ensurePeersAvailableInDHT(a, peer1, peer2)
+
+	peer2.app.Conf.Lock()
+	peer2.app.Conf.P2pNode.AutoAcceptAuthRequests = true
+	peer2.app.Conf.Unlock()
+
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "")
+	a.NoError(err)
+
+	a.Eventually(func() bool {
+		knownPeers, err := peer2.api.KnownPeers()
+		a.NoError(err)
+		return len(knownPeers) == 1
+	}, 15*time.Second, 50*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+
+	knownPeer, exists := peer1.app.Conf.GetPeer(peer2.PeerID())
+	a.True(exists)
+	a.True(knownPeer.Confirmed)
+	a.False(knownPeer.Declined)
+
+	knownPeer, exists = peer2.app.Conf.GetPeer(peer1.PeerID())
+	a.True(exists)
+	a.True(knownPeer.Confirmed)
+	a.False(knownPeer.Declined)
+}
+
 func BenchmarkTunnelPackets(b *testing.B) {
 	a := require.New(b)
 	closeBootstrapNode := initBootstrapNode(b)

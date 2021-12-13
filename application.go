@@ -116,6 +116,10 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	p2pHost.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
 	p2pHost.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
 
+	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
+		a.Tunnel.RefreshPeersList()
+	}, a.Eventbus, new(awlevent.KnownPeerChanged))
+
 	handler := api.NewHandler(a.Conf, a.P2p, a.AuthStatus, a.Tunnel, a.LogBuffer, a.Dns)
 	a.Api = handler
 	err = handler.SetupAPI()

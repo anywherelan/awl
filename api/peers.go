@@ -3,12 +3,10 @@ package api
 import (
 	"net/http"
 	"sort"
-	"time"
 
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
-	"github.com/anywherelan/awl/protocol"
 	"github.com/labstack/echo/v4"
 	"github.com/libp2p/go-libp2p-core/peer"
 )
@@ -20,9 +18,8 @@ import (
 // @Success 200 {array} entity.KnownPeersResponse
 // @Router /peers/get_known [GET]
 func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
-	result := make([]entity.KnownPeersResponse, 0, len(h.conf.KnownPeers))
-
 	h.conf.RLock()
+	result := make([]entity.KnownPeersResponse, 0, len(h.conf.KnownPeers))
 	peers := make([]string, 0, len(h.conf.KnownPeers))
 	for peerID := range h.conf.KnownPeers {
 		peers = append(peers, peerID)
@@ -157,32 +154,7 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage("Peer has already been added"))
 	}
 
-	h.conf.RLock()
-	ipAddr := h.conf.GenerateNextIpAddr()
-	h.conf.RUnlock()
-	newPeerConfig := config.KnownPeer{
-		PeerID:    req.PeerID,
-		Name:      "",
-		Alias:     req.Alias,
-		IPAddr:    ipAddr,
-		Confirmed: false,
-		CreatedAt: time.Now(),
-	}
-	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
-	h.conf.RemoveBlockedPeer(req.PeerID)
-	h.conf.UpsertPeer(newPeerConfig)
-	h.p2p.ProtectPeer(peerId)
-	h.tunnel.RefreshPeersList()
-
-	go func() {
-		authPeer := protocol.AuthPeer{
-			Name: h.conf.P2pNode.Name,
-		}
-		_ = h.authStatus.SendAuthRequest(h.ctx, peerId, authPeer)
-
-		knownPeer, _ := h.conf.GetPeer(req.PeerID)
-		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerId, knownPeer)
-	}()
+	h.authStatus.AddPeer(h.ctx, peerId, "", req.Alias, false)
 
 	return c.NoContent(http.StatusOK)
 }
@@ -232,26 +204,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 		return c.NoContent(http.StatusOK)
 	}
 
-	h.conf.RLock()
-	ipAddr := h.conf.GenerateNextIpAddr()
-	h.conf.RUnlock()
-	newPeerConfig := config.KnownPeer{
-		PeerID:    req.PeerID,
-		Name:      auth.Name,
-		Alias:     req.Alias,
-		IPAddr:    ipAddr,
-		Confirmed: true,
-		CreatedAt: time.Now(),
-	}
-	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
-	h.conf.RemoveBlockedPeer(req.PeerID)
-	h.conf.UpsertPeer(newPeerConfig)
-	h.p2p.ProtectPeer(peerId)
-	h.tunnel.RefreshPeersList()
-
-	go func() {
-		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerId, newPeerConfig)
-	}()
+	h.authStatus.AddPeer(h.ctx, peerId, auth.Name, req.Alias, true)
 
 	return c.NoContent(http.StatusOK)
 }
@@ -304,7 +257,6 @@ func (h *Handler) RemovePeer(c echo.Context) (err error) {
 	}
 
 	h.p2p.UnprotectPeer(peerId)
-	h.tunnel.RefreshPeersList()
 	h.authStatus.BlockPeer(peerId, knownPeer.DisplayName())
 
 	return c.NoContent(http.StatusOK)
