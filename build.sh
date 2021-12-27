@@ -96,8 +96,8 @@ build-web() {
   cp -r "$awlflutterdir/build/web" "$awldir/static"
 }
 
-# build mobile library
-build-mobile-lib() {
+# build android library
+build-android-lib() {
   cd "$awldir/cmd/gomobile-lib"
   go get -d golang.org/x/mobile/cmd/gomobile
   gomobile bind -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
@@ -107,17 +107,17 @@ build-mobile-lib() {
   mv anywherelan.aar "$awlflutterdir/android/app/src/main/libs/"
 }
 
-# build for android, require mobile lib
-build-mobile-apk() {
+# build for android, require android lib
+build-android-apk() {
   cd "$awlflutterdir"
   flutter build apk --release
   mv "$awlflutterdir/build/app/outputs/flutter-apk/app-release.apk" "$builddir/awl-android-$VERSION.apk"
 }
 
 # build for android
-build-mobile() {
-  build-mobile-lib
-  build-mobile-apk
+build-android() {
+  build-android-lib
+  build-android-apk
 }
 
 # build server version
@@ -187,17 +187,17 @@ release)
   clean
   download-wintun true
   build-web
-  build-mobile
+  build-android
   build-desktop-cross
   ;;
 web)
   build-web
   ;;
-mobile-lib)
-  build-mobile-lib
+android-lib)
+  build-android-lib
   ;;
-mobile)
-  build-mobile
+android)
+  build-android
   ;;
 awl-tray)
   download-wintun
