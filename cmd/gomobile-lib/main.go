@@ -11,44 +11,41 @@ import (
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/vpn"
-	"github.com/ipfs/go-log/v2"
 )
 
 var (
-	app           *awl.Application
-	logger        *log.ZapEventLogger
+	globalApp     *awl.Application
 	globalDataDir string
 )
 
-// All public functions are part of a library
+// All public functions are part of the library
 
 func InitServer(dataDir string, tunFD int32) error {
 	globalDataDir = dataDir
 	_ = os.Setenv(config.AppDataDirEnvKey, dataDir)
 	_ = os.Setenv(vpn.TunFDEnvKey, strconv.Itoa(int(tunFD)))
 
-	app = awl.New()
-	logger = app.SetupLoggerAndConfig()
-	//ctx, ctxCancel := context.WithCancel(context.Background())
-	ctx := context.Background()
-
-	err := app.Init(ctx, nil)
+	globalApp = awl.New()
+	globalApp.SetupLoggerAndConfig()
+	err := globalApp.Init(context.Background(), nil)
 	if err != nil {
-		app.Close()
-		app = nil
+		globalApp.Close()
+		globalApp = nil
+		return err
 	}
-	return err
+
+	return nil
 }
 
 func StopServer() {
-	if app != nil {
-		app.Close()
-		app = nil
+	if globalApp != nil {
+		globalApp.Close()
+		globalApp = nil
 	}
 }
 
 func ImportConfig(data string) error {
-	if app != nil || globalDataDir == "" {
+	if globalApp != nil || globalDataDir == "" {
 		panic("call to ImportConfig before server shutdown")
 	}
 
@@ -56,8 +53,8 @@ func ImportConfig(data string) error {
 }
 
 func GetApiAddress() string {
-	if app != nil && app.Api != nil {
-		return app.Api.Address()
+	if globalApp != nil && globalApp.Api != nil {
+		return globalApp.Api.Address()
 	}
 	return ""
 }
