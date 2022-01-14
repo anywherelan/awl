@@ -26,7 +26,6 @@ import (
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
 	"github.com/ncruces/zenity"
-	"github.com/skratchdot/open-golang/open"
 )
 
 var (
@@ -87,8 +86,7 @@ func onReady() {
 	go func() {
 		for range openBrowserMenu.ClickedCh {
 			if a := app; app != nil {
-				// TODO: doesn't work on linux under root
-				err := open.Run("http://" + a.Api.Address())
+				err := openURL("http://" + a.Api.Address())
 				if err != nil {
 					logger.Errorf("failed to open web ui: %v", err)
 				}
