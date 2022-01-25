@@ -16,7 +16,6 @@ import (
 	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
-	"github.com/ncruces/zenity"
 )
 
 var (
@@ -132,33 +131,4 @@ func subscribeToNotifications(app *awl.Application) {
 			logger.Errorf("show notification: incoming friend request: %v", notifyErr)
 		}
 	}, app.Eventbus, new(awlevent.ReceivedAuthRequest))
-}
-
-func handleErrorWithDialog(err error) {
-	if err == nil {
-		return
-	}
-	logger.Error(err)
-	dialogErr := zenity.Error(err.Error(), zenity.Title("Anywherelan error"), zenity.ErrorIcon)
-	if dialogErr != nil {
-		logger.Errorf("show dialog: error handling: %v", dialogErr)
-	}
-}
-
-func showInfoDialog(message string, options ...zenity.Option) {
-	err := zenity.Info(message, append(options, zenity.InfoIcon)...)
-	if err != nil {
-		logger.Errorf("show dialog: info: %v", err)
-	}
-}
-
-func showQuestionDialog(message string, options ...zenity.Option) bool {
-	err := zenity.Question(message, append(options, zenity.QuestionIcon)...)
-	switch {
-	case err == zenity.ErrCanceled:
-		return false
-	case err != nil:
-		logger.Errorf("show dialog: question: %v", err)
-	}
-	return true
 }

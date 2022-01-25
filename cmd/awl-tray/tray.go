@@ -16,7 +16,6 @@ import (
 	"github.com/anywherelan/awl/update"
 	"github.com/gen2brain/beeep"
 	"github.com/getlantern/systray"
-	"github.com/ncruces/zenity"
 )
 
 var (
@@ -227,7 +226,7 @@ func onClickUpdateMenu() error {
 		return fmt.Errorf("update: check for updates: %v", err)
 	}
 	if !updStatus {
-		showInfoDialog("App is already up-to-date", zenity.Title("Anywherelan app is up-to-date"), zenity.Width(250))
+		showInfoDialog("Anywherelan app is up-to-date", "App is already up-to-date")
 		return nil
 	}
 
@@ -235,9 +234,9 @@ func onClickUpdateMenu() error {
 	if app != nil {
 		serverMessage = " Server will be stopped!"
 	}
-	if !showQuestionDialog(fmt.Sprintf("New version available!\nAvailable version %s: %s.\nCurrent version %s.\n\nDo you want to continue?%s",
-		updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), config.Version, serverMessage),
-		zenity.Title("Anywherelan new version available"), zenity.OKLabel("Do Update"), zenity.Width(250)) {
+	dialogMessage := fmt.Sprintf("New version available!\nAvailable version %s: %s.\nCurrent version %s.\n\nDo you want to continue?%s",
+		updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), config.Version, serverMessage)
+	if !showQuestionDialog("Anywherelan new version available", dialogMessage, "Do Update") {
 		return nil
 	}
 	updResult, err := updService.DoUpdate()
