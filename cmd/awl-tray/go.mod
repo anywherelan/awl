@@ -3,7 +3,7 @@ module awl-tray
 go 1.17
 
 require (
-	github.com/GrigoryKrasnochub/updaterini v0.0.0-20211110192337-7f7b3499aaba
+	github.com/GrigoryKrasnochub/updaterini v0.0.0-20220125215431-d01eb0c75d50
 	github.com/Kodeworks/golang-image-ico v0.0.0-20141118225523-73f0f4cfade9
 	github.com/anywherelan/awl v0.0.0-00010101000000-000000000000
 	github.com/gen2brain/beeep v0.0.0-20210529141713-5586760f0cc1
