@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -193,6 +194,7 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 	if loadConfigErr != nil {
 		a.logger.Warnf("failed to read config file, creating new one: %v", loadConfigErr)
 	}
+	a.logger.Infof("Anywherelan %s (%s %s-%s)", config.Version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	a.logger.Infof("initialize app in %s directory", conf.DataDir())
 
 	return a.logger
