@@ -94,6 +94,11 @@ build-web() {
   cd "$awlflutterdir"
   flutter build web --release
   cp -r "$awlflutterdir/build/web" "$awldir/static"
+  cd "$awldir"
+  # at the time of flutter 2.8, canvaskit is saved in build files, but still not used in release run (using CDN instead)
+  # so we don't need extra 15 MB in our binaries
+  # see https://stackoverflow.com/q/70747972 with answer from core team
+  rm -rf static/canvaskit
 }
 
 # build android library
