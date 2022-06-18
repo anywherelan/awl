@@ -68,11 +68,11 @@ func SendAuthResponse(stream io.Writer, response AuthPeerResponse) error {
 
 func ReadUint64(stream io.Reader) (uint64, error) {
 	var data [8]byte
-	n, err := stream.Read(data[:])
+	n, err := stream.Read(data[:]) // TODO: use io.ReadFull
 	if err != nil {
 		return 0, err
 	}
-	if n != 8 {
+	if n != 8 { // TODO: было read packet size: invalid uint64 data: [0 0 0 0 0 0 0 0]. read 4 instead of 8
 		return 0, fmt.Errorf("invalid uint64 data: %v. read %d instead of 8", data, n)
 	}
 
