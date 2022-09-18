@@ -6,7 +6,6 @@ linters:
   enable:
     - asciicheck
     - bodyclose
-    - deadcode
     - dogsled
     - errcheck
     - goconst
@@ -22,12 +21,10 @@ linters:
     - prealloc
     - rowserrcheck
     - staticcheck
-    - structcheck
     - typecheck
     - unconvert
     - unparam
     - unused
-    - varcheck
     - gosec
     - misspell
     - whitespace
