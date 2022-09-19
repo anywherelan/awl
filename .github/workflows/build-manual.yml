@@ -17,13 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout awl code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref }}
           path: 'awl'
       - name: Checkout awl-flutter code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: 'anywherelan/awl-flutter'
           ref: ${{ github.event.inputs.awl_flutter_ref }}
