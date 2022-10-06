@@ -21,6 +21,8 @@ const (
 	ExportServerConfigPath = V0Prefix + "settings/export_server_config"
 
 	// Debug
-	GetP2pDebugInfoPath = V0Prefix + "debug/p2p_info"
-	GetDebugLogPath     = V0Prefix + "debug/log"
+	GetP2pDebugInfoPath          = V0Prefix + "debug/p2p_info"
+	GetDebugLogPath              = V0Prefix + "debug/log"
+	GetDebugLogNumberOfLogsParam = "logs"
+	GetDebugLogLogsFromHeadParam = "head"
 )

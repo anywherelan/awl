@@ -11,6 +11,10 @@ import (
 
 // Requests
 type (
+	LogRequest struct {
+		StartFromHead int `query:"head" validate:"numeric,min=0,max=1"`
+		LogsRows      int `query:"logs" validate:"numeric,gte=0"`
+	}
 	FriendRequest struct {
 		PeerID string `validate:"required"`
 		Alias  string

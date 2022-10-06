@@ -123,6 +123,33 @@ func (a *Application) init() {
 				},
 			},
 			{
+				Name:     "log",
+				Usage:    "Print logs (default print 10 logs from the end of logs)",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:     "head",
+						Usage:    "print logs from the beginning of logs",
+						Required: false,
+					},
+					&cli.IntFlag{
+						Name:     "n",
+						Usage:    "define number of rows of logs to output. Use 0 to print all",
+						Required: false,
+						Value:    10,
+					},
+				},
+				Before: a.initApiConnection,
+				Action: func(c *cli.Context) error {
+					logs, err := a.api.ApplicationLog(c.Int("n"), c.Bool("head"))
+					if err != nil {
+						return err
+					}
+					fmt.Println(logs)
+
+					return nil
+				},
+			},
+			{
 				Name:   "p2p_info",
 				Usage:  "Print p2p debug info",
 				Before: a.initApiConnection,

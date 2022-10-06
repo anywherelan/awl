@@ -6,6 +6,8 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	url2 "net/url"
+	"strconv"
 	"time"
 
 	"github.com/anywherelan/awl/api"
@@ -107,8 +109,16 @@ func (c *Client) P2pDebugInfo() (*entity.P2pDebugInfo, error) {
 	return debugInfo, nil
 }
 
-func (c *Client) ApplicationLog() (string, error) {
-	resp, err := c.cli.Get(c.getUrl(api.GetDebugLogPath))
+// ApplicationLog
+// send numberOfLogs = 0 to print all logs
+func (c *Client) ApplicationLog(numberOfLogs int, startFromHead bool) (string, error) {
+	qParams := make(map[string]string, 2)
+	qParams[api.GetDebugLogNumberOfLogsParam] = strconv.Itoa(numberOfLogs)
+	if startFromHead {
+		qParams[api.GetDebugLogLogsFromHeadParam] = "1"
+	}
+
+	resp, err := c.cli.Get(c.getUrl(api.GetDebugLogPath, qParams))
 	if err != nil {
 		return "", err
 	}
@@ -118,12 +128,22 @@ func (c *Client) ApplicationLog() (string, error) {
 	return string(b), err
 }
 
-func (c *Client) getUrl(methodPath string) string {
-	return "http://" + c.address + methodPath
+func (c *Client) getUrl(methodPath string, getParams map[string]string) string {
+	url := url2.URL{
+		Scheme: "http",
+		Host:   c.address,
+		Path:   methodPath,
+	}
+	q := url.Query()
+	for pName, pValue := range getParams {
+		q.Set(pName, pValue)
+	}
+	url.RawQuery = q.Encode()
+	return url.String()
 }
 
 func (c *Client) sendGetRequest(path string, responseRef interface{}) error {
-	resp, err := c.cli.Get(c.getUrl(path))
+	resp, err := c.cli.Get(c.getUrl(path, nil))
 	if err != nil {
 		return err
 	}
@@ -139,7 +159,7 @@ func (c *Client) sendPostRequest(path string, payload interface{}, responseRef i
 		return err
 	}
 
-	resp, err := c.cli.Post(c.getUrl(path), "application/json", buf)
+	resp, err := c.cli.Post(c.getUrl(path, nil), "application/json", buf)
 	if err != nil {
 		return err
 	}
