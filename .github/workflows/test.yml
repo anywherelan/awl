@@ -36,7 +36,7 @@ jobs:
       - name: Build cmd/awl
         run: go build github.com/anywherelan/awl/cmd/awl
       - name: Upload cmd/awl build
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: awl-build-${{ runner.os }}
           path: |
@@ -58,7 +58,7 @@ jobs:
         shell: bash
     steps:
       - name: Retrieve saved cmd/awl build
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: awl-build-${{ runner.os }}
       - name: Download librespeed-cli
