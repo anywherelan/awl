@@ -123,8 +123,8 @@ func (a *Application) init() {
 				},
 			},
 			{
-				Name:     "log",
-				Usage:    "Print logs (default print 10 logs from the end of logs)",
+				Name:  "log",
+				Usage: "Print logs (default print 10 logs from the end of logs)",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:     "head",
@@ -172,38 +172,115 @@ func (a *Application) init() {
 				Name:  "peers_status",
 				Usage: "Print peers status",
 				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:     "short",
-						Aliases:  []string{"s"},
+					&cli.StringFlag{
+						Name:     "format",
+						Aliases:  []string{"f"},
 						Required: false,
+						Value:    "npsdaltrcv",
+						Usage: "control table columns list and order.Each char add column, write column chars together without gap. Use these chars to add specific columns:\n   " +
+							"n - peers number\n   p - peers name\n   s - peers status\n   d - peers domain\n   a - peers ip address\n   l - peers last seen datetime\n   v - peers awl version" +
+							"\n   t - total network usage by peer (in/out)\n   r - network usage speed by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n  ",
 					},
 				},
 				Before: a.initApiConnection,
 				Action: func(c *cli.Context) error {
+					const (
+						TableFormatRowNumber  = "n"
+						TableFormatPeer       = "p"
+						TableFormatStatus     = "s"
+						TableFormatDomain     = "d"
+						TableFormatAddress    = "a"
+						TableFormatLastSeen   = "l"
+						TableFormatTotal      = "t"
+						TableFormatRate       = "r"
+						TableFormatConnection = "c"
+						TableFormatVersion    = "v"
+					)
+
+					fHeaderMap := map[string]string{
+						TableFormatRowNumber:  "№",
+						TableFormatPeer:       "peer",
+						TableFormatStatus:     "status",
+						TableFormatDomain:     "domain",
+						TableFormatAddress:    "address",
+						TableFormatLastSeen:   "last seen",
+						TableFormatTotal:      "total\nin/out, B",
+						TableFormatRate:       "rate\nin/out, B",
+						TableFormatConnection: "connections\naddress | protocol",
+						TableFormatVersion:    "version",
+					}
+
+					format := c.String("format")
+					if len(format) < 1 {
+						return fmt.Errorf("format flag is incorrect: format should contain at leest 1 char")
+					}
+
+					headers := make([]string, 0, len(format))
+					columns := make([]string, 0, len(format))
+					for _, fc := range format {
+						fcs := string(fc)
+						if _, ok := fHeaderMap[fcs]; !ok {
+							return fmt.Errorf("format flag is incorrect: unknown format flat char \"%s\"", fcs)
+						}
+						headers = append(headers, fHeaderMap[fcs])
+						columns = append(columns, fcs)
+					}
+
 					peers, err := a.api.KnownPeers()
 					if err != nil {
 						return err
 					}
 
-					if c.Bool("short") {
-						table := tablewriter.NewWriter(os.Stdout)
-						table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
-						table.SetHeader([]string{"peer", "status", "address"})
-						for _, peer := range peers {
-							status := "disconnected"
-							if peer.Connected {
-								status = "connected"
+					table := tablewriter.NewWriter(os.Stdout)
+					table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
+					table.SetHeader(headers)
+					for i, peer := range peers {
+						row := make([]string, 0, len(columns))
+						for _, col := range columns {
+							switch col {
+							case TableFormatRowNumber:
+								row = append(row, strconv.Itoa(i+1))
+							case TableFormatPeer:
+								row = append(row, peer.Name)
+							case TableFormatStatus:
+								status := "disconnected"
+								if peer.Connected {
+									status = "connected"
+								}
+								if !peer.Confirmed {
+									status += ", not confirmed"
+								}
+								row = append(row, status)
+							case TableFormatDomain:
+								row = append(row, peer.DomainName)
+							case TableFormatAddress:
+								row = append(row, peer.IpAddr)
+							case TableFormatLastSeen:
+								row = append(row, peer.LastSeen.Format("2006-01-02 15:04:05"))
+							case TableFormatTotal:
+								row = append(row,
+									fmt.Sprintf("%d/%d", peer.NetworkStats.TotalIn, peer.NetworkStats.TotalOut))
+							case TableFormatRate:
+								row = append(row,
+									fmt.Sprintf("%.2f/%.2f", peer.NetworkStats.RateIn, peer.NetworkStats.RateOut))
+							case TableFormatConnection:
+								consStr := make([]string, 0, len(peer.Connections))
+								for ci, con := range peer.Connections {
+									if con.ThroughRelay {
+										consStr = append(consStr, fmt.Sprintf("%d) through relay", ci+1))
+										continue
+									}
+									consStr = append(consStr, fmt.Sprintf("%d) %s | %s", ci+1, con.Address, con.Protocol))
+								}
+								row = append(row, strings.Join(consStr, "\n"))
+							case TableFormatVersion:
+								row = append(row, peer.Version)
 							}
-							if !peer.Confirmed {
-								status += ", not confirmed"
-							}
-							table.Append([]string{peer.Name, status, peer.IpAddr})
 						}
-						table.Render()
-						return nil
+						table.Append(row)
 					}
-
-					return errors.New("print full info is not implemented, use flag --short instead")
+					table.Render()
+					return nil
 				},
 			},
 			{
