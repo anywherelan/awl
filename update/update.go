@@ -59,7 +59,7 @@ func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType Appl
 		channels = append(channels, updaterini.NewChannel(c.Update.LowestPriorityChan, true))
 	}
 
-	filenamesRegex := make([]*regexp.Regexp, 1, 1)
+	filenamesRegex := make([]*regexp.Regexp, 1)
 	switch appType {
 	case AppTypeAwl:
 		filenamesRegex[0] = awlFilenamesRegex

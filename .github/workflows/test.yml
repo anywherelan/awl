@@ -10,18 +10,13 @@ jobs:
         os: [ ubuntu-latest, windows-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: 1.17.x
-      - name: Checkout code
-        uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          cache: true
       - name: Create stub static/
         run: mkdir static && touch static/index.html
       - name: Check deps
@@ -41,7 +36,7 @@ jobs:
       - name: Build cmd/awl
         run: go build github.com/anywherelan/awl/cmd/awl
       - name: Upload cmd/awl build
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: awl-build-${{ runner.os }}
           path: |
@@ -63,7 +58,7 @@ jobs:
         shell: bash
     steps:
       - name: Retrieve saved cmd/awl build
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: awl-build-${{ runner.os }}
       - name: Download librespeed-cli
