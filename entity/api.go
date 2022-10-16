@@ -41,7 +41,9 @@ type (
 type (
 	KnownPeersResponse struct {
 		PeerID       string
-		Name         string
+		Name         string // Deprecated: use DisplayName instead
+		DisplayName  string
+		Alias        string
 		Version      string
 		IpAddr       string
 		DomainName   string

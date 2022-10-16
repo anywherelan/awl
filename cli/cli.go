@@ -16,7 +16,6 @@ import (
 	"github.com/anywherelan/awl/update"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
-	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli/v2"
 )
 
@@ -65,66 +64,106 @@ func (a *Application) init() {
 		},
 		Commands: []*cli.Command{
 			{
-				Name:  "add_peer",
-				Usage: "Invite peer or accept existing invitation from this peer",
+				Name:  "peers",
+				Usage: "group of functions to work with peers. Use for check friend requests and peers status",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "status",
+						Usage: "print peers status",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "format",
+								Aliases:  []string{"f"},
+								Required: false,
+								Value:    "npisdaltrcv",
+								Usage: "control table columns list and order.Each char add column, write column chars together without gap. Use these chars to add specific columns:\n   " +
+									"n - peers number\n   p - peers name\n   i - peers id\n   s - peers status\n   d - peers domain\n   a - peers ip address\n   l - peers last seen datetime\n   v - peers awl version" +
+									"\n   t - total network usage by peer (in/out)\n   r - network usage speed by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n  ",
+							},
+						},
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printPeersStatus(a.api, c.String("format"))
+						},
+					},
+					{
+						Name:   "requests",
+						Usage:  "print all incoming friend requests",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printFriendRequests(a.api)
+						},
+					},
+				},
+			},
+			{
+				Name:  "peer",
+				Usage: "group of commands to work with peer (one of the flags is required)",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
-						Name:     "peer_id",
-						Required: true,
+						Name:     "pid",
+						Usage:    "peer id",
+						Required: false,
 					},
 					&cli.StringFlag{
 						Name:     "alias",
 						Required: false,
 					},
 				},
-				Before: a.initApiConnection,
-				Action: func(c *cli.Context) error {
-					peerID := c.String("peer_id")
-					alias := c.String("alias")
-
-					authRequests, err := a.api.AuthRequests()
+				Before: func(c *cli.Context) error {
+					err := a.initApiConnection(c)
 					if err != nil {
 						return err
 					}
-					hasRequest := false
-					for _, req := range authRequests {
-						if req.PeerID == peerID {
-							hasRequest = true
-							break
-						}
-					}
-					if hasRequest {
-						err := a.api.ReplyFriendRequest(peerID, alias, false)
-						return err
-					}
 
-					err = a.api.SendFriendRequest(peerID, alias)
-					return err
-				},
-			},
-			{
-				Name:   "auth_requests",
-				Usage:  "Print all incoming friend requests",
-				Before: a.initApiConnection,
-				Action: func(*cli.Context) error {
-					authRequests, err := a.api.AuthRequests()
-					if err != nil {
-						return err
-					}
-					if len(authRequests) == 0 {
-						fmt.Println("has no requests")
+					pid := c.String("pid")
+					if pid != "" {
 						return nil
 					}
-					for _, req := range authRequests {
-						fmt.Printf("Name: '%s' peerID: %s\n", req.Name, req.PeerID)
+					alias := c.String("alias")
+					if alias == "" {
+						return fmt.Errorf("peerID or alias should be defined")
 					}
 
-					return nil
+					pid, err = getPeerIdByAlias(a.api, alias)
+					if err != nil {
+						return err
+					}
+					return c.Set("pid", pid)
+				},
+				Subcommands: []*cli.Command{
+					{
+						Name:  "add",
+						Usage: "invite peer or accept existing invitation from this peer",
+						Action: func(c *cli.Context) error {
+							return addPeer(a.api, c.String("pid"), c.String("alias"))
+						},
+					},
+					{
+						Name:  "remove",
+						Usage: "remove peer from friend list",
+						Action: func(c *cli.Context) error {
+							return removePeer(a.api, c.String("pid"))
+						},
+					},
+					{
+						Name:  "ch_alias",
+						Usage: "change known peer alias",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "alias",
+								Required: true,
+							},
+						},
+						Action: func(c *cli.Context) error {
+							return changePeerAlias(a.api, c.String("pid"), c.String("alias"))
+						},
+					},
 				},
 			},
 			{
 				Name:  "log",
-				Usage: "Print logs (default print 10 logs from the end of logs)",
+				Usage: "print logs (default print 10 logs from the end of logs)",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:     "head",
@@ -165,121 +204,6 @@ func (a *Application) init() {
 					}
 					fmt.Println(string(bytes))
 
-					return nil
-				},
-			},
-			{
-				Name:  "peers_status",
-				Usage: "Print peers status",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "format",
-						Aliases:  []string{"f"},
-						Required: false,
-						Value:    "npsdaltrcv",
-						Usage: "control table columns list and order.Each char add column, write column chars together without gap. Use these chars to add specific columns:\n   " +
-							"n - peers number\n   p - peers name\n   s - peers status\n   d - peers domain\n   a - peers ip address\n   l - peers last seen datetime\n   v - peers awl version" +
-							"\n   t - total network usage by peer (in/out)\n   r - network usage speed by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n  ",
-					},
-				},
-				Before: a.initApiConnection,
-				Action: func(c *cli.Context) error {
-					const (
-						TableFormatRowNumber  = "n"
-						TableFormatPeer       = "p"
-						TableFormatStatus     = "s"
-						TableFormatDomain     = "d"
-						TableFormatAddress    = "a"
-						TableFormatLastSeen   = "l"
-						TableFormatTotal      = "t"
-						TableFormatRate       = "r"
-						TableFormatConnection = "c"
-						TableFormatVersion    = "v"
-					)
-
-					fHeaderMap := map[string]string{
-						TableFormatRowNumber:  "№",
-						TableFormatPeer:       "peer",
-						TableFormatStatus:     "status",
-						TableFormatDomain:     "domain",
-						TableFormatAddress:    "address",
-						TableFormatLastSeen:   "last seen",
-						TableFormatTotal:      "total\nin/out, B",
-						TableFormatRate:       "rate\nin/out, B",
-						TableFormatConnection: "connections\naddress | protocol",
-						TableFormatVersion:    "version",
-					}
-
-					format := c.String("format")
-					if len(format) < 1 {
-						return fmt.Errorf("format flag is incorrect: format should contain at leest 1 char")
-					}
-
-					headers := make([]string, 0, len(format))
-					columns := make([]string, 0, len(format))
-					for _, fc := range format {
-						fcs := string(fc)
-						if _, ok := fHeaderMap[fcs]; !ok {
-							return fmt.Errorf("format flag is incorrect: unknown format flat char \"%s\"", fcs)
-						}
-						headers = append(headers, fHeaderMap[fcs])
-						columns = append(columns, fcs)
-					}
-
-					peers, err := a.api.KnownPeers()
-					if err != nil {
-						return err
-					}
-
-					table := tablewriter.NewWriter(os.Stdout)
-					table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
-					table.SetHeader(headers)
-					for i, peer := range peers {
-						row := make([]string, 0, len(columns))
-						for _, col := range columns {
-							switch col {
-							case TableFormatRowNumber:
-								row = append(row, strconv.Itoa(i+1))
-							case TableFormatPeer:
-								row = append(row, peer.Name)
-							case TableFormatStatus:
-								status := "disconnected"
-								if peer.Connected {
-									status = "connected"
-								}
-								if !peer.Confirmed {
-									status += ", not confirmed"
-								}
-								row = append(row, status)
-							case TableFormatDomain:
-								row = append(row, peer.DomainName)
-							case TableFormatAddress:
-								row = append(row, peer.IpAddr)
-							case TableFormatLastSeen:
-								row = append(row, peer.LastSeen.Format("2006-01-02 15:04:05"))
-							case TableFormatTotal:
-								row = append(row,
-									fmt.Sprintf("%d/%d", peer.NetworkStats.TotalIn, peer.NetworkStats.TotalOut))
-							case TableFormatRate:
-								row = append(row,
-									fmt.Sprintf("%.2f/%.2f", peer.NetworkStats.RateIn, peer.NetworkStats.RateOut))
-							case TableFormatConnection:
-								consStr := make([]string, 0, len(peer.Connections))
-								for ci, con := range peer.Connections {
-									if con.ThroughRelay {
-										consStr = append(consStr, fmt.Sprintf("%d) through relay", ci+1))
-										continue
-									}
-									consStr = append(consStr, fmt.Sprintf("%d) %s | %s", ci+1, con.Address, con.Protocol))
-								}
-								row = append(row, strings.Join(consStr, "\n"))
-							case TableFormatVersion:
-								row = append(row, peer.Version)
-							}
-						}
-						table.Append(row)
-					}
-					table.Render()
 					return nil
 				},
 			},

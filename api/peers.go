@@ -34,6 +34,8 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 		kpr := entity.KnownPeersResponse{
 			PeerID:       peerID,
 			Name:         knownPeer.DisplayName(),
+			DisplayName:  knownPeer.DisplayName(),
+			Alias:        knownPeer.Alias,
 			Version:      config.VersionFromUserAgent(h.p2p.PeerUserAgent(id)),
 			IpAddr:       knownPeer.IPAddr,
 			DomainName:   knownPeer.DomainName,
