@@ -88,7 +88,7 @@ jobs:
           sudo ./awl &
           awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
           sleep 5
-          ./awl cli peers_status --short
+          ./awl cli peers status
 
           ./librespeed-cli --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
           sleep 1
@@ -103,7 +103,7 @@ jobs:
           ./awl.exe &
           awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
           sleep 5
-          ./awl.exe cli peers_status --short
+          ./awl.exe cli peers status
           ./librespeed-cli.exe --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
 
           sleep 1
