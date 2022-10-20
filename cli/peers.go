@@ -94,6 +94,10 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 			case TableFormatAddress:
 				row = append(row, peer.IpAddr)
 			case TableFormatLastSeen:
+				if peer.LastSeen.IsZero() {
+					row = append(row, "never")
+					break
+				}
 				row = append(row, peer.LastSeen.Format("2006-01-02 15:04:05"))
 			case TableFormatTotal:
 				row = append(row,

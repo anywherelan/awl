@@ -23,6 +23,7 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 		Uptime:                  h.p2p.Uptime(),
 		ServerVersion:           config.Version,
 		NetworkStats:            h.p2p.NetworkStats(),
+		NetworkStatsInUnits:     h.p2p.NetworkStatsInUnits(),
 		TotalBootstrapPeers:     totalBootstraps,
 		ConnectedBootstrapPeers: connectedBootstraps,
 		Reachability:            h.p2p.Reachability().String(),

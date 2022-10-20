@@ -64,6 +64,28 @@ func (a *Application) init() {
 		},
 		Commands: []*cli.Command{
 			{
+				Name:  "me",
+				Usage: "group of functions to work with your stats and settings",
+				Subcommands: []*cli.Command{
+					{
+						Name:   "stats",
+						Usage:  "print your stats",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printStatus(a.api)
+						},
+					},
+					{
+						Name:   "id",
+						Usage:  "print yours peer id",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printPeerId(a.api)
+						},
+					},
+				},
+			},
+			{
 				Name:  "peers",
 				Usage: "group of functions to work with peers. Use for check friend requests and peers status",
 				Subcommands: []*cli.Command{
@@ -75,7 +97,7 @@ func (a *Application) init() {
 								Name:     "format",
 								Aliases:  []string{"f"},
 								Required: false,
-								Value:    "npisdaltrcv",
+								Value:    "npsdaltrcv",
 								Usage: "control table columns list and order.Each char add column, write column chars together without gap. Use these chars to add specific columns:\n   " +
 									"n - peers number\n   p - peers name\n   i - peers id\n   s - peers status\n   d - peers domain\n   a - peers ip address\n   l - peers last seen datetime\n   v - peers awl version" +
 									"\n   t - total network usage by peer (in/out)\n   r - network usage speed by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n  ",

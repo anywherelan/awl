@@ -61,6 +61,7 @@ type (
 		Uptime                  time.Duration `swaggertype:"primitive,integer"`
 		ServerVersion           string
 		NetworkStats            metrics.Stats
+		NetworkStatsInUnits     p2p.StatsInUnits
 		TotalBootstrapPeers     int
 		ConnectedBootstrapPeers int
 		Reachability            string `enums:"Unknown,Public,Private"`

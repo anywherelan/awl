@@ -210,6 +210,8 @@ definitions:
     type: object
   entity.KnownPeersResponse:
     properties:
+      alias:
+        type: string
       confirmed:
         type: boolean
       connected:
@@ -220,6 +222,8 @@ definitions:
         type: array
       declined:
         type: boolean
+      displayName:
+        type: string
       domainName:
         type: string
       ipAddr:
@@ -227,6 +231,7 @@ definitions:
       lastSeen:
         type: string
       name:
+        description: 'Deprecated: use DisplayName instead'
         type: string
       networkStats:
         $ref: '#/definitions/metrics.Stats'
@@ -265,6 +270,8 @@ definitions:
         type: string
       networkStats:
         $ref: '#/definitions/metrics.Stats'
+      networkStatsInUnits:
+        $ref: '#/definitions/p2p.StatsInUnits'
       peerID:
         type: string
       reachability:
@@ -353,6 +360,17 @@ definitions:
       transient:
         type: boolean
     type: object
+  p2p.StatsInUnits:
+    properties:
+      rateIn:
+        type: string
+      rateOut:
+        type: string
+      totalIn:
+        type: string
+      totalOut:
+        type: string
+    type: object
 host: localhost:8639
 info:
   contact: {}
@@ -363,11 +381,12 @@ paths:
   /debug/log:
     get:
       parameters:
-      - description: Define number of rows of logs to output. On default prints all.
+      - description: Define number of rows of logs to output. On default and 0 prints
+          all.
         in: query
         name: logs
         type: integer
-      - description: Print logs from the beginning
+      - description: Print logs from the beginning of logs
         in: query
         name: head
         type: integer

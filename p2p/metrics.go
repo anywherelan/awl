@@ -1,7 +1,10 @@
 package p2p
 
 import (
+	"fmt"
+	"math"
 	"net"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -149,6 +152,17 @@ func (p *P2p) NetworkStatsForPeer(peerID peer.ID) metrics.Stats {
 	return p.bandwidthCounter.GetBandwidthForPeer(peerID)
 }
 
+type StatsInUnits struct {
+	TotalIn  string
+	TotalOut string
+	RateIn   string
+	RateOut  string
+}
+
+func (p *P2p) NetworkStatsInUnits() StatsInUnits {
+	return convertStatsToStatsInUnits(p.bandwidthCounter.GetBandwidthTotals())
+}
+
 // BootstrapPeersStats returns total peers count and connected count.
 func (p *P2p) BootstrapPeersStats() (int, int) {
 	connected := 0
@@ -186,4 +200,46 @@ func parseMultiaddrToInfo(addr multiaddr.Multiaddr) (ConnectionInfo, bool) {
 		return info, false
 	}
 	return info, true
+}
+
+func convertStatsToStatsInUnits(stats metrics.Stats) StatsInUnits {
+	return StatsInUnits{
+		TotalIn:  convertBytesToUnits(float64(stats.TotalIn), convertToIECUnits),
+		TotalOut: convertBytesToUnits(float64(stats.TotalOut), convertToIECUnits),
+		RateIn:   convertBytesToUnits(stats.RateIn, convertToSIUnits) + "/s",
+		RateOut:  convertBytesToUnits(stats.RateOut, convertToSIUnits) + "/s",
+	}
+}
+
+const (
+	convertToSIUnits = iota
+	convertToIECUnits
+)
+
+func convertBytesToUnits(bytesSize float64, convertType int) string {
+	const unit = float64(1024)
+	SIUnits := [8]string{
+		"",
+		"K",
+		"M",
+		"T",
+		"P",
+		"E",
+		"Z",
+		"Y",
+	}
+
+	label := 0
+	for label < len(SIUnits) && bytesSize >= unit {
+		bytesSize /= unit
+		label++
+	}
+
+	bytesSize = math.Round(bytesSize*100) / 100
+	bFormatted := strconv.FormatFloat(bytesSize, 'f', -1, 64)
+	postfix := "B"
+	if convertType == convertToIECUnits {
+		postfix = "iB"
+	}
+	return fmt.Sprintf("%s %s%s", bFormatted, SIUnits[label], postfix)
 }
