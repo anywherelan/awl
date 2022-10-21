@@ -134,7 +134,7 @@ func printFriendRequests(api *apiclient.Client) error {
 		return err
 	}
 	if len(authRequests) == 0 {
-		fmt.Println("has no requests")
+		fmt.Println("you have no incoming requests")
 		return nil
 	}
 	for _, req := range authRequests {

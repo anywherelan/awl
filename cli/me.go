@@ -42,6 +42,6 @@ func printPeerId(api *apiclient.Client) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("your peer id: %s", stats.PeerID)
+	fmt.Printf("your peer id: %s\n", stats.PeerID)
 	return nil
 }

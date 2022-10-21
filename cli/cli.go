@@ -77,7 +77,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:   "id",
-						Usage:  "print yours peer id",
+						Usage:  "print your peer id",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printPeerId(a.api)
