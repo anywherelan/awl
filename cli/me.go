@@ -23,8 +23,8 @@ func printStatus(api *apiclient.Client) error {
 
 	table := tablewriter.NewWriter(os.Stdout)
 	table.AppendBulk([][]string{
-		{"Download rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInUnits.RateIn, stats.NetworkStatsInUnits.TotalIn)},
-		{"Upload rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInUnits.RateOut, stats.NetworkStatsInUnits.TotalOut)},
+		{"Download rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateIn, stats.NetworkStatsInIECUnits.TotalIn)},
+		{"Upload rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateOut, stats.NetworkStatsInIECUnits.TotalOut)},
 		{"Bootstrap peers", fmt.Sprintf("%d/%d", stats.TotalBootstrapPeers, stats.ConnectedBootstrapPeers)},
 		{"DNS", dnsStatus},
 		{"Reachability", strings.ToLower(stats.Reachability)},

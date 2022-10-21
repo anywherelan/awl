@@ -31,20 +31,22 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 		knownPeer, _ := h.conf.GetPeer(peerID)
 
 		id := knownPeer.PeerId()
+		netStats := h.p2p.NetworkStatsForPeer(id)
 		kpr := entity.KnownPeersResponse{
-			PeerID:       peerID,
-			Name:         knownPeer.DisplayName(),
-			DisplayName:  knownPeer.DisplayName(),
-			Alias:        knownPeer.Alias,
-			Version:      config.VersionFromUserAgent(h.p2p.PeerUserAgent(id)),
-			IpAddr:       knownPeer.IPAddr,
-			DomainName:   knownPeer.DomainName,
-			Connected:    h.p2p.IsConnected(id),
-			Confirmed:    knownPeer.Confirmed,
-			Declined:     knownPeer.Declined,
-			LastSeen:     knownPeer.LastSeen,
-			Connections:  h.p2p.PeerConnectionsInfo(id),
-			NetworkStats: h.p2p.NetworkStatsForPeer(id),
+			PeerID:                 peerID,
+			Name:                   knownPeer.DisplayName(),
+			DisplayName:            knownPeer.DisplayName(),
+			Alias:                  knownPeer.Alias,
+			Version:                config.VersionFromUserAgent(h.p2p.PeerUserAgent(id)),
+			IpAddr:                 knownPeer.IPAddr,
+			DomainName:             knownPeer.DomainName,
+			Connected:              h.p2p.IsConnected(id),
+			Confirmed:              knownPeer.Confirmed,
+			Declined:               knownPeer.Declined,
+			LastSeen:               knownPeer.LastSeen,
+			Connections:            h.p2p.PeerConnectionsInfo(id),
+			NetworkStats:           netStats,
+			NetworkStatsInIECUnits: getStatsInIECUnits(netStats),
 		}
 		result = append(result, kpr)
 	}

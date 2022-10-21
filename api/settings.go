@@ -16,14 +16,15 @@ import (
 // @Router /settings/peer_info [GET]
 func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 	totalBootstraps, connectedBootstraps := h.p2p.BootstrapPeersStats()
+	netStats := h.p2p.NetworkStats()
 
 	peerInfo := entity.PeerInfo{
 		PeerID:                  h.conf.P2pNode.PeerID,
 		Name:                    h.conf.P2pNode.Name,
 		Uptime:                  h.p2p.Uptime(),
 		ServerVersion:           config.Version,
-		NetworkStats:            h.p2p.NetworkStats(),
-		NetworkStatsInUnits:     h.p2p.NetworkStatsInUnits(),
+		NetworkStats:            netStats,
+		NetworkStatsInIECUnits:  getStatsInIECUnits(netStats),
 		TotalBootstrapPeers:     totalBootstraps,
 		ConnectedBootstrapPeers: connectedBootstraps,
 		Reachability:            h.p2p.Reachability().String(),

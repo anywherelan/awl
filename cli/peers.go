@@ -101,10 +101,13 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 				row = append(row, peer.LastSeen.Format("2006-01-02 15:04:05"))
 			case TableFormatTotal:
 				row = append(row,
-					fmt.Sprintf("%d/%d", peer.NetworkStats.TotalIn, peer.NetworkStats.TotalOut))
-			case TableFormatRate:
-				row = append(row,
-					fmt.Sprintf("%.2f/%.2f", peer.NetworkStats.RateIn, peer.NetworkStats.RateOut))
+					fmt.Sprintf("↓ %s (%s)\n↑ %s (%s)",
+						peer.NetworkStatsInIECUnits.RateIn,
+						peer.NetworkStatsInIECUnits.TotalIn,
+						peer.NetworkStatsInIECUnits.RateOut,
+						peer.NetworkStatsInIECUnits.TotalOut,
+					),
+				)
 			case TableFormatConnection:
 				consStr := make([]string, 0, len(peer.Connections))
 				for ci, con := range peer.Connections {

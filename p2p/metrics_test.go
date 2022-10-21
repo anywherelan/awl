@@ -74,33 +74,3 @@ func mustNewMultiaddr(addrStr string) ma.Multiaddr {
 	}
 	return multiaddr
 }
-
-func Test_convertBytesToUnits(t *testing.T) {
-	tCases := []struct {
-		input  float64
-		output string
-	}{
-		{
-			input:  1023,
-			output: "1023 B",
-		},
-		{
-			input:  1024,
-			output: "1 KB",
-		},
-		{
-			input:  1148,
-			output: "1.12 KB",
-		},
-		{
-			input:  1153434,
-			output: "1.1 MB",
-		},
-	}
-
-	for _, tCase := range tCases {
-		if result := convertBytesToUnits(tCase.input, convertToSIUnits); result != tCase.output {
-			t.Errorf("convertBytesToUnits() got = %s, want %s", result, tCase.output)
-		}
-	}
-}

@@ -18,26 +18,49 @@ definitions:
     type: object
   config.Config:
     properties:
-      blockedPeers:
-        additionalProperties:
-          $ref: '#/definitions/config.BlockedPeer'
+      bucketSize:
+        type: integer
+      concurrency:
+        type: integer
+      datastore: {}
+      disableFixLowPeers:
+        description: test specific Config options
+        type: boolean
+      enableProviders:
+        type: boolean
+      enableValues:
+        type: boolean
+      maxRecordAge:
+        type: integer
+      mode:
+        type: integer
+      protocolPrefix:
+        type: string
+      resiliency:
+        type: integer
+      routingTable:
+        properties:
+          autoRefresh:
+            type: boolean
+          checkInterval:
+            type: integer
+          diversityFilter: {}
+          latencyTolerance:
+            type: integer
+          refreshInterval:
+            type: integer
+          refreshQueryTimeout:
+            type: integer
         type: object
-      httpListenAddress:
+      testAddressUpdateProcessing:
+        type: boolean
+      v1ProtocolOverride:
         type: string
-      knownPeers:
-        additionalProperties:
-          $ref: '#/definitions/config.KnownPeer'
-        type: object
-      loggerLevel:
-        type: string
-      p2pNode:
-        $ref: '#/definitions/config.P2pNodeConfig'
-      update:
-        $ref: '#/definitions/config.UpdateConfig'
-      version:
-        type: string
-      vpn:
-        $ref: '#/definitions/config.VPNConfig'
+      validator: {}
+      validatorChanged:
+        description: if true implies that the validator has been changed and that
+          Defaults should not be used
+        type: boolean
     type: object
   config.KnownPeer:
     properties:
@@ -67,47 +90,6 @@ definitions:
         type: string
       peerId:
         description: Hex-encoded multihash representing a peer ID
-        type: string
-    type: object
-  config.P2pNodeConfig:
-    properties:
-      autoAcceptAuthRequests:
-        type: boolean
-      bootstrapPeers:
-        items:
-          type: string
-        type: array
-      identity:
-        type: string
-      listenAddresses:
-        items:
-          type: string
-        type: array
-      name:
-        type: string
-      peerId:
-        description: Hex-encoded multihash representing a peer ID, calculated from
-          Identity
-        type: string
-      reconnectionIntervalSec:
-        type: integer
-    type: object
-  config.UpdateConfig:
-    properties:
-      lowestPriorityChan:
-        type: string
-      trayAutoCheckEnabled:
-        type: boolean
-      trayAutoCheckInterval:
-        type: string
-      updateServerURL:
-        type: string
-    type: object
-  config.VPNConfig:
-    properties:
-      interfaceName:
-        type: string
-      ipNet:
         type: string
     type: object
   entity.AuthRequest:
@@ -235,6 +217,8 @@ definitions:
         type: string
       networkStats:
         $ref: '#/definitions/metrics.Stats'
+      networkStatsInIECUnits:
+        $ref: '#/definitions/entity.StatsInUnits'
       peerID:
         type: string
       version:
@@ -270,8 +254,8 @@ definitions:
         type: string
       networkStats:
         $ref: '#/definitions/metrics.Stats'
-      networkStatsInUnits:
-        $ref: '#/definitions/p2p.StatsInUnits'
+      networkStatsInIECUnits:
+        $ref: '#/definitions/entity.StatsInUnits'
       peerID:
         type: string
       reachability:
@@ -286,6 +270,17 @@ definitions:
         type: integer
       uptime:
         type: integer
+    type: object
+  entity.StatsInUnits:
+    properties:
+      rateIn:
+        type: string
+      rateOut:
+        type: string
+      totalIn:
+        type: string
+      totalOut:
+        type: string
     type: object
   entity.UpdateMySettingsRequest:
     properties:
@@ -359,17 +354,6 @@ definitions:
         type: boolean
       transient:
         type: boolean
-    type: object
-  p2p.StatsInUnits:
-    properties:
-      rateIn:
-        type: string
-      rateOut:
-        type: string
-      totalIn:
-        type: string
-      totalOut:
-        type: string
     type: object
 host: localhost:8639
 info:
