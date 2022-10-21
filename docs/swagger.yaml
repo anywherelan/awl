@@ -388,8 +388,8 @@ paths:
         type: integer
       - description: Print logs from the beginning of logs
         in: query
-        name: head
-        type: integer
+        name: from_head
+        type: boolean
       produces:
       - text/plain
       responses:

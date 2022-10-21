@@ -12,8 +12,8 @@ import (
 // Requests
 type (
 	LogRequest struct {
-		StartFromHead int `query:"head" validate:"numeric,min=0,max=1"`
-		LogsRows      int `query:"logs" validate:"numeric,gte=0"`
+		StartFromHead bool `url:"from_head" query:"from_head"`
+		LogsRows      int  `url:"logs" query:"logs" validate:"numeric,gte=0"`
 	}
 	FriendRequest struct {
 		PeerID string `validate:"required"`

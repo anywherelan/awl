@@ -61,7 +61,7 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 // @Tags Debug
 // @Summary Get logs
 // @Param logs query int false "Define number of rows of logs to output. On default and 0 prints all."
-// @Param head query int false "Print logs from the beginning of logs"
+// @Param from_head query bool false "Print logs from the beginning of logs"
 // @Produce plain
 // @Success 200 {string} string "log text"
 // @Router /debug/log [GET]
@@ -81,17 +81,17 @@ func (h *Handler) GetLog(c echo.Context) (err error) {
 	}
 	b = bytes.Trim(b, zapcore.DefaultLineEnding)
 
-	sB := bytes.Split(b, []byte(zapcore.DefaultLineEnding))
-	if req.LogsRows == 0 || len(sB) <= req.LogsRows {
+	logLines := bytes.Split(b, []byte(zapcore.DefaultLineEnding))
+	if req.LogsRows == 0 || len(logLines) <= req.LogsRows {
 		return c.Blob(http.StatusOK, echo.MIMETextPlainCharsetUTF8, b)
 	}
 
-	if req.StartFromHead == 1 {
-		sB = sB[:req.LogsRows]
+	if req.StartFromHead {
+		logLines = logLines[:req.LogsRows]
 	} else {
-		sB = sB[len(sB)-req.LogsRows:]
+		logLines = logLines[len(logLines)-req.LogsRows:]
 	}
-	b = bytes.Join(sB, []byte(zapcore.DefaultLineEnding))
+	b = bytes.Join(logLines, []byte(zapcore.DefaultLineEnding))
 	return c.Blob(http.StatusOK, echo.MIMETextPlainCharsetUTF8, b)
 }
 

@@ -6,6 +6,7 @@ require (
 	github.com/GrigoryKrasnochub/updaterini v0.0.0-20220125215431-d01eb0c75d50
 	github.com/anywherelan/ts-dns v0.0.0-20211016195049-babc83989aee
 	github.com/go-playground/validator/v10 v10.9.0
+	github.com/google/go-querystring v1.0.0
 	github.com/ipfs/go-datastore v0.4.6
 	github.com/ipfs/go-log/v2 v2.3.0
 	github.com/labstack/echo/v4 v4.6.1
