@@ -97,10 +97,10 @@ func (a *Application) init() {
 								Name:     "format",
 								Aliases:  []string{"f"},
 								Required: false,
-								Value:    "npsdaltrcv",
+								Value:    "npslucv",
 								Usage: "control table columns list and order.Each char add column, write column chars together without gap. Use these chars to add specific columns:\n   " +
-									"n - peers number\n   p - peers name\n   i - peers id\n   s - peers status\n   d - peers domain\n   a - peers ip address\n   l - peers last seen datetime\n   v - peers awl version" +
-									"\n   t - total network usage by peer (in/out)\n   r - network usage speed by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n  ",
+									"n - peers number\n   p - peers name, domain and ip address\n   i - peers id\n   s - peers status\n   l - peers last seen datetime\n   v - peers awl version" +
+									"\n   u - network usage by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n  ",
 							},
 						},
 						Before: a.initApiConnection,

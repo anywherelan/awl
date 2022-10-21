@@ -8,37 +8,32 @@ import (
 	"strings"
 
 	"github.com/anywherelan/awl/api/apiclient"
+	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/entity"
 	"github.com/olekukonko/tablewriter"
 )
 
 func printPeersStatus(api *apiclient.Client, format string) error {
 	const (
-		TableFormatRowNumber  = "n"
-		TableFormatPeer       = "p"
-		TableFormatPeerID     = "i"
-		TableFormatStatus     = "s"
-		TableFormatDomain     = "d"
-		TableFormatAddress    = "a"
-		TableFormatLastSeen   = "l"
-		TableFormatTotal      = "t"
-		TableFormatRate       = "r"
-		TableFormatConnection = "c"
-		TableFormatVersion    = "v"
+		TableFormatRowNumber    = "n"
+		TableFormatPeer         = "p"
+		TableFormatPeerID       = "i"
+		TableFormatStatus       = "s"
+		TableFormatLastSeen     = "l"
+		TableFormatNetworkUsage = "u"
+		TableFormatConnection   = "c"
+		TableFormatVersion      = "v"
 	)
 
 	fHeaderMap := map[string]string{
-		TableFormatRowNumber:  "№",
-		TableFormatPeer:       "peer",
-		TableFormatPeerID:     "peer ID",
-		TableFormatStatus:     "status",
-		TableFormatDomain:     "domain",
-		TableFormatAddress:    "address",
-		TableFormatLastSeen:   "last seen",
-		TableFormatTotal:      "total\nin/out, B",
-		TableFormatRate:       "rate\nin/out, B",
-		TableFormatConnection: "connections\naddress | protocol",
-		TableFormatVersion:    "version",
+		TableFormatRowNumber:    "№",
+		TableFormatPeer:         "peer",
+		TableFormatPeerID:       "peer ID",
+		TableFormatStatus:       "status",
+		TableFormatLastSeen:     "last seen",
+		TableFormatNetworkUsage: "network usage\n(↓in/↑out)",
+		TableFormatConnection:   "connections\naddress | protocol",
+		TableFormatVersion:      "version",
 	}
 
 	if len(format) < 1 {
@@ -69,6 +64,7 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 	}
 
 	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
+	table.SetRowLine(true)
 	table.SetHeader(headers)
 	for i, peer := range peers {
 		row := make([]string, 0, len(columns))
@@ -77,29 +73,34 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 			case TableFormatRowNumber:
 				row = append(row, strconv.Itoa(i+1))
 			case TableFormatPeer:
-				row = append(row, peer.DisplayName)
+				info := make([]string, 0, 3)
+				if peer.DisplayName != "" {
+					info = append(info, peer.DisplayName)
+				}
+				if peer.DomainName != "" {
+					info = append(info, fmt.Sprintf("%s.%s", peer.DomainName, awldns.LocalDomain))
+				}
+				info = append(info, peer.IpAddr)
+
+				row = append(row, strings.Join(info, "\n"))
 			case TableFormatPeerID:
 				row = append(row, peer.PeerID)
 			case TableFormatStatus:
-				status := "disconnected"
+				status := "offline"
 				if peer.Connected {
-					status = "connected"
+					status = "online"
 				}
 				if !peer.Confirmed {
-					status += ", not confirmed"
+					status += "\n(not confirmed)"
 				}
 				row = append(row, status)
-			case TableFormatDomain:
-				row = append(row, peer.DomainName)
-			case TableFormatAddress:
-				row = append(row, peer.IpAddr)
 			case TableFormatLastSeen:
 				if peer.LastSeen.IsZero() {
 					row = append(row, "never")
 					break
 				}
-				row = append(row, peer.LastSeen.Format("2006-01-02 15:04:05"))
-			case TableFormatTotal:
+				row = append(row, peer.LastSeen.Format("2006-01-02\n15:04:05"))
+			case TableFormatNetworkUsage:
 				row = append(row,
 					fmt.Sprintf("↓ %s (%s)\n↑ %s (%s)",
 						peer.NetworkStatsInIECUnits.RateIn,
