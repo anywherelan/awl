@@ -129,10 +129,15 @@ func (a *Application) init() {
 					},
 					&cli.StringFlag{
 						Name:     "alias",
+						Usage:    "peer alias",
 						Required: false,
 					},
 				},
 				Before: func(c *cli.Context) error {
+					if isHelpFlagSet(c) {
+						return nil
+					}
+
 					err := a.initApiConnection(c)
 					if err != nil {
 						return err
@@ -317,6 +322,17 @@ func (a *Application) initApiConnection(c *cli.Context) (err error) {
 	}
 
 	return nil
+}
+
+func isHelpFlagSet(c *cli.Context) bool {
+	args := c.Args().Slice()
+	for _, arg := range args {
+		arg = strings.TrimLeft(arg, "-")
+		if arg == "h" || arg == "help" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Application) yesNoPrompt(message string, def bool) (bool, error) {
