@@ -16,7 +16,6 @@ import (
 	"github.com/anywherelan/awl/update"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-eventbus"
-	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli/v2"
 )
 
@@ -65,59 +64,148 @@ func (a *Application) init() {
 		},
 		Commands: []*cli.Command{
 			{
-				Name:  "add_peer",
-				Usage: "Invite peer or accept existing invitation from this peer",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "peer_id",
-						Required: true,
+				Name:  "me",
+				Usage: "group of functions to work with your stats and settings",
+				Subcommands: []*cli.Command{
+					{
+						Name:   "stats",
+						Usage:  "print your stats",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printStatus(a.api)
+						},
 					},
-					&cli.StringFlag{
-						Name:     "alias",
+					{
+						Name:   "id",
+						Usage:  "print your peer id",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printPeerId(a.api)
+						},
+					},
+				},
+			},
+			{
+				Name:  "peers",
+				Usage: "group of functions to work with peers. Use for check friend requests and work with known peers",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "status",
+						Usage: "print peers status",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "format",
+								Aliases:  []string{"f"},
+								Required: false,
+								Value:    "npslucv",
+								Usage: "control table columns list and order.Each char add column, write column chars together without gap. Use these chars to add specific columns:\n   " +
+									"n - peers number\n   p - peers name, domain and ip address\n   i - peers id\n   s - peers status\n   l - peers last seen datetime\n   v - peers awl version" +
+									"\n   u - network usage by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n  ",
+							},
+						},
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printPeersStatus(a.api, c.String("format"))
+						},
+					},
+					{
+						Name:   "requests",
+						Usage:  "print all incoming friend requests",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printFriendRequests(a.api)
+						},
+					},
+					{
+						Name:  "add",
+						Usage: "invite peer or accept existing invitation from this peer",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: true,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+						},
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return addPeer(a.api, c.String("pid"), c.String("name"))
+						},
+					},
+					{
+						Name:  "remove",
+						Usage: "remove peer from friend list",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+						},
+						Before: a.initApiAndPeerId,
+						Action: func(c *cli.Context) error {
+							return removePeer(a.api, c.String("pid"))
+						},
+					},
+					{
+						Name:  "rename",
+						Usage: "change known peer name",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "new_name",
+								Usage:    "peer new name",
+								Required: true,
+							},
+						},
+						Before: a.initApiAndPeerId,
+						Action: func(c *cli.Context) error {
+							return changePeerAlias(a.api, c.String("pid"), c.String("new_name"))
+						},
+					},
+				},
+			},
+			{
+				Name:  "log",
+				Usage: "print logs (default print 10 logs from the end of logs)",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:     "head",
+						Usage:    "print logs from the beginning of logs",
 						Required: false,
+					},
+					&cli.IntFlag{
+						Name:     "n",
+						Usage:    "define number of rows of logs to output. Use 0 to print all",
+						Required: false,
+						Value:    10,
 					},
 				},
 				Before: a.initApiConnection,
 				Action: func(c *cli.Context) error {
-					peerID := c.String("peer_id")
-					alias := c.String("alias")
-
-					authRequests, err := a.api.AuthRequests()
+					logs, err := a.api.ApplicationLog(c.Int("n"), c.Bool("head"))
 					if err != nil {
 						return err
 					}
-					hasRequest := false
-					for _, req := range authRequests {
-						if req.PeerID == peerID {
-							hasRequest = true
-							break
-						}
-					}
-					if hasRequest {
-						err := a.api.ReplyFriendRequest(peerID, alias, false)
-						return err
-					}
-
-					err = a.api.SendFriendRequest(peerID, alias)
-					return err
-				},
-			},
-			{
-				Name:   "auth_requests",
-				Usage:  "Print all incoming friend requests",
-				Before: a.initApiConnection,
-				Action: func(*cli.Context) error {
-					authRequests, err := a.api.AuthRequests()
-					if err != nil {
-						return err
-					}
-					if len(authRequests) == 0 {
-						fmt.Println("has no requests")
-						return nil
-					}
-					for _, req := range authRequests {
-						fmt.Printf("Name: '%s' peerID: %s\n", req.Name, req.PeerID)
-					}
+					fmt.Println(logs)
 
 					return nil
 				},
@@ -139,44 +227,6 @@ func (a *Application) init() {
 					fmt.Println(string(bytes))
 
 					return nil
-				},
-			},
-			{
-				Name:  "peers_status",
-				Usage: "Print peers status",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:     "short",
-						Aliases:  []string{"s"},
-						Required: false,
-					},
-				},
-				Before: a.initApiConnection,
-				Action: func(c *cli.Context) error {
-					peers, err := a.api.KnownPeers()
-					if err != nil {
-						return err
-					}
-
-					if c.Bool("short") {
-						table := tablewriter.NewWriter(os.Stdout)
-						table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
-						table.SetHeader([]string{"peer", "status", "address"})
-						for _, peer := range peers {
-							status := "disconnected"
-							if peer.Connected {
-								status = "connected"
-							}
-							if !peer.Confirmed {
-								status += ", not confirmed"
-							}
-							table.Append([]string{peer.Name, status, peer.IpAddr})
-						}
-						table.Render()
-						return nil
-					}
-
-					return errors.New("print full info is not implemented, use flag --short instead")
 				},
 			},
 			{
@@ -267,6 +317,28 @@ func (a *Application) initApiConnection(c *cli.Context) (err error) {
 	}
 
 	return nil
+}
+
+func (a *Application) initApiAndPeerId(c *cli.Context) error {
+	err := a.initApiConnection(c)
+	if err != nil {
+		return err
+	}
+
+	pid := c.String("pid")
+	if pid != "" {
+		return nil
+	}
+	alias := c.String("name")
+	if alias == "" {
+		return fmt.Errorf("peerID or name should be defined")
+	}
+
+	pid, err = getPeerIdByAlias(a.api, alias)
+	if err != nil {
+		return err
+	}
+	return c.Set("pid", pid)
 }
 
 func (a *Application) yesNoPrompt(message string, def bool) (bool, error) {

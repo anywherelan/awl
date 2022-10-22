@@ -6,11 +6,13 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
+	"github.com/google/go-querystring/query"
 )
 
 type Client struct {
@@ -107,8 +109,20 @@ func (c *Client) P2pDebugInfo() (*entity.P2pDebugInfo, error) {
 	return debugInfo, nil
 }
 
-func (c *Client) ApplicationLog() (string, error) {
-	resp, err := c.cli.Get(c.getUrl(api.GetDebugLogPath))
+// ApplicationLog
+// send numberOfLogs = 0 to print all logs
+func (c *Client) ApplicationLog(numberOfLogs int, startFromHead bool) (string, error) {
+	qParams := entity.LogRequest{
+		StartFromHead: startFromHead,
+		LogsRows:      numberOfLogs,
+	}
+
+	reqURL, err := c.getUrl(api.GetDebugLogPath, qParams)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := c.cli.Get(reqURL)
 	if err != nil {
 		return "", err
 	}
@@ -118,12 +132,28 @@ func (c *Client) ApplicationLog() (string, error) {
 	return string(b), err
 }
 
-func (c *Client) getUrl(methodPath string) string {
-	return "http://" + c.address + methodPath
+func (c *Client) getUrl(methodPath string, getParamsStruct interface{}) (string, error) {
+	reqURL := url.URL{
+		Scheme: "http",
+		Host:   c.address,
+		Path:   methodPath,
+	}
+
+	v, err := query.Values(getParamsStruct)
+	if err != nil {
+		return "", err
+	}
+	reqURL.RawQuery = v.Encode()
+	return reqURL.String(), nil
 }
 
 func (c *Client) sendGetRequest(path string, responseRef interface{}) error {
-	resp, err := c.cli.Get(c.getUrl(path))
+	reqURL, err := c.getUrl(path, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.cli.Get(reqURL)
 	if err != nil {
 		return err
 	}
@@ -139,7 +169,12 @@ func (c *Client) sendPostRequest(path string, payload interface{}, responseRef i
 		return err
 	}
 
-	resp, err := c.cli.Post(c.getUrl(path), "application/json", buf)
+	reqURL, err := c.getUrl(path, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.cli.Post(reqURL, "application/json", buf)
 	if err != nil {
 		return err
 	}

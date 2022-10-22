@@ -12,11 +12,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/libp2p/go-libp2p-core/metrics"
 	ma "github.com/multiformats/go-multiaddr"
+	"go.uber.org/zap/zapcore"
 )
 
 // @Tags Debug
 // @Summary Get p2p debug info
-// @Accept json
 // @Produce json
 // @Success 200 {object} entity.P2pDebugInfo
 // @Router /debug/p2p_info [GET]
@@ -60,15 +60,38 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 
 // @Tags Debug
 // @Summary Get logs
-// @Accept json
+// @Param logs query int false "Define number of rows of logs to output. On default and 0 prints all."
+// @Param from_head query bool false "Print logs from the beginning of logs"
 // @Produce plain
 // @Success 200 {string} string "log text"
 // @Router /debug/log [GET]
 func (h *Handler) GetLog(c echo.Context) (err error) {
+	req := entity.LogRequest{}
+	err = c.Bind(&req)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
+	}
+	if err = c.Validate(req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
+	}
+
 	b := h.logBuffer.Bytes()
 	if !utf8.Valid(b) {
 		b = bytes.ToValidUTF8(b, []byte(""))
 	}
+	b = bytes.Trim(b, zapcore.DefaultLineEnding)
+
+	logLines := bytes.Split(b, []byte(zapcore.DefaultLineEnding))
+	if req.LogsRows == 0 || len(logLines) <= req.LogsRows {
+		return c.Blob(http.StatusOK, echo.MIMETextPlainCharsetUTF8, b)
+	}
+
+	if req.StartFromHead {
+		logLines = logLines[:req.LogsRows]
+	} else {
+		logLines = logLines[len(logLines)-req.LogsRows:]
+	}
+	b = bytes.Join(logLines, []byte(zapcore.DefaultLineEnding))
 	return c.Blob(http.StatusOK, echo.MIMETextPlainCharsetUTF8, b)
 }
 

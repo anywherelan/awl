@@ -11,6 +11,10 @@ import (
 
 // Requests
 type (
+	LogRequest struct {
+		StartFromHead bool `url:"from_head" query:"from_head"`
+		LogsRows      int  `url:"logs" query:"logs" validate:"numeric,gte=0"`
+	}
 	FriendRequest struct {
 		PeerID string `validate:"required"`
 		Alias  string
@@ -36,17 +40,20 @@ type (
 // Responses
 type (
 	KnownPeersResponse struct {
-		PeerID       string
-		Name         string
-		Version      string
-		IpAddr       string
-		DomainName   string
-		Connected    bool
-		Confirmed    bool
-		Declined     bool
-		LastSeen     time.Time
-		Connections  []p2p.ConnectionInfo
-		NetworkStats metrics.Stats
+		PeerID                 string
+		Name                   string // Deprecated: use DisplayName instead
+		DisplayName            string
+		Alias                  string
+		Version                string
+		IpAddr                 string
+		DomainName             string
+		Connected              bool
+		Confirmed              bool
+		Declined               bool
+		LastSeen               time.Time
+		Connections            []p2p.ConnectionInfo
+		NetworkStats           metrics.Stats
+		NetworkStatsInIECUnits StatsInUnits
 	}
 
 	PeerInfo struct {
@@ -55,11 +62,19 @@ type (
 		Uptime                  time.Duration `swaggertype:"primitive,integer"`
 		ServerVersion           string
 		NetworkStats            metrics.Stats
+		NetworkStatsInIECUnits  StatsInUnits
 		TotalBootstrapPeers     int
 		ConnectedBootstrapPeers int
 		Reachability            string `enums:"Unknown,Public,Private"`
 		AwlDNSAddress           string
 		IsAwlDNSSetAsSystem     bool
+	}
+
+	StatsInUnits struct {
+		TotalIn  string
+		TotalOut string
+		RateIn   string
+		RateOut  string
 	}
 
 	AuthRequest struct {

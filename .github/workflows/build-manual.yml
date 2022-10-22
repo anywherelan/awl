@@ -50,8 +50,8 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@latest
           go get -d golang.org/x/mobile/cmd/gomobile
           gomobile init
-          go mod tidy
-          cd cmd/awl-tray && go mod tidy && cd ../..
+          go mod tidy -compat=1.17
+          cd cmd/awl-tray && go mod tidy -compat=1.17 && cd ../..
           ./build.sh docker-images
           ./build.sh release
           echo "ls build"

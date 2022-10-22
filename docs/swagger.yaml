@@ -18,24 +18,49 @@ definitions:
     type: object
   config.Config:
     properties:
-      blockedPeers:
-        additionalProperties:
-          $ref: '#/definitions/config.BlockedPeer'
+      bucketSize:
+        type: integer
+      concurrency:
+        type: integer
+      datastore: {}
+      disableFixLowPeers:
+        description: test specific Config options
+        type: boolean
+      enableProviders:
+        type: boolean
+      enableValues:
+        type: boolean
+      maxRecordAge:
+        type: integer
+      mode:
+        type: integer
+      protocolPrefix:
+        type: string
+      resiliency:
+        type: integer
+      routingTable:
+        properties:
+          autoRefresh:
+            type: boolean
+          checkInterval:
+            type: integer
+          diversityFilter: {}
+          latencyTolerance:
+            type: integer
+          refreshInterval:
+            type: integer
+          refreshQueryTimeout:
+            type: integer
         type: object
-      httpListenAddress:
+      testAddressUpdateProcessing:
+        type: boolean
+      v1ProtocolOverride:
         type: string
-      knownPeers:
-        additionalProperties:
-          $ref: '#/definitions/config.KnownPeer'
-        type: object
-      loggerLevel:
-        type: string
-      p2pNode:
-        $ref: '#/definitions/config.P2pNodeConfig'
-      version:
-        type: string
-      vpn:
-        $ref: '#/definitions/config.VPNConfig'
+      validator: {}
+      validatorChanged:
+        description: if true implies that the validator has been changed and that
+          Defaults should not be used
+        type: boolean
     type: object
   config.KnownPeer:
     properties:
@@ -67,34 +92,6 @@ definitions:
         description: Hex-encoded multihash representing a peer ID
         type: string
     type: object
-  config.P2pNodeConfig:
-    properties:
-      bootstrapPeers:
-        items:
-          type: string
-        type: array
-      identity:
-        type: string
-      listenAddresses:
-        items:
-          type: string
-        type: array
-      name:
-        type: string
-      peerId:
-        description: Hex-encoded multihash representing a peer ID, calculated from
-          Identity
-        type: string
-      reconnectionIntervalSec:
-        type: integer
-    type: object
-  config.VPNConfig:
-    properties:
-      interfaceName:
-        type: string
-      ipNet:
-        type: string
-    type: object
   entity.AuthRequest:
     properties:
       name:
@@ -122,28 +119,6 @@ definitions:
       totalOut:
         type: string
     type: object
-  entity.BootstrapPeerDebugInfo:
-    properties:
-      connections:
-        items:
-          type: string
-        type: array
-      error:
-        type: string
-    type: object
-  entity.ConnectionInfo:
-    properties:
-      address:
-        type: string
-      multiaddr:
-        type: string
-      protocol:
-        type: string
-      relayPeerID:
-        type: string
-      throughRelay:
-        type: boolean
-    type: object
   entity.ConnectionsDebugInfo:
     properties:
       connectedPeersCount:
@@ -163,7 +138,7 @@ definitions:
     properties:
       bootstrapPeers:
         additionalProperties:
-          $ref: '#/definitions/entity.BootstrapPeerDebugInfo'
+          $ref: '#/definitions/p2p.BootstrapPeerDebugInfo'
         type: object
       listenAddress:
         items:
@@ -177,10 +152,14 @@ definitions:
         type: integer
       reachability:
         enum:
-          - Unknown
-          - Public
-          - Private
+        - Unknown
+        - Public
+        - Private
         type: string
+      routingTable:
+        items:
+          $ref: '#/definitions/kbucket.PeerInfo'
+        type: array
       routingTableSize:
         type: integer
     type: object
@@ -191,7 +170,7 @@ definitions:
       peerID:
         type: string
     required:
-      - peerID
+    - peerID
     type: object
   entity.FriendRequestReply:
     properties:
@@ -202,25 +181,31 @@ definitions:
       peerID:
         type: string
     required:
-      - peerID
+    - peerID
     type: object
   entity.GeneralDebugInfo:
     properties:
       uptime:
         type: string
+      version:
+        type: string
     type: object
   entity.KnownPeersResponse:
     properties:
+      alias:
+        type: string
       confirmed:
         type: boolean
       connected:
         type: boolean
       connections:
         items:
-          $ref: '#/definitions/entity.ConnectionInfo'
+          $ref: '#/definitions/p2p.ConnectionInfo'
         type: array
       declined:
         type: boolean
+      displayName:
+        type: string
       domainName:
         type: string
       ipAddr:
@@ -228,9 +213,12 @@ definitions:
       lastSeen:
         type: string
       name:
+        description: 'Deprecated: use DisplayName instead'
         type: string
       networkStats:
         $ref: '#/definitions/metrics.Stats'
+      networkStatsInIECUnits:
+        $ref: '#/definitions/entity.StatsInUnits'
       peerID:
         type: string
       version:
@@ -252,7 +240,7 @@ definitions:
       peerID:
         type: string
     required:
-      - peerID
+    - peerID
     type: object
   entity.PeerInfo:
     properties:
@@ -266,13 +254,15 @@ definitions:
         type: string
       networkStats:
         $ref: '#/definitions/metrics.Stats'
+      networkStatsInIECUnits:
+        $ref: '#/definitions/entity.StatsInUnits'
       peerID:
         type: string
       reachability:
         enum:
-          - Unknown
-          - Public
-          - Private
+        - Unknown
+        - Public
+        - Private
         type: string
       serverVersion:
         type: string
@@ -280,6 +270,17 @@ definitions:
         type: integer
       uptime:
         type: integer
+    type: object
+  entity.StatsInUnits:
+    properties:
+      rateIn:
+        type: string
+      rateOut:
+        type: string
+      totalIn:
+        type: string
+      totalOut:
+        type: string
     type: object
   entity.UpdateMySettingsRequest:
     properties:
@@ -295,7 +296,25 @@ definitions:
       peerID:
         type: string
     required:
-      - peerID
+    - peerID
+    type: object
+  kbucket.PeerInfo:
+    properties:
+      addedAt:
+        description: AddedAt is the time this peer was added to the routing table.
+        type: string
+      id:
+        type: string
+      lastSuccessfulOutboundQueryAt:
+        description: |-
+          LastSuccessfulOutboundQueryAt is the time instant at which we last got a
+          successful query response from the peer.
+        type: string
+      lastUsefulAt:
+        description: |-
+          LastUsefulAt is the time instant at which the peer was last "useful" to us.
+          Please see the DHT docs for the definition of usefulness.
+        type: string
     type: object
   metrics.Stats:
     properties:
@@ -308,19 +327,55 @@ definitions:
       totalOut:
         type: integer
     type: object
+  p2p.BootstrapPeerDebugInfo:
+    properties:
+      connections:
+        items:
+          type: string
+        type: array
+      error:
+        type: string
+    type: object
+  p2p.ConnectionInfo:
+    properties:
+      address:
+        type: string
+      direction:
+        type: string
+      multiaddr:
+        type: string
+      opened:
+        type: string
+      protocol:
+        type: string
+      relayPeerID:
+        type: string
+      throughRelay:
+        type: boolean
+      transient:
+        type: boolean
+    type: object
 host: localhost:8639
 info:
-  contact: { }
+  contact: {}
   description: Anywherelan API
   title: Anywherelan API
   version: "0.1"
 paths:
   /debug/log:
     get:
-      consumes:
-      - application/json
+      parameters:
+      - description: Define number of rows of logs to output. On default and 0 prints
+          all.
+        in: query
+        name: logs
+        type: integer
+      - description: Print logs from the beginning of logs
+        in: query
+        name: from_head
+        type: boolean
       produces:
-        - text/plain
+      - text/plain
       responses:
         "200":
           description: log text
@@ -331,8 +386,6 @@ paths:
       - Debug
   /debug/p2p_info:
     get:
-      consumes:
-      - application/json
       produces:
       - application/json
       responses:
@@ -375,7 +428,7 @@ paths:
       consumes:
       - application/json
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -385,13 +438,13 @@ paths:
             type: array
       summary: Get ingoing auth requests
       tags:
-        - Peers
+      - Peers
   /peers/get_blocked:
     get:
       consumes:
-        - application/json
+      - application/json
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -401,13 +454,13 @@ paths:
             type: array
       summary: Get blocked peers info
       tags:
-        - Peers
+      - Peers
   /peers/get_known:
     get:
       consumes:
-        - application/json
+      - application/json
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -421,14 +474,14 @@ paths:
   /peers/get_known_peer_settings:
     post:
       consumes:
-        - application/json
+      - application/json
       parameters:
-        - description: Params
-          in: body
-          name: body
-          required: true
-          schema:
-            $ref: '#/definitions/entity.PeerIDRequest'
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.PeerIDRequest'
       produces:
       - application/json
       responses:
@@ -473,20 +526,20 @@ paths:
             $ref: '#/definitions/api.Error'
       summary: Invite new peer
       tags:
-        - Peers
+      - Peers
   /peers/remove:
     post:
       consumes:
-        - application/json
+      - application/json
       parameters:
-        - description: Params
-          in: body
-          name: body
-          required: true
-          schema:
-            $ref: '#/definitions/entity.PeerIDRequest'
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.PeerIDRequest'
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -500,18 +553,18 @@ paths:
             $ref: '#/definitions/api.Error'
       summary: Remove known peer
       tags:
-        - Peers
+      - Peers
   /peers/update_settings:
     post:
       consumes:
-        - application/json
+      - application/json
       parameters:
-        - description: Params
-          in: body
-          name: body
-          required: true
-          schema:
-            $ref: '#/definitions/entity.UpdatePeerSettingsRequest'
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.UpdatePeerSettingsRequest'
       produces:
       - application/json
       responses:
@@ -527,13 +580,13 @@ paths:
             $ref: '#/definitions/api.Error'
       summary: Update peer settings
       tags:
-        - Peers
+      - Peers
   /settings/export_server_config:
     get:
       consumes:
-        - application/json
+      - application/json
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -541,13 +594,13 @@ paths:
             $ref: '#/definitions/config.Config'
       summary: Export server configuration
       tags:
-        - Settings
+      - Settings
   /settings/peer_info:
     get:
       consumes:
-        - application/json
+      - application/json
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
