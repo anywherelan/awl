@@ -111,12 +111,12 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 				)
 			case TableFormatConnection:
 				consStr := make([]string, 0, len(peer.Connections))
-				for ci, con := range peer.Connections {
+				for _, con := range peer.Connections {
 					if con.ThroughRelay {
-						consStr = append(consStr, fmt.Sprintf("%d) through relay", ci+1))
+						consStr = append(consStr, "through relay")
 						continue
 					}
-					consStr = append(consStr, fmt.Sprintf("%d) %s | %s", ci+1, con.Address, con.Protocol))
+					consStr = append(consStr, fmt.Sprintf("%s | %s", con.Address, con.Protocol))
 				}
 				row = append(row, strings.Join(consStr, "\n"))
 			case TableFormatVersion:

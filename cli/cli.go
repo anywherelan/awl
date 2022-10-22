@@ -87,7 +87,7 @@ func (a *Application) init() {
 			},
 			{
 				Name:  "peers",
-				Usage: "group of functions to work with peers. Use for check friend requests and peers status",
+				Usage: "group of functions to work with peers. Use for check friend requests and work with known peers",
 				Subcommands: []*cli.Command{
 					{
 						Name:  "status",
@@ -116,52 +116,22 @@ func (a *Application) init() {
 							return printFriendRequests(a.api)
 						},
 					},
-				},
-			},
-			{
-				Name:  "peer",
-				Usage: "group of commands to work with peer (one of the flags is required)",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "pid",
-						Usage:    "peer id",
-						Required: false,
-					},
-					&cli.StringFlag{
-						Name:     "alias",
-						Usage:    "peer alias",
-						Required: false,
-					},
-				},
-				Before: func(c *cli.Context) error {
-					if isHelpFlagSet(c) {
-						return nil
-					}
-
-					err := a.initApiConnection(c)
-					if err != nil {
-						return err
-					}
-
-					pid := c.String("pid")
-					if pid != "" {
-						return nil
-					}
-					alias := c.String("alias")
-					if alias == "" {
-						return fmt.Errorf("peerID or alias should be defined")
-					}
-
-					pid, err = getPeerIdByAlias(a.api, alias)
-					if err != nil {
-						return err
-					}
-					return c.Set("pid", pid)
-				},
-				Subcommands: []*cli.Command{
 					{
 						Name:  "add",
 						Usage: "invite peer or accept existing invitation from this peer",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: true,
+							},
+							&cli.StringFlag{
+								Name:     "alias",
+								Usage:    "peer alias",
+								Required: false,
+							},
+						},
+						Before: a.initApiAndPeerId,
 						Action: func(c *cli.Context) error {
 							return addPeer(a.api, c.String("pid"), c.String("alias"))
 						},
@@ -169,6 +139,19 @@ func (a *Application) init() {
 					{
 						Name:  "remove",
 						Usage: "remove peer from friend list",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "alias",
+								Usage:    "peer alias",
+								Required: false,
+							},
+						},
+						Before: a.initApiAndPeerId,
 						Action: func(c *cli.Context) error {
 							return removePeer(a.api, c.String("pid"))
 						},
@@ -178,12 +161,24 @@ func (a *Application) init() {
 						Usage: "change known peer alias",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
 								Name:     "alias",
-								Required: true,
+								Usage:    "peer alias",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "n_alias",
+								Usage:    "peer new alias",
+								Required: false,
 							},
 						},
+						Before: a.initApiAndPeerId,
 						Action: func(c *cli.Context) error {
-							return changePeerAlias(a.api, c.String("pid"), c.String("alias"))
+							return changePeerAlias(a.api, c.String("pid"), c.String("n_alias"))
 						},
 					},
 				},
@@ -324,15 +319,26 @@ func (a *Application) initApiConnection(c *cli.Context) (err error) {
 	return nil
 }
 
-func isHelpFlagSet(c *cli.Context) bool {
-	args := c.Args().Slice()
-	for _, arg := range args {
-		arg = strings.TrimLeft(arg, "-")
-		if arg == "h" || arg == "help" {
-			return true
-		}
+func (a *Application) initApiAndPeerId(c *cli.Context) error {
+	err := a.initApiConnection(c)
+	if err != nil {
+		return err
 	}
-	return false
+
+	pid := c.String("pid")
+	if pid != "" {
+		return nil
+	}
+	alias := c.String("alias")
+	if alias == "" {
+		return fmt.Errorf("peerID or alias should be defined")
+	}
+
+	pid, err = getPeerIdByAlias(a.api, alias)
+	if err != nil {
+		return err
+	}
+	return c.Set("pid", pid)
 }
 
 func (a *Application) yesNoPrompt(message string, def bool) (bool, error) {
