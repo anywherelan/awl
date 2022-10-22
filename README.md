@@ -111,7 +111,7 @@ Both `awl` and `awl-tray` versions have CLI to communicate with vpn server.
 TODO: examples
 
 ```
-$ ./awl-tray cli -h                               
+$ ./awl-tray cli -h
 NAME:
    awl - p2p mesh vpn
 
@@ -119,15 +119,15 @@ USAGE:
    awl-tray cli [global options] command [command options] [arguments...]
 
 VERSION:
-   dev
+   v0.5.0
 
 COMMANDS:
-   add_peer       Invite peer or accept existing invitation from this peer
-   auth_requests  Print all incoming friend requests
-   p2p_info       Print p2p debug info
-   peers_status   Print peers status
-   update         update awl to the latest version
-   help, h        Shows a list of commands or help for one command
+   me        Group of commands to work with your stats and settings
+   peers     Group of commands to work with peers. Use to check friend requests and work with known peers
+   log       Prints application logs (default print 10 logs from the end of logs)
+   p2p_info  Prints p2p debug info
+   update    Updates awl to the latest version
+   help, h   Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
    --api_addr value  awl api address, example: 127.0.0.1:8639

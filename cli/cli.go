@@ -65,11 +65,11 @@ func (a *Application) init() {
 		Commands: []*cli.Command{
 			{
 				Name:  "me",
-				Usage: "group of functions to work with your stats and settings",
+				Usage: "Group of commands to work with your stats and settings",
 				Subcommands: []*cli.Command{
 					{
 						Name:   "stats",
-						Usage:  "print your stats",
+						Usage:  "Print your stats",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printStatus(a.api)
@@ -77,7 +77,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:   "id",
-						Usage:  "print your peer id",
+						Usage:  "Print your peer id",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printPeerId(a.api)
@@ -87,11 +87,11 @@ func (a *Application) init() {
 			},
 			{
 				Name:  "peers",
-				Usage: "group of functions to work with peers. Use for check friend requests and work with known peers",
+				Usage: "Group of commands to work with peers. Use to check friend requests and work with known peers",
 				Subcommands: []*cli.Command{
 					{
 						Name:  "status",
-						Usage: "print peers status",
+						Usage: "Print peers status",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
 								Name:     "format",
@@ -110,7 +110,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:   "requests",
-						Usage:  "print all incoming friend requests",
+						Usage:  "Print all incoming friend requests",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printFriendRequests(a.api)
@@ -118,7 +118,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:  "add",
-						Usage: "invite peer or accept existing invitation from this peer",
+						Usage: "Invite peer or accept existing invitation from this peer",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
 								Name:     "pid",
@@ -138,7 +138,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:  "remove",
-						Usage: "remove peer from friend list",
+						Usage: "Remove peer from the friends list",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
 								Name:     "pid",
@@ -158,7 +158,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:  "rename",
-						Usage: "change known peer name",
+						Usage: "Change known peer name",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
 								Name:     "pid",
@@ -185,7 +185,7 @@ func (a *Application) init() {
 			},
 			{
 				Name:  "log",
-				Usage: "print logs (default print 10 logs from the end of logs)",
+				Usage: "Prints application logs (default print 10 logs from the end of logs)",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:     "head",
@@ -212,7 +212,7 @@ func (a *Application) init() {
 			},
 			{
 				Name:   "p2p_info",
-				Usage:  "Print p2p debug info",
+				Usage:  "Prints p2p debug info",
 				Before: a.initApiConnection,
 				Action: func(*cli.Context) error {
 					debugInfo, err := a.api.P2pDebugInfo()
@@ -231,7 +231,7 @@ func (a *Application) init() {
 			},
 			{
 				Name:  "update",
-				Usage: "update awl to the latest version",
+				Usage: "Updates awl to the latest version",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:     "quiet",
