@@ -126,14 +126,14 @@ func (a *Application) init() {
 								Required: true,
 							},
 							&cli.StringFlag{
-								Name:     "alias",
-								Usage:    "peer alias",
+								Name:     "name",
+								Usage:    "peer name",
 								Required: false,
 							},
 						},
-						Before: a.initApiAndPeerId,
+						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return addPeer(a.api, c.String("pid"), c.String("alias"))
+							return addPeer(a.api, c.String("pid"), c.String("name"))
 						},
 					},
 					{
@@ -146,8 +146,8 @@ func (a *Application) init() {
 								Required: false,
 							},
 							&cli.StringFlag{
-								Name:     "alias",
-								Usage:    "peer alias",
+								Name:     "name",
+								Usage:    "peer name",
 								Required: false,
 							},
 						},
@@ -157,8 +157,8 @@ func (a *Application) init() {
 						},
 					},
 					{
-						Name:  "ch_alias",
-						Usage: "change known peer alias",
+						Name:  "rename",
+						Usage: "change known peer name",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
 								Name:     "pid",
@@ -166,19 +166,19 @@ func (a *Application) init() {
 								Required: false,
 							},
 							&cli.StringFlag{
-								Name:     "alias",
-								Usage:    "peer alias",
+								Name:     "name",
+								Usage:    "peer name",
 								Required: false,
 							},
 							&cli.StringFlag{
-								Name:     "n_alias",
-								Usage:    "peer new alias",
-								Required: false,
+								Name:     "new_name",
+								Usage:    "peer new name",
+								Required: true,
 							},
 						},
 						Before: a.initApiAndPeerId,
 						Action: func(c *cli.Context) error {
-							return changePeerAlias(a.api, c.String("pid"), c.String("n_alias"))
+							return changePeerAlias(a.api, c.String("pid"), c.String("new_name"))
 						},
 					},
 				},
@@ -329,9 +329,9 @@ func (a *Application) initApiAndPeerId(c *cli.Context) error {
 	if pid != "" {
 		return nil
 	}
-	alias := c.String("alias")
+	alias := c.String("name")
 	if alias == "" {
-		return fmt.Errorf("peerID or alias should be defined")
+		return fmt.Errorf("peerID or name should be defined")
 	}
 
 	pid, err = getPeerIdByAlias(a.api, alias)

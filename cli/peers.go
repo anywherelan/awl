@@ -147,7 +147,7 @@ func printFriendRequests(api *apiclient.Client) error {
 
 func getPeerIdByAlias(api *apiclient.Client, alias string) (string, error) {
 	if alias == "" {
-		return "", errors.New("alias is empty")
+		return "", errors.New("name is empty")
 	}
 
 	peers, err := api.KnownPeers()
@@ -160,7 +160,7 @@ func getPeerIdByAlias(api *apiclient.Client, alias string) (string, error) {
 			return p.PeerID, nil
 		}
 	}
-	return "", fmt.Errorf("can't find peer with alias \"%s\"", alias)
+	return "", fmt.Errorf("can't find peer with name \"%s\"", alias)
 }
 
 func addPeer(api *apiclient.Client, peerID, alias string) error {
@@ -214,6 +214,6 @@ func changePeerAlias(api *apiclient.Client, peerID, newAlias string) error {
 		return err
 	}
 
-	fmt.Println("peer alias updated successfully")
+	fmt.Println("peer name updated successfully")
 	return nil
 }
