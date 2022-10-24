@@ -128,7 +128,7 @@ func (a *Application) init() {
 							&cli.StringFlag{
 								Name:     "name",
 								Usage:    "peer name",
-								Required: false,
+								Required: true,
 							},
 						},
 						Before: a.initApiConnection,

@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"path/filepath"
@@ -25,13 +26,16 @@ const (
 	// TODO 8989 maybe?
 	DefaultHTTPPort      = 8639
 	HttpServerDomainName = "admin"
+
+	DefaultPeerAlias = "peer"
 )
 
 type (
 	Config struct {
-		sync.RWMutex `swaggerignore:"true"`
-		dataDir      string
-		emitter      awlevent.Emitter
+		sync.RWMutex     `swaggerignore:"true"`
+		dataDir          string
+		emitter          awlevent.Emitter
+		peersUniqAliases map[string]struct{}
 
 		Version           string                 `json:"version"`
 		LoggerLevel       string                 `json:"loggerLevel"`
@@ -97,6 +101,23 @@ func (c *Config) Save() {
 	c.RUnlock()
 }
 
+func (c *Config) CheckIsUniqPeerAliasAndCache(alias string) bool {
+	c.Lock()
+	_, ok := c.peersUniqAliases[alias]
+	if !ok {
+		c.peersUniqAliases[alias] = struct{}{}
+	}
+	c.Unlock()
+	return !ok
+}
+
+func (c *Config) GenUniqPeerAlias(name, alias string) string {
+	c.Lock()
+	alias = c.genUniqPeerAlias(name, alias)
+	c.Unlock()
+	return alias
+}
+
 func (c *Config) KnownPeersIds() []peer.ID {
 	c.RLock()
 	ids := make([]peer.ID, 0, len(c.KnownPeers))
@@ -119,6 +140,7 @@ func (c *Config) RemovePeer(peerID string) (KnownPeer, bool) {
 	knownPeer, exists := c.KnownPeers[peerID]
 	if exists {
 		delete(c.KnownPeers, peerID)
+		delete(c.peersUniqAliases, knownPeer.Alias)
 		c.save()
 	}
 	c.Unlock()
@@ -330,6 +352,26 @@ func (c *Config) save() {
 func (c *Config) path() string {
 	path := filepath.Join(c.dataDir, AppConfigFilename)
 	return path
+}
+
+func (c *Config) genUniqPeerAlias(name, alias string) string {
+	if alias == "" {
+		if name == "" {
+			alias = DefaultPeerAlias
+		} else {
+			alias = name
+		}
+	}
+	if _, ok := c.peersUniqAliases[alias]; ok {
+		newAlias := ""
+		for i := 0; ok; i++ {
+			newAlias = fmt.Sprintf("%s_%d", alias, i)
+			_, ok = c.peersUniqAliases[newAlias]
+		}
+		alias = newAlias
+	}
+	c.peersUniqAliases[alias] = struct{}{}
+	return alias
 }
 
 func (kp KnownPeer) PeerId() peer.ID {

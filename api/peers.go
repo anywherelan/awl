@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/config"
@@ -112,7 +113,13 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	}
 	peerID := knownPeer.PeerId()
 
-	knownPeer.Alias = req.Alias
+	req.Alias = strings.TrimSpace(req.Alias)
+	if h.conf.CheckIsUniqPeerAliasAndCache(req.Alias) {
+		knownPeer.Alias = req.Alias
+	} else {
+		return c.JSON(http.StatusBadRequest, ErrorMessage("peer name is not unique"))
+	}
+
 	knownPeer.DomainName = req.DomainName
 	h.conf.UpsertPeer(knownPeer)
 
@@ -156,6 +163,11 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 	_, exist := h.conf.GetPeer(req.PeerID)
 	if exist {
 		return c.JSON(http.StatusBadRequest, ErrorMessage("Peer has already been added"))
+	}
+
+	req.Alias = strings.TrimSpace(req.Alias)
+	if !h.conf.CheckIsUniqPeerAliasAndCache(req.Alias) {
+		return c.JSON(http.StatusBadRequest, ErrorMessage("peer name is not unique"))
 	}
 
 	h.authStatus.AddPeer(h.ctx, peerId, "", req.Alias, false)
@@ -206,6 +218,11 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	if req.Decline {
 		h.authStatus.BlockPeer(peerId, auth.Name)
 		return c.NoContent(http.StatusOK)
+	}
+
+	req.Alias = strings.TrimSpace(req.Alias)
+	if !h.conf.CheckIsUniqPeerAliasAndCache(req.Alias) {
+		return c.JSON(http.StatusBadRequest, ErrorMessage("peer name is not unique"))
 	}
 
 	h.authStatus.AddPeer(h.ctx, peerId, auth.Name, req.Alias, true)
