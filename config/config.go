@@ -32,10 +32,9 @@ const (
 
 type (
 	Config struct {
-		sync.RWMutex     `swaggerignore:"true"`
-		dataDir          string
-		emitter          awlevent.Emitter
-		peersUniqAliases map[string]struct{}
+		sync.RWMutex `swaggerignore:"true"`
+		dataDir      string
+		emitter      awlevent.Emitter
 
 		Version           string                 `json:"version"`
 		LoggerLevel       string                 `json:"loggerLevel"`
@@ -101,19 +100,20 @@ func (c *Config) Save() {
 	c.RUnlock()
 }
 
-func (c *Config) CheckIsUniqPeerAliasAndCache(alias string) bool {
+func (c *Config) IsUniqPeerAlias(alias string) bool {
 	c.Lock()
-	_, ok := c.peersUniqAliases[alias]
-	if !ok {
-		c.peersUniqAliases[alias] = struct{}{}
+	defer c.Unlock()
+	for _, kPeer := range c.KnownPeers {
+		if kPeer.Alias == alias {
+			return false
+		}
 	}
-	c.Unlock()
-	return !ok
+	return true
 }
 
 func (c *Config) GenUniqPeerAlias(name, alias string) string {
 	c.Lock()
-	alias = c.genUniqPeerAlias(name, alias)
+	alias = c.genUniqPeerAlias(name, alias, nil)
 	c.Unlock()
 	return alias
 }
@@ -140,7 +140,6 @@ func (c *Config) RemovePeer(peerID string) (KnownPeer, bool) {
 	knownPeer, exists := c.KnownPeers[peerID]
 	if exists {
 		delete(c.KnownPeers, peerID)
-		delete(c.peersUniqAliases, knownPeer.Alias)
 		c.save()
 	}
 	c.Unlock()
@@ -354,7 +353,7 @@ func (c *Config) path() string {
 	return path
 }
 
-func (c *Config) genUniqPeerAlias(name, alias string) string {
+func (c *Config) genUniqPeerAlias(name, alias string, uniqAliases map[string]struct{}) string {
 	if alias == "" {
 		if name == "" {
 			alias = DefaultPeerAlias
@@ -362,15 +361,21 @@ func (c *Config) genUniqPeerAlias(name, alias string) string {
 			alias = name
 		}
 	}
-	if _, ok := c.peersUniqAliases[alias]; ok {
+	if uniqAliases == nil {
+		uniqAliases = make(map[string]struct{}, len(c.KnownPeers)+1)
+		for _, kPeer := range c.KnownPeers {
+			uniqAliases[kPeer.Alias] = struct{}{}
+		}
+	}
+	if _, ok := uniqAliases[alias]; ok {
 		newAlias := ""
 		for i := 0; ok; i++ {
 			newAlias = fmt.Sprintf("%s_%d", alias, i)
-			_, ok = c.peersUniqAliases[newAlias]
+			_, ok = uniqAliases[newAlias]
 		}
 		alias = newAlias
 	}
-	c.peersUniqAliases[alias] = struct{}{}
+	uniqAliases[alias] = struct{}{}
 	return alias
 }
 

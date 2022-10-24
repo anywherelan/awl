@@ -172,6 +172,28 @@ func TestAutoAcceptFriendRequest(t *testing.T) {
 	a.False(knownPeer.Declined)
 }
 
+func TestUniquePeerAlias(t *testing.T) {
+	a := require.New(t)
+	closeBootstrapNode := initBootstrapNode(t)
+	defer closeBootstrapNode()
+
+	peer1 := newTestPeer(t, false)
+	defer peer1.Close()
+	peer2 := newTestPeer(t, false)
+	defer peer2.Close()
+	peer3 := newTestPeer(t, false)
+	defer peer3.Close()
+	ensurePeersAvailableInDHT(a, peer1, peer3)
+
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer")
+	a.NoError(err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer")
+	a.Error(err)
+}
+
 func BenchmarkTunnelPackets(b *testing.B) {
 	a := require.New(b)
 	closeBootstrapNode := initBootstrapNode(b)

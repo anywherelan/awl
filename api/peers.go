@@ -114,7 +114,7 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	peerID := knownPeer.PeerId()
 
 	req.Alias = strings.TrimSpace(req.Alias)
-	if h.conf.CheckIsUniqPeerAliasAndCache(req.Alias) {
+	if h.conf.IsUniqPeerAlias(req.Alias) {
 		knownPeer.Alias = req.Alias
 	} else {
 		return c.JSON(http.StatusBadRequest, ErrorMessage("peer name is not unique"))
@@ -166,7 +166,7 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 	}
 
 	req.Alias = strings.TrimSpace(req.Alias)
-	if !h.conf.CheckIsUniqPeerAliasAndCache(req.Alias) {
+	if !h.conf.IsUniqPeerAlias(req.Alias) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage("peer name is not unique"))
 	}
 
@@ -221,7 +221,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	}
 
 	req.Alias = strings.TrimSpace(req.Alias)
-	if !h.conf.CheckIsUniqPeerAliasAndCache(req.Alias) {
+	if !h.conf.IsUniqPeerAlias(req.Alias) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage("peer name is not unique"))
 	}
 
