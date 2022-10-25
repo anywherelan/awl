@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
@@ -80,7 +81,7 @@ func TestRemovePeer(t *testing.T) {
 	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 
 	// Add peer2 from peer1 - should succeed
-	err = peer1.api.SendFriendRequest(peer2.PeerID(), "")
+	err = peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
 	a.NoError(err)
 	time.Sleep(500 * time.Millisecond)
 
@@ -113,7 +114,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	defer peer2.Close()
 	ensurePeersAvailableInDHT(a, peer1, peer2)
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "")
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
 	a.NoError(err)
 
 	var authRequests []entity.AuthRequest
@@ -122,7 +123,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 		a.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "", true)
+	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", true)
 	a.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)
@@ -151,7 +152,7 @@ func TestAutoAcceptFriendRequest(t *testing.T) {
 	peer2.app.Conf.P2pNode.AutoAcceptAuthRequests = true
 	peer2.app.Conf.Unlock()
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "")
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
 	a.NoError(err)
 
 	a.Eventually(func() bool {
@@ -170,6 +171,28 @@ func TestAutoAcceptFriendRequest(t *testing.T) {
 	a.True(exists)
 	a.True(knownPeer.Confirmed)
 	a.False(knownPeer.Declined)
+}
+
+func TestUniquePeerAlias(t *testing.T) {
+	a := require.New(t)
+	closeBootstrapNode := initBootstrapNode(t)
+	defer closeBootstrapNode()
+
+	peer1 := newTestPeer(t, false)
+	defer peer1.Close()
+	peer2 := newTestPeer(t, false)
+	defer peer2.Close()
+	peer3 := newTestPeer(t, false)
+	defer peer3.Close()
+	ensurePeersAvailableInDHT(a, peer1, peer3)
+
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer")
+	a.NoError(err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer")
+	a.EqualError(err, api.ErrorPeerAliasIsNotUniq)
 }
 
 func BenchmarkTunnelPackets(b *testing.B) {
@@ -330,7 +353,7 @@ func ensurePeersAvailableInDHT(a *require.Assertions, peer1, peer2 testPeer) {
 
 func makeFriends(a *require.Assertions, peer1, peer2 testPeer) {
 	ensurePeersAvailableInDHT(a, peer1, peer2)
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "")
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
 	a.NoError(err)
 
 	var authRequests []entity.AuthRequest
@@ -339,7 +362,7 @@ func makeFriends(a *require.Assertions, peer1, peer2 testPeer) {
 		a.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "", false)
+	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", false)
 	a.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)

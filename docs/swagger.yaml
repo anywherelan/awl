@@ -18,49 +18,63 @@ definitions:
     type: object
   config.Config:
     properties:
-      bucketSize:
-        type: integer
-      concurrency:
-        type: integer
-      datastore: {}
-      disableFixLowPeers:
-        description: test specific Config options
+      connManager: {}
+      connectionGater: {}
+      disablePing:
         type: boolean
-      enableProviders:
+      enableAutoRelay:
         type: boolean
-      enableValues:
+      enableService:
         type: boolean
-      maxRecordAge:
+      forceReachability:
         type: integer
-      mode:
+      insecure:
+        type: boolean
+      listenAddrs:
+        items: {}
+        type: array
+      multiaddrResolver:
+        $ref: '#/definitions/madns.Resolver'
+      muxers:
+        items:
+          $ref: '#/definitions/config.MsMuxC'
+        type: array
+      peerKey: {}
+      peerstore: {}
+      psk:
+        items:
+          type: integer
+        type: array
+      relay:
+        type: boolean
+      relayCustom:
+        type: boolean
+      relayOpts:
+        items:
+          type: integer
+        type: array
+      reporter: {}
+      securityTransports:
+        items:
+          $ref: '#/definitions/config.MsSecC'
+        type: array
+      staticRelays:
+        items:
+          $ref: '#/definitions/peer.AddrInfo'
+        type: array
+      throttleGlobalLimit:
         type: integer
-      protocolPrefix:
+      throttleInterval:
+        type: integer
+      throttlePeerLimit:
+        type: integer
+      userAgent:
+        description: |-
+          UserAgent is the identifier this node will send to other peers when
+          identifying itself, e.g. via the identify protocol.
+
+          Set it via the UserAgent option function.
         type: string
-      resiliency:
-        type: integer
-      routingTable:
-        properties:
-          autoRefresh:
-            type: boolean
-          checkInterval:
-            type: integer
-          diversityFilter: {}
-          latencyTolerance:
-            type: integer
-          refreshInterval:
-            type: integer
-          refreshQueryTimeout:
-            type: integer
-        type: object
-      testAddressUpdateProcessing:
-        type: boolean
-      v1ProtocolOverride:
-        type: string
-      validator: {}
-      validatorChanged:
-        description: if true implies that the validator has been changed and that
-          Defaults should not be used
-        type: boolean
     type: object
   config.KnownPeer:
     properties:
@@ -90,6 +104,16 @@ definitions:
         type: string
       peerId:
         description: Hex-encoded multihash representing a peer ID
+        type: string
+    type: object
+  config.MsMuxC:
+    properties:
+      id:
+        type: string
+    type: object
+  config.MsSecC:
+    properties:
+      id:
         type: string
     type: object
   entity.AuthRequest:
@@ -170,6 +194,7 @@ definitions:
       peerID:
         type: string
     required:
+    - alias
     - peerID
     type: object
   entity.FriendRequestReply:
@@ -181,6 +206,7 @@ definitions:
       peerID:
         type: string
     required:
+    - alias
     - peerID
     type: object
   entity.GeneralDebugInfo:
@@ -205,6 +231,7 @@ definitions:
       declined:
         type: boolean
       displayName:
+        description: 'Deprecated: useless, equal to Alias all the time'
         type: string
       domainName:
         type: string
@@ -296,6 +323,7 @@ definitions:
       peerID:
         type: string
     required:
+    - alias
     - peerID
     type: object
   kbucket.PeerInfo:
@@ -315,6 +343,8 @@ definitions:
           LastUsefulAt is the time instant at which the peer was last "useful" to us.
           Please see the DHT docs for the definition of usefulness.
         type: string
+    type: object
+  madns.Resolver:
     type: object
   metrics.Stats:
     properties:
@@ -354,6 +384,14 @@ definitions:
         type: boolean
       transient:
         type: boolean
+    type: object
+  peer.AddrInfo:
+    properties:
+      addrs:
+        items: {}
+        type: array
+      id:
+        type: string
     type: object
 host: localhost:8639
 info:
