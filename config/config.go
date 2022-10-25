@@ -101,8 +101,8 @@ func (c *Config) Save() {
 }
 
 func (c *Config) IsUniqPeerAlias(alias string) bool {
-	c.Lock()
-	defer c.Unlock()
+	c.RLock()
+	defer c.RUnlock()
 	for _, kPeer := range c.KnownPeers {
 		if kPeer.Alias == alias {
 			return false
@@ -112,9 +112,9 @@ func (c *Config) IsUniqPeerAlias(alias string) bool {
 }
 
 func (c *Config) GenUniqPeerAlias(name, alias string) string {
-	c.Lock()
+	c.RLock()
 	alias = c.genUniqPeerAlias(name, alias, nil)
-	c.Unlock()
+	c.RUnlock()
 	return alias
 }
 

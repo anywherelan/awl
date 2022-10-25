@@ -177,7 +177,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		peer := conf.KnownPeers[peerID]
 		newAlias := conf.genUniqPeerAlias(peer.Name, peer.Alias, uniqAliases)
 		if newAlias != peer.Alias {
-			logger.Warnf("incorrect config: peer alias %s is not unique, updated automaticaly to %s", peer.Alias, newAlias)
+			logger.Warnf("incorrect config: peer (id: %s) alias %s is not unique, updated automaticaly to %s", peerID, peer.Alias, newAlias)
 			peer.Alias = newAlias
 		}
 		if peer.IPAddr == "" {

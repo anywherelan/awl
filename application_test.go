@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
@@ -191,7 +192,7 @@ func TestUniquePeerAlias(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer")
-	a.Error(err)
+	a.EqualError(err, api.ErrorPeerAliasIsNotUniq)
 }
 
 func BenchmarkTunnelPackets(b *testing.B) {

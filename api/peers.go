@@ -12,6 +12,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 )
 
+const ErrorPeerAliasIsNotUniq = "peer name is not unique"
+
 // @Tags Peers
 // @Summary Get known peers info
 // @Accept json
@@ -114,11 +116,10 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	peerID := knownPeer.PeerId()
 
 	req.Alias = strings.TrimSpace(req.Alias)
-	if h.conf.IsUniqPeerAlias(req.Alias) {
-		knownPeer.Alias = req.Alias
-	} else {
-		return c.JSON(http.StatusBadRequest, ErrorMessage("peer name is not unique"))
+	if !h.conf.IsUniqPeerAlias(req.Alias) {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
 	}
+	knownPeer.Alias = req.Alias
 
 	knownPeer.DomainName = req.DomainName
 	h.conf.UpsertPeer(knownPeer)
@@ -167,7 +168,7 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 
 	req.Alias = strings.TrimSpace(req.Alias)
 	if !h.conf.IsUniqPeerAlias(req.Alias) {
-		return c.JSON(http.StatusBadRequest, ErrorMessage("peer name is not unique"))
+		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
 	}
 
 	h.authStatus.AddPeer(h.ctx, peerId, "", req.Alias, false)
@@ -222,7 +223,7 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 
 	req.Alias = strings.TrimSpace(req.Alias)
 	if !h.conf.IsUniqPeerAlias(req.Alias) {
-		return c.JSON(http.StatusBadRequest, ErrorMessage("peer name is not unique"))
+		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
 	}
 
 	h.authStatus.AddPeer(h.ctx, peerId, auth.Name, req.Alias, true)
