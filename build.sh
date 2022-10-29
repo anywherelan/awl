@@ -54,7 +54,7 @@ install-wintun() {
 # build for linux OS
 gobuild-linux() {
   name="$1"
-  for arch in 386 amd64 arm arm64; do
+  for arch in 386 amd64 arm arm64 mips mipsle; do
     archive_name="$name-linux-$arch-$VERSION.tar.gz"
     filename="$name"
     GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
