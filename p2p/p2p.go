@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -278,7 +279,7 @@ func (p *P2p) Bootstrap() error {
 
 		go func() {
 			defer wg.Done()
-			if err := p.host.Connect(ctx, peerAddr); err != nil && err != context.Canceled {
+			if err := p.host.Connect(ctx, peerAddr); err != nil && !errors.Is(err, context.Canceled) {
 				p.logger.Warnf("Connect to bootstrap node %v: %v", peerAddr.ID, err)
 			} else if err == nil {
 				p.logger.Infof("Connection established with bootstrap node: %v", peerAddr.ID)

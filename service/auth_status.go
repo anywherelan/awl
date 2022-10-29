@@ -321,7 +321,14 @@ func (s *AuthStatus) ExchangeStatusInfoWithAllKnownPeers(ctx context.Context) {
 
 func (s *AuthStatus) BackgroundRetryAuthRequests(ctx context.Context) {
 	f := func() {
-		for peerID, auth := range s.outgoingAuths {
+		s.authsLock.RLock()
+		outgoingAuthsCopy := make(map[peer.ID]protocol.AuthPeer, len(s.outgoingAuths))
+		for key, val := range s.outgoingAuths {
+			outgoingAuthsCopy[key] = val
+		}
+		s.authsLock.RUnlock()
+
+		for peerID, auth := range outgoingAuthsCopy {
 			_ = s.SendAuthRequest(ctx, peerID, auth)
 		}
 	}
