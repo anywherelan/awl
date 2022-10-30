@@ -12,6 +12,9 @@ var (
 	UserAgentPrefix = "awl/"
 )
 
+// IsDevVersion
+// Possible duplicate of *Config.DevMode()
+// Based on build version (unchangeable after build, could be used only by developers)
 func IsDevVersion() bool {
 	return Version == DevVersion
 }
