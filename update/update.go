@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
+	"unicode"
 
 	"github.com/GrigoryKrasnochub/updaterini"
 	"github.com/anywherelan/awl/config"
@@ -42,6 +44,10 @@ var (
 )
 
 func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType ApplicationType) (UpdateService, error) {
+	if config.IsDevVersion() {
+		return UpdateService{}, errors.New("updates are unsupported for dev version")
+	}
+
 	channels := make([]updaterini.Channel, 1)
 	channels[0] = updaterini.NewReleaseChannel(true)
 
@@ -67,7 +73,14 @@ func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType Appl
 		filenamesRegex[0] = awlTrayFilenamesRegex
 	}
 
-	appConf, err := updaterini.NewApplicationConfig(config.Version, channels, filenamesRegex)
+	// TODO update when issue will be fixed https://github.com/GrigoryKrasnochub/updaterini/issues/6
+	version := config.Version
+	splitVer := strings.Split(config.Version, "-")
+	if len(splitVer) > 1 && (len(splitVer) == 0 || unicode.IsDigit([]rune(splitVer[1])[0])) {
+		version = splitVer[0]
+	}
+
+	appConf, err := updaterini.NewApplicationConfig(version, channels, filenamesRegex)
 	if err != nil {
 		return UpdateService{}, err
 	}

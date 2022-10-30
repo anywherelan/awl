@@ -59,6 +59,10 @@ func onReady() {
 	}
 	if conf.Update.TrayAutoCheckEnabled {
 		go func() {
+			if config.IsDevVersion() {
+				logger.Warn("updates auto check is disabled for dev version")
+				return
+			}
 			interval, err := time.ParseDuration(conf.Update.TrayAutoCheckInterval)
 			if err != nil {
 				logger.Errorf("update auto check: interval parse: %v", err)
