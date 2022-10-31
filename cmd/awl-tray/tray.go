@@ -263,12 +263,14 @@ func checkForUpdatesWithDesktopNotification() {
 		logger.Errorf("update auto check: check for updates: %v", err)
 		return
 	}
-	if updStatus {
-		notifyErr := beeep.Notify("Anywherelan: new version available!",
-			fmt.Sprintf("Version %s: %s available for installation!\nUse tray menu option %q\n",
-				updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), updateMenuLabel), tempIconFilepath)
-		if notifyErr != nil {
-			logger.Errorf("show notification: new version available: %v", notifyErr)
-		}
+	if !updStatus {
+		return
+	}
+
+	notifyErr := beeep.Notify("Anywherelan: new version available!",
+		fmt.Sprintf("Version %s: %s available for installation!\nUse tray menu option %q\n",
+			updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), updateMenuLabel), tempIconFilepath)
+	if notifyErr != nil {
+		logger.Errorf("show notification: new version available: %v", notifyErr)
 	}
 }

@@ -320,6 +320,9 @@ func (c *Config) LogLevel() zapcore.Level {
 	return lvl
 }
 
+// DevMode
+// Possible duplicate of IsDevVersion()
+// Based on Config.LoggerLevel (could be used by any user)
 func (c *Config) DevMode() bool {
 	return c.LoggerLevel == "dev"
 }
