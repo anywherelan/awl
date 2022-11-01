@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -346,7 +345,7 @@ func (c *Config) save() {
 		return
 	}
 	path := c.path()
-	err = ioutil.WriteFile(path, data, filesPerm)
+	err = os.WriteFile(path, data, filesPerm)
 	if err != nil {
 		logger.DPanicf("Save config: %v", err)
 	}
