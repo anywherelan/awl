@@ -10,7 +10,7 @@ import (
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/labstack/echo/v4"
-	"github.com/libp2p/go-libp2p-core/metrics"
+	"github.com/libp2p/go-libp2p/core/metrics"
 	ma "github.com/multiformats/go-multiaddr"
 	"go.uber.org/zap/zapcore"
 )
@@ -45,8 +45,6 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 			ConnectedPeersCount:  h.p2p.ConnectedPeersCount(),
 			OpenConnectionsCount: h.p2p.OpenConnectionsCount(),
 			OpenStreamsCount:     h.p2p.OpenStreamsCount(),
-			TotalStreamsInbound:  h.p2p.TotalStreamsInbound(),
-			TotalStreamsOutbound: h.p2p.TotalStreamsOutbound(),
 			LastTrimAgo:          h.p2p.ConnectionsLastTrimAgo().String(),
 		},
 		Bandwidth: entity.BandwidthDebugInfo{

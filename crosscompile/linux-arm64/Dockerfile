@@ -1,4 +1,4 @@
-FROM golang:1.17-buster
+FROM golang:1.19-buster
 LABEL os=linux
 LABEL arch=arm64
 

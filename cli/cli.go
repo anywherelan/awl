@@ -15,7 +15,7 @@ import (
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/update"
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-eventbus"
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/urfave/cli/v2"
 )
 

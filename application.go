@@ -25,9 +25,10 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-peerstore/pstoremem"
+	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
+	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
@@ -238,6 +239,12 @@ func (a *Application) Close() {
 }
 
 func (a *Application) makeP2pHostConfig() p2p.HostConfig {
+	// TODO: use persistent datastore. Check out badger2. Old badger datastore constantly use disk io
+	peerstore, err := pstoremem.NewPeerstore()
+	if err != nil {
+		panic(peerstore)
+	}
+
 	return p2p.HostConfig{
 		PrivKeyBytes:   a.Conf.PrivKey(),
 		ListenAddrs:    a.Conf.GetListenAddresses(),
@@ -245,7 +252,14 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		BootstrapPeers: a.Conf.GetBootstrapPeers(),
 		Libp2pOpts: []libp2p.Option{
 			libp2p.EnableRelay(),
-			libp2p.EnableAutoRelay(),
+			libp2p.EnableAutoRelay(
+				autorelay.WithNumRelays(p2p.DesiredRelays),
+				autorelay.WithBootDelay(p2p.RelayBootDelay),
+				// TODO: remove after next minor release
+				autorelay.WithCircuitV1Support(),
+				autorelay.WithStaticRelays(a.Conf.GetBootstrapPeers()),
+			),
+			libp2p.EnableHolePunching(),
 			libp2p.NATPortMap(),
 		},
 		ConnManager: struct {
@@ -257,8 +271,7 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 			HighWater:   100,
 			GracePeriod: time.Minute,
 		},
-		// TODO: use persistent datastore. Check out badger2. Old badger datastore constantly use disk io
-		Peerstore:    pstoremem.NewPeerstore(),
+		Peerstore:    peerstore,
 		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
 	}
 }

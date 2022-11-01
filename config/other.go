@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,7 +12,7 @@ import (
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-eventbus"
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -95,7 +94,7 @@ func NewConfig(bus awlevent.Bus) *Config {
 func LoadConfig(bus awlevent.Bus) (*Config, error) {
 	dataDir := CalcAppDataDir()
 	configPath := filepath.Join(dataDir, AppConfigFilename)
-	data, err := ioutil.ReadFile(configPath)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +117,7 @@ func ImportConfig(data []byte, directory string) error {
 	}
 
 	path := filepath.Join(directory, AppConfigFilename)
-	err = ioutil.WriteFile(path, data, filesPerm)
+	err = os.WriteFile(path, data, filesPerm)
 	if err != nil {
 		return fmt.Errorf("save file: %v", err)
 	}

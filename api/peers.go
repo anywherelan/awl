@@ -8,7 +8,7 @@ import (
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/labstack/echo/v4"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // @Tags Peers

@@ -12,9 +12,9 @@ import (
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	libp2pProtocol "github.com/libp2p/go-libp2p-core/protocol"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
 )
 
 const (
@@ -393,12 +393,11 @@ func (s *AuthStatus) onPeerConnected(_ network.Network, conn network.Conn) {
 	authPeer, hasOutgAuth := s.outgoingAuths[peerID]
 	s.authsLock.RUnlock()
 
-	s.conf.UpdatePeerLastSeen(peerID.String())
 	knownPeer, known := s.conf.GetPeer(peerID.String())
-
 	if !known && !hasOutgAuth {
 		return
 	}
+	s.conf.UpdatePeerLastSeen(peerID.String())
 
 	go func() {
 		if hasOutgAuth {
