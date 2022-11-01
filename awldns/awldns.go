@@ -30,7 +30,7 @@ type Resolver struct {
 	tcpServer *dns.Server
 	udpClient *dns.Client
 	tcpClient *dns.Client
-	cfg       atomic.Value
+	cfg       atomic.Pointer[config]
 	logger    *log.ZapEventLogger
 
 	udpServerWorking bool
@@ -55,7 +55,7 @@ func NewResolver() *Resolver {
 			SingleInflight: true,
 		},
 	}
-	r.cfg.Store(config{upstreamDNS: "127.0.0.1:53"})
+	r.cfg.Store(&config{upstreamDNS: "127.0.0.1:53"})
 
 	mux := dns.NewServeMux()
 	mux.HandleFunc(LocalDomain, r.dnsLocalDomainHandler)
@@ -119,7 +119,7 @@ func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[str
 		directMapping:  directMapping,
 		reverseMapping: reverseMapping,
 	}
-	r.cfg.Store(cfg)
+	r.cfg.Store(&cfg)
 }
 
 func (r *Resolver) DNSAddress() string {
@@ -145,7 +145,7 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 	if len(req.Question) == 0 {
 		return
 	}
-	cfg := r.cfg.Load().(config)
+	cfg := r.loadConfig()
 
 	m := new(dns.Msg)
 	m.SetReply(req)
@@ -186,7 +186,7 @@ func (r *Resolver) ptrv4Handler(resp dns.ResponseWriter, req *dns.Msg) {
 	}
 
 	name := req.Question[0].Name
-	cfg := r.cfg.Load().(config)
+	cfg := r.loadConfig()
 
 	ip := ptrV4NameToIP(name)
 	if ip == nil {
@@ -217,7 +217,7 @@ func (r *Resolver) ptrv4Handler(resp dns.ResponseWriter, req *dns.Msg) {
 }
 
 func (r *Resolver) dnsProxyHandler(resp dns.ResponseWriter, req *dns.Msg) {
-	cfg := r.cfg.Load().(config)
+	cfg := r.loadConfig()
 
 	dnsClient := r.udpClient
 	if _, ok := resp.RemoteAddr().(*net.TCPAddr); ok {
@@ -234,6 +234,14 @@ func (r *Resolver) dnsProxyHandler(resp dns.ResponseWriter, req *dns.Msg) {
 	}
 
 	_ = resp.WriteMsg(upstreamResp)
+}
+
+func (r *Resolver) loadConfig() config {
+	cfg := r.cfg.Load()
+	if cfg == nil {
+		return config{}
+	}
+	return *cfg
 }
 
 func TrimDomainName(domain string) string {

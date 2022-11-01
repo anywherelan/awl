@@ -82,7 +82,7 @@ type P2p struct {
 	connManager      *connmgr.BasicConnMgr
 	bootstrapPeers   []peer.AddrInfo
 	startedAt        time.Time
-	bootstrapsInfo   atomic.Value // inside map[string]BootstrapPeerDebugInfo
+	bootstrapsInfo   atomic.Pointer[map[string]BootstrapPeerDebugInfo]
 }
 
 func NewP2p(ctx context.Context) *P2p {
@@ -320,7 +320,7 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 
 	wg.Wait()
 
-	p.bootstrapsInfo.Store(bootstrapsInfo)
+	p.bootstrapsInfo.Store(&bootstrapsInfo)
 }
 
 func (p *P2p) connsToPeer(peerID peer.ID) []network.Conn {

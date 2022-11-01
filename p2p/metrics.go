@@ -160,8 +160,11 @@ func (p *P2p) BootstrapPeersStats() (int, int) {
 }
 
 func (p *P2p) BootstrapPeersStatsDetailed() map[string]BootstrapPeerDebugInfo {
-	m, _ := p.bootstrapsInfo.Load().(map[string]BootstrapPeerDebugInfo)
-	return m
+	m := p.bootstrapsInfo.Load()
+	if m == nil {
+		return nil
+	}
+	return *m
 }
 
 func parseMultiaddrToInfo(addr multiaddr.Multiaddr) (ConnectionInfo, bool) {

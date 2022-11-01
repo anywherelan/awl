@@ -340,7 +340,7 @@ func (kp KnownPeer) PeerId() peer.ID {
 	return peerID
 }
 
-func (kp *KnownPeer) DisplayName() string {
+func (kp KnownPeer) DisplayName() string {
 	name := kp.Name
 	if kp.Alias != "" {
 		name = kp.Alias
