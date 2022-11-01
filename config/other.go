@@ -168,11 +168,17 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.VPNConfig.InterfaceName = defaultInterfaceName
 	}
 
+	uniqAliases := make(map[string]struct{}, len(conf.KnownPeers))
 	if conf.KnownPeers == nil {
 		conf.KnownPeers = make(map[string]KnownPeer)
 	}
 	for peerID := range conf.KnownPeers {
 		peer := conf.KnownPeers[peerID]
+		newAlias := conf.genUniqPeerAlias(peer.Name, peer.Alias, uniqAliases)
+		if newAlias != peer.Alias {
+			logger.Warnf("incorrect config: peer (id: %s) alias %s is not unique, updated automaticaly to %s", peerID, peer.Alias, newAlias)
+			peer.Alias = newAlias
+		}
 		if peer.IPAddr == "" {
 			peer.IPAddr = conf.GenerateNextIpAddr()
 		}

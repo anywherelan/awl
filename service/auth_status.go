@@ -95,7 +95,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	}
 	// Processing opposite peer info
 
-	// get latest peer config to reduce race time between get and upsert (without locking)
+	// get the latest peer config to reduce race time between get and upsert (without locking)
 	// TODO: fix race completely
 	knownPeer, _ = s.conf.GetPeer(peerID)
 	newPeer := s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
@@ -136,7 +136,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 		return nil
 	}
 
-	// get latest peer config to reduce race time between get and upsert (without locking)
+	// get the latest peer config to reduce race time between get and upsert (without locking)
 	// TODO: fix race completely
 	knownPeer, _ = s.conf.GetPeer(remotePeerID.String())
 	newPeer := s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
@@ -165,7 +165,7 @@ func (s *AuthStatus) createPeerInfo(_ config.KnownPeer, myPeerName string, decli
 	return myPeerInfo
 }
 
-func (*AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protocol.PeerStatusInfo) config.KnownPeer {
+func (s *AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protocol.PeerStatusInfo) config.KnownPeer {
 	peer.LastSeen = time.Now()
 	if peerInfo.Declined {
 		peer.Declined = true
@@ -176,6 +176,9 @@ func (*AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protoco
 	peer.Declined = false
 	if peer.DomainName == "" {
 		peer.DomainName = awldns.TrimDomainName(peer.DisplayName())
+	}
+	if peer.Alias == "" {
+		peer.Alias = s.conf.GenUniqPeerAlias(peer.Name, peer.Alias)
 	}
 
 	return peer
@@ -211,7 +214,7 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	}
 	if !confirmed && !isBlocked && autoAccept {
 		defer func() {
-			s.AddPeer(context.Background(), remotePeer, authPeer.Name, "", true)
+			s.AddPeer(context.Background(), remotePeer, authPeer.Name, s.conf.GenUniqPeerAlias(authPeer.Name, ""), true)
 		}()
 	}
 
@@ -270,14 +273,14 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	return nil
 }
 
-func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias string, confirmed bool) {
+func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, uniqAlias string, confirmed bool) {
 	s.conf.RLock()
 	ipAddr := s.conf.GenerateNextIpAddr()
 	s.conf.RUnlock()
 	newPeerConfig := config.KnownPeer{
 		PeerID:    peerID.String(),
 		Name:      name,
-		Alias:     alias,
+		Alias:     uniqAlias,
 		IPAddr:    ipAddr,
 		Confirmed: confirmed,
 		CreatedAt: time.Now(),

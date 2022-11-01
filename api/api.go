@@ -8,6 +8,7 @@ import (
 	"net/http"
 	http_pprof "net/http/pprof"
 	"runtime/pprof"
+	"strings"
 
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/p2p"
@@ -61,6 +62,11 @@ func (h *Handler) SetupAPI() error {
 	e.HideBanner = true
 	e.HidePort = true
 	val := validator.New()
+	err := val.RegisterValidation("trimmed_str_not_empty", validateTrimmedStringNotEmpty, false)
+	if err != nil {
+		return err
+	}
+
 	e.Validator = &customValidator{validator: val}
 
 	// Middleware
@@ -162,4 +168,10 @@ func (e Error) Error() string {
 
 func ErrorMessage(message string) Error {
 	return Error{Message: message}
+}
+
+func validateTrimmedStringNotEmpty(fl validator.FieldLevel) bool {
+	str := fl.Field().String()
+	str = strings.TrimSpace(str)
+	return len(str) > 0
 }

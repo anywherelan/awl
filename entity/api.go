@@ -17,11 +17,11 @@ type (
 	}
 	FriendRequest struct {
 		PeerID string `validate:"required"`
-		Alias  string
+		Alias  string `validate:"required,trimmed_str_not_empty"`
 	}
 	FriendRequestReply struct {
 		PeerID  string `validate:"required"`
-		Alias   string
+		Alias   string `validate:"required,trimmed_str_not_empty"`
 		Decline bool
 	}
 	PeerIDRequest struct {
@@ -29,7 +29,7 @@ type (
 	}
 	UpdatePeerSettingsRequest struct {
 		PeerID     string `validate:"required"`
-		Alias      string
+		Alias      string `validate:"required,trimmed_str_not_empty"`
 		DomainName string
 	}
 	UpdateMySettingsRequest struct {
@@ -42,7 +42,7 @@ type (
 	KnownPeersResponse struct {
 		PeerID                 string
 		Name                   string // Deprecated: use DisplayName instead
-		DisplayName            string
+		DisplayName            string // Deprecated: useless, equal to Alias all the time
 		Alias                  string
 		Version                string
 		IpAddr                 string

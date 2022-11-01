@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/config"
@@ -10,6 +11,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
+
+const ErrorPeerAliasIsNotUniq = "peer name is not unique"
 
 // @Tags Peers
 // @Summary Get known peers info
@@ -112,7 +115,12 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	}
 	peerID := knownPeer.PeerId()
 
+	req.Alias = strings.TrimSpace(req.Alias)
+	if !h.conf.IsUniqPeerAlias(req.Alias) {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
+	}
 	knownPeer.Alias = req.Alias
+
 	knownPeer.DomainName = req.DomainName
 	h.conf.UpsertPeer(knownPeer)
 
@@ -156,6 +164,11 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 	_, exist := h.conf.GetPeer(req.PeerID)
 	if exist {
 		return c.JSON(http.StatusBadRequest, ErrorMessage("Peer has already been added"))
+	}
+
+	req.Alias = strings.TrimSpace(req.Alias)
+	if !h.conf.IsUniqPeerAlias(req.Alias) {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
 	}
 
 	h.authStatus.AddPeer(h.ctx, peerId, "", req.Alias, false)
@@ -206,6 +219,11 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	if req.Decline {
 		h.authStatus.BlockPeer(peerId, auth.Name)
 		return c.NoContent(http.StatusOK)
+	}
+
+	req.Alias = strings.TrimSpace(req.Alias)
+	if !h.conf.IsUniqPeerAlias(req.Alias) {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
 	}
 
 	h.authStatus.AddPeer(h.ctx, peerId, auth.Name, req.Alias, true)

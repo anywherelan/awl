@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -25,6 +27,8 @@ const (
 	// TODO 8989 maybe?
 	DefaultHTTPPort      = 8639
 	HttpServerDomainName = "admin"
+
+	DefaultPeerAlias = "peer"
 )
 
 type (
@@ -95,6 +99,24 @@ func (c *Config) Save() {
 	c.RLock()
 	c.save()
 	c.RUnlock()
+}
+
+func (c *Config) IsUniqPeerAlias(alias string) bool {
+	c.RLock()
+	defer c.RUnlock()
+	for _, kPeer := range c.KnownPeers {
+		if kPeer.Alias == alias {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Config) GenUniqPeerAlias(name, alias string) string {
+	c.RLock()
+	alias = c.genUniqPeerAlias(name, alias, nil)
+	c.RUnlock()
+	return alias
 }
 
 func (c *Config) KnownPeersIds() []peer.ID {
@@ -299,6 +321,9 @@ func (c *Config) LogLevel() zapcore.Level {
 	return lvl
 }
 
+// DevMode
+// Possible duplicate of IsDevVersion()
+// Based on Config.LoggerLevel (could be used by any user)
 func (c *Config) DevMode() bool {
 	return c.LoggerLevel == "dev"
 }
@@ -321,7 +346,7 @@ func (c *Config) save() {
 		return
 	}
 	path := c.path()
-	err = os.WriteFile(path, data, filesPerm)
+	err = ioutil.WriteFile(path, data, filesPerm)
 	if err != nil {
 		logger.DPanicf("Save config: %v", err)
 	}
@@ -330,6 +355,32 @@ func (c *Config) save() {
 func (c *Config) path() string {
 	path := filepath.Join(c.dataDir, AppConfigFilename)
 	return path
+}
+
+func (c *Config) genUniqPeerAlias(name, alias string, uniqAliases map[string]struct{}) string {
+	if alias == "" {
+		if name == "" {
+			alias = DefaultPeerAlias
+		} else {
+			alias = name
+		}
+	}
+	if uniqAliases == nil {
+		uniqAliases = make(map[string]struct{}, len(c.KnownPeers)+1)
+		for _, kPeer := range c.KnownPeers {
+			uniqAliases[kPeer.Alias] = struct{}{}
+		}
+	}
+	if _, ok := uniqAliases[alias]; ok {
+		newAlias := ""
+		for i := 0; ok; i++ {
+			newAlias = fmt.Sprintf("%s_%d", alias, i)
+			_, ok = uniqAliases[newAlias]
+		}
+		alias = newAlias
+	}
+	uniqAliases[alias] = struct{}{}
+	return alias
 }
 
 func (kp KnownPeer) PeerId() peer.ID {
