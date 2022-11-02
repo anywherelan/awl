@@ -242,7 +242,7 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 	// TODO: use persistent datastore. Check out badger2. Old badger datastore constantly use disk io
 	peerstore, err := pstoremem.NewPeerstore()
 	if err != nil {
-		panic(peerstore)
+		panic(err)
 	}
 
 	return p2p.HostConfig{
