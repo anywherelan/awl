@@ -8,12 +8,12 @@ import (
 	"syscall"
 	"time"
 
+	"fyne.io/systray"
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/cli"
 	"github.com/anywherelan/awl/config"
 	"github.com/gen2brain/beeep"
-	"github.com/getlantern/systray"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 )
@@ -32,6 +32,8 @@ func getConfig() (*config.Config, error) {
 
 func main() {
 	cli.New().Run()
+
+	initOSSpecificHacks()
 
 	systray.Run(onReady, onExit)
 }
@@ -95,6 +97,8 @@ func InitServer() (err error) {
 		}
 	}()
 	app = awl.New()
+	// TODO: setup logger in main(), before systray and others
+	//  now we can have panics because of this
 	logger = app.SetupLoggerAndConfig()
 
 	err = app.Init(context.Background(), nil)

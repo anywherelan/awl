@@ -39,7 +39,7 @@ func (a *Application) Run() {
 	if len(os.Args) == 1 {
 		return
 	} else if os.Args[1] != "cli" {
-		a.logger.Fatalf("Unknown command '%s', try 'awl cli -h' for info on cli commands or 'awl' to start awl server", os.Args[1])
+		a.logger.Fatalf("Unknown command '%s', try '%s cli -h' for info on cli commands or 'awl' to start awl server", os.Args[1], path.Base(os.Args[0]))
 	}
 	err := a.cliapp.Run(os.Args[1:])
 	if err != nil {
