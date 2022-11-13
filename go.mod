@@ -10,7 +10,7 @@ require (
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/ipfs/go-log/v2 v2.5.1
 	github.com/labstack/echo/v4 v4.9.1
-	github.com/libp2p/go-libp2p v0.23.2
+	github.com/libp2p/go-libp2p v0.23.4
 	github.com/libp2p/go-libp2p-kad-dht v0.18.0
 	github.com/libp2p/go-libp2p-kbucket v0.5.0
 	github.com/miekg/dns v1.1.50
@@ -19,11 +19,11 @@ require (
 	github.com/multiformats/go-multiaddr v0.7.0
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/stretchr/testify v1.8.1
-	github.com/urfave/cli/v2 v2.23.0
+	github.com/urfave/cli/v2 v2.23.5
 	go.uber.org/multierr v1.8.0
 	go.uber.org/zap v1.23.0
-	golang.org/x/net v0.1.0
-	golang.org/x/sys v0.1.0
+	golang.org/x/net v0.2.0
+	golang.org/x/sys v0.2.0
 	golang.zx2c4.com/wireguard v0.0.0-20210905140043-2ef39d47540c
 	golang.zx2c4.com/wireguard/windows v0.4.10
 	inet.af/netaddr v0.0.0-20220811202034-502d2d690317
