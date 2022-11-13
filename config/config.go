@@ -3,15 +3,15 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/anywherelan/awl/awlevent"
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/mr-tron/base58/base58"
 	"github.com/multiformats/go-multiaddr"
 	"go.uber.org/zap/zapcore"
@@ -345,7 +345,7 @@ func (c *Config) save() {
 		return
 	}
 	path := c.path()
-	err = ioutil.WriteFile(path, data, filesPerm)
+	err = os.WriteFile(path, data, filesPerm)
 	if err != nil {
 		logger.DPanicf("Save config: %v", err)
 	}
@@ -390,7 +390,7 @@ func (kp KnownPeer) PeerId() peer.ID {
 	return peerID
 }
 
-func (kp *KnownPeer) DisplayName() string {
+func (kp KnownPeer) DisplayName() string {
 	name := kp.Name
 	if kp.Alias != "" {
 		name = kp.Alias

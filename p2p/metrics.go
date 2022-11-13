@@ -3,14 +3,13 @@ package p2p
 import (
 	"net"
 	"strings"
-	"sync/atomic"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/metrics"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/libp2p/go-libp2p-kbucket"
+	"github.com/libp2p/go-libp2p/core/metrics"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -92,15 +91,14 @@ func (p *P2p) OpenConnectionsCount() int {
 }
 
 func (p *P2p) OpenStreamsCount() int64 {
-	return atomic.LoadInt64(&p.openedStreams)
-}
+	count := int64(0)
+	conns := p.host.Network().Conns()
+	for _, conn := range conns {
+		stats := conn.Stat()
+		count += int64(stats.NumStreams)
+	}
 
-func (p *P2p) TotalStreamsInbound() int64 {
-	return atomic.LoadInt64(&p.totalStreamsInbound)
-}
-
-func (p *P2p) TotalStreamsOutbound() int64 {
-	return atomic.LoadInt64(&p.totalStreamsOutbound)
+	return count
 }
 
 func (p *P2p) OpenStreamStats() map[protocol.ID]map[string]int {
@@ -162,8 +160,11 @@ func (p *P2p) BootstrapPeersStats() (int, int) {
 }
 
 func (p *P2p) BootstrapPeersStatsDetailed() map[string]BootstrapPeerDebugInfo {
-	m, _ := p.bootstrapsInfo.Load().(map[string]BootstrapPeerDebugInfo)
-	return m
+	m := p.bootstrapsInfo.Load()
+	if m == nil {
+		return nil
+	}
+	return *m
 }
 
 func parseMultiaddrToInfo(addr multiaddr.Multiaddr) (ConnectionInfo, bool) {

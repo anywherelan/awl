@@ -21,10 +21,10 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-peerstore/pstoremem"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
+	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
@@ -307,6 +307,9 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 }
 
 func initBootstrapNode(t testing.TB) func() {
+	peerstore, err := pstoremem.NewPeerstore()
+	require.NoError(t, err)
+
 	hostConfig := p2p.HostConfig{
 		PrivKeyBytes: nil,
 		ListenAddrs: []multiaddr.Multiaddr{
@@ -319,7 +322,7 @@ func initBootstrapNode(t testing.TB) func() {
 			libp2p.DisableRelay(),
 			libp2p.ForceReachabilityPublic(),
 		},
-		Peerstore:    pstoremem.NewPeerstore(),
+		Peerstore:    peerstore,
 		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
 	}
 

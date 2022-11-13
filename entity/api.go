@@ -5,8 +5,8 @@ import (
 
 	"github.com/anywherelan/awl/p2p"
 	"github.com/anywherelan/awl/protocol"
-	"github.com/libp2p/go-libp2p-core/metrics"
 	kbucket "github.com/libp2p/go-libp2p-kbucket"
+	"github.com/libp2p/go-libp2p/core/metrics"
 )
 
 // Requests
@@ -108,8 +108,6 @@ type (
 		ConnectedPeersCount  int
 		OpenConnectionsCount int
 		OpenStreamsCount     int64
-		TotalStreamsInbound  int64
-		TotalStreamsOutbound int64
 		LastTrimAgo          string
 	}
 	BandwidthDebugInfo struct {

@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/libp2p/go-eventbus"
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 )
 
 func TestIncrementIPAddr(t *testing.T) {

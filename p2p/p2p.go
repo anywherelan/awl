@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -12,30 +13,27 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p"
-	connmgr "github.com/libp2p/go-libp2p-connmgr"
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/metrics"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/peerstore"
-	"github.com/libp2p/go-libp2p-core/protocol"
-	"github.com/libp2p/go-libp2p-core/routing"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
-	noise "github.com/libp2p/go-libp2p-noise"
-	quic "github.com/libp2p/go-libp2p-quic-transport"
-	swarm "github.com/libp2p/go-libp2p-swarm"
-	tls "github.com/libp2p/go-libp2p-tls"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/metrics"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/libp2p/go-libp2p/core/routing"
 	basichost "github.com/libp2p/go-libp2p/p2p/host/basic"
-	"github.com/libp2p/go-libp2p/p2p/host/relay"
-	"github.com/libp2p/go-tcp-transport"
+	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
+	"github.com/libp2p/go-libp2p/p2p/net/swarm"
+	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
+	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
 	"go.uber.org/multierr"
 )
 
 const (
 	DesiredRelays  = 2
-	RelayBootDelay = 10 * time.Second
+	RelayBootDelay = 20 * time.Second
 
 	DHTProtocolPrefix protocol.ID = "/awl"
 
@@ -73,11 +71,6 @@ type IDService interface {
 }
 
 type P2p struct {
-	// has to be 64-bit aligned
-	openedStreams        int64
-	totalStreamsInbound  int64
-	totalStreamsOutbound int64
-
 	logger    *log.ZapEventLogger
 	ctx       context.Context
 	ctxCancel func()
@@ -89,7 +82,7 @@ type P2p struct {
 	connManager      *connmgr.BasicConnMgr
 	bootstrapPeers   []peer.AddrInfo
 	startedAt        time.Time
-	bootstrapsInfo   atomic.Value // inside map[string]BootstrapPeerDebugInfo
+	bootstrapsInfo   atomic.Pointer[map[string]BootstrapPeerDebugInfo]
 }
 
 func NewP2p(ctx context.Context) *P2p {
@@ -119,21 +112,21 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 	p.bandwidthCounter = metrics.NewBandwidthCounter()
 	p.bootstrapPeers = hostConfig.BootstrapPeers
 
-	p.connManager = connmgr.NewConnManager(
+	p.connManager, err = connmgr.NewConnManager(
 		hostConfig.ConnManager.LowWater,
 		hostConfig.ConnManager.HighWater,
-		hostConfig.ConnManager.GracePeriod,
+		connmgr.WithGracePeriod(hostConfig.ConnManager.GracePeriod),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("new conn manager: %v", err)
+	}
 
 	listenAddrs := hostConfig.ListenAddrs
 	if len(listenAddrs) == 0 {
 		listenAddrs = findListenAddrs()
 	}
 
-	relay.DesiredRelays = DesiredRelays
-	relay.BootDelay = RelayBootDelay
-
-	p2pHost, err := libp2p.New(p.ctx,
+	p2pHost, err := libp2p.New(
 		libp2p.Peerstore(hostConfig.Peerstore),
 		libp2p.Identity(privKey),
 		libp2p.UserAgent(hostConfig.UserAgent),
@@ -141,7 +134,7 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		libp2p.ConnectionManager(p.connManager),
 		libp2p.ListenAddrs(listenAddrs...),
 		libp2p.ChainOptions(
-			libp2p.Transport(quic.NewTransport),
+			libp2p.Transport(libp2pquic.NewTransport),
 			libp2p.Transport(tcp.NewTCPTransport),
 		),
 		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
@@ -157,10 +150,7 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 			return p.dht, err
 		}),
 		libp2p.DefaultMuxers,
-		libp2p.ChainOptions(
-			libp2p.Security(tls.ID, tls.New),
-			libp2p.Security(noise.ID, noise.New),
-		),
+		libp2p.DefaultSecurity,
 		libp2p.ChainOptions(hostConfig.Libp2pOpts...),
 	)
 	if err != nil {
@@ -168,32 +158,6 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 	}
 	p.host = p2pHost
 	p.startedAt = time.Now()
-
-	logger := p.logger
-	notifyBundle := &network.NotifyBundle{
-		OpenedStreamF: func(_ network.Network, stream network.Stream) {
-			if p == nil {
-				logger.Warn("notifyBundle: unexpected P2p object is nil")
-				return
-			} else if stream == nil {
-				logger.Warn("notifyBundle: unexpected stream object is nil")
-				return
-			}
-			atomic.AddInt64(&p.openedStreams, 1)
-			switch stream.Stat().Direction {
-			case network.DirInbound:
-				atomic.AddInt64(&p.totalStreamsInbound, 1)
-			case network.DirOutbound:
-				atomic.AddInt64(&p.totalStreamsOutbound, 1)
-			case network.DirUnknown:
-				// nothing
-			}
-		},
-		ClosedStreamF: func(_ network.Network, _ network.Stream) {
-			atomic.AddInt64(&p.openedStreams, -1)
-		},
-	}
-	p.host.Network().Notify(notifyBundle)
 
 	return p2pHost, nil
 }
@@ -241,6 +205,7 @@ func (p *P2p) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
 }
 
 func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
+	ctx = network.WithUseTransient(ctx, "awl")
 	return p.host.NewStream(ctx, id, proto)
 }
 
@@ -278,7 +243,7 @@ func (p *P2p) Bootstrap() error {
 
 		go func() {
 			defer wg.Done()
-			if err := p.host.Connect(ctx, peerAddr); err != nil && err != context.Canceled {
+			if err := p.host.Connect(ctx, peerAddr); err != nil && !errors.Is(err, context.Canceled) {
 				p.logger.Warnf("Connect to bootstrap node %v: %v", peerAddr.ID, err)
 			} else if err == nil {
 				p.logger.Infof("Connection established with bootstrap node: %v", peerAddr.ID)
@@ -316,7 +281,6 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 		}
 
 		p.connectToKnownPeers(ctx, interval, knownPeersIdsFunc())
-		p.connManager.TrimOpenConns(p.ctx)
 	}
 }
 
@@ -356,7 +320,7 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 
 	wg.Wait()
 
-	p.bootstrapsInfo.Store(bootstrapsInfo)
+	p.bootstrapsInfo.Store(&bootstrapsInfo)
 }
 
 func (p *P2p) connsToPeer(peerID peer.ID) []network.Conn {

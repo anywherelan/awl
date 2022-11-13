@@ -1,5 +1,6 @@
 run:
   timeout: 2m
+  go: "1.19"
 
 linters:
   disable-all: true

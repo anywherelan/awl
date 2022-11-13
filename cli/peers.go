@@ -50,9 +50,9 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 			return fmt.Errorf("format flag is incorrect: unknown format flat char \"%s\"", fcs)
 		}
 
-		switch fcs {
-		case TableFormatRowNumber:
-			table.SetColMinWidth(ci, 2) // BUG! lib expand empty cells to min width 2. We make our filed cells the same size with empty
+		if fcs == TableFormatRowNumber {
+			// BUG! lib expand empty cells to min width 2. We make our filed cells the same size with empty
+			table.SetColMinWidth(ci, 2)
 		}
 		headers = append(headers, fHeaderMap[fcs])
 		columns = append(columns, fcs)

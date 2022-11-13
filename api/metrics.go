@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/anywherelan/awl/entity"
-	"github.com/libp2p/go-libp2p-core/metrics"
+	"github.com/libp2p/go-libp2p/core/metrics"
 )
 
 func getStatsInIECUnits(stats metrics.Stats) entity.StatsInUnits {

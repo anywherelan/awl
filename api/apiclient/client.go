@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"time"
@@ -128,7 +127,7 @@ func (c *Client) ApplicationLog(numberOfLogs int, startFromHead bool) (string, e
 	}
 	defer resp.Body.Close()
 
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	return string(b), err
 }
 
@@ -192,13 +191,10 @@ func (c *Client) readResponseBody(resp *http.Response, responseRef interface{}) 
 		}
 		return apiError
 	} else if responseRef != nil {
-		err := json.NewDecoder(resp.Body).Decode(responseRef)
-		if err != nil {
-			return err
-		}
-	} else {
-		_, _ = io.Copy(ioutil.Discard, resp.Body)
+		return json.NewDecoder(resp.Body).Decode(responseRef)
 	}
+
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	return nil
 }

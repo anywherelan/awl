@@ -76,6 +76,7 @@ func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType Appl
 	// TODO update when issue will be fixed https://github.com/GrigoryKrasnochub/updaterini/issues/6
 	version := config.Version
 	splitVer := strings.Split(config.Version, "-")
+	//nolint:gocritic // preferDecodeRune utf8.DecodeRuneInString
 	if len(splitVer) > 1 && (len(splitVer[1]) == 0 || unicode.IsDigit([]rune(splitVer[1])[0])) {
 		version = splitVer[0]
 	}

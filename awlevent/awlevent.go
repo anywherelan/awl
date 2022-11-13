@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/anywherelan/awl/protocol"
-	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p/core/event"
 )
 
 type Bus = event.Bus
