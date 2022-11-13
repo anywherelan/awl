@@ -8,7 +8,7 @@
 * gcc, gtk3, libappindicator3 for awl-tray on Linux ([see more](https://github.com/anywherelan/systray#platform-notes))
   - only for development, do not need for release build
 * gomobile and Android Studio for Android ([see more](https://pkg.go.dev/golang.org/x/mobile/cmd/gomobile))
-* Flutter (2.10)
+* Flutter (3.3)
 
 ## Build
 
