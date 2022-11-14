@@ -67,3 +67,11 @@ jobs:
           name: awl-release-build
           path: awl/build/*
           if-no-files-found: error
+      - name: Assert number of built files
+        run: |
+          files_count="$(ls -1q awl/build/ | wc -l)"
+          echo "built $files_count files"
+          if [ "$files_count" != "15" ]; then
+               echo "::error::Files count mismatch"
+               exit 1
+          fi
