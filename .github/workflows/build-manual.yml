@@ -35,17 +35,22 @@ jobs:
           go-version: 1.19.x
           cache: true
           cache-dependency-path: awl/go.sum
-      - uses: actions/setup-java@v1
+      - uses: actions/setup-java@v3
         with:
+          distribution: 'zulu'
           java-version: '12.x'
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '2.10.x'
+          flutter-version: '3.3.x'
           channel: 'stable'
       - run: flutter --version
+      - name: Install ndk-bundle
+        run: $ANDROID_HOME/tools/bin/sdkmanager --install "ndk-bundle"
 
       - name: Build
         run: |
+          export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk-bundle
+          unset ANDROID_NDK_HOME
           cd awl
           go install golang.org/x/mobile/cmd/gomobile@latest
           go get -d golang.org/x/mobile/cmd/gomobile
@@ -62,3 +67,11 @@ jobs:
           name: awl-release-build
           path: awl/build/*
           if-no-files-found: error
+      - name: Assert number of built files
+        run: |
+          files_count="$(ls -1q awl/build/ | wc -l)"
+          echo "built $files_count files"
+          if [ "$files_count" != "15" ]; then
+               echo "::error::Files count mismatch"
+               exit 1
+          fi
