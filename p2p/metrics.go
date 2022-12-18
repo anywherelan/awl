@@ -175,8 +175,9 @@ func parseMultiaddrToInfo(addr multiaddr.Multiaddr) (ConnectionInfo, bool) {
 		ip, _ := addr.ValueForProtocol(protocols[0].Code)
 		port, _ := addr.ValueForProtocol(protocols[1].Code)
 		info.Address = net.JoinHostPort(ip, port)
-	} else if len(protocols) == 3 && protocols[2].Code == multiaddr.P_QUIC {
-		info.Protocol = protocols[2].Name
+	} else if len(protocols) == 3 &&
+		(protocols[2].Code == multiaddr.P_QUIC || protocols[2].Code == multiaddr.P_QUIC_V1) {
+		info.Protocol = "quic"
 		ip, _ := addr.ValueForProtocol(protocols[0].Code)
 		port, _ := addr.ValueForProtocol(protocols[1].Code)
 		info.Address = net.JoinHostPort(ip, port)

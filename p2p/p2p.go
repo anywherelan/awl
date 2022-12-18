@@ -357,8 +357,8 @@ func UnicastListenAddrs() []multiaddr.Multiaddr {
 	return []multiaddr.Multiaddr{
 		multiaddr.StringCast("/ip4/0.0.0.0/tcp/0"),
 		multiaddr.StringCast("/ip6/::/tcp/0"),
-		multiaddr.StringCast("/ip4/0.0.0.0/udp/0/quic"),
-		multiaddr.StringCast("/ip6/::/udp/0/quic"),
+		multiaddr.StringCast("/ip4/0.0.0.0/udp/0/quic-v1"),
+		multiaddr.StringCast("/ip6/::/udp/0/quic-v1"),
 	}
 }
 
@@ -366,7 +366,7 @@ func DefaultListenAddrs() []multiaddr.Multiaddr {
 	return []multiaddr.Multiaddr{
 		multiaddr.StringCast(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", defaultP2pPort)),
 		multiaddr.StringCast(fmt.Sprintf("/ip6/::/tcp/%d", defaultP2pPort)),
-		multiaddr.StringCast(fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic", defaultP2pPort)),
-		multiaddr.StringCast(fmt.Sprintf("/ip6/::/udp/%d/quic", defaultP2pPort)),
+		multiaddr.StringCast(fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", defaultP2pPort)),
+		multiaddr.StringCast(fmt.Sprintf("/ip6/::/udp/%d/quic-v1", defaultP2pPort)),
 	}
 }
