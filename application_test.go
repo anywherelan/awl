@@ -314,7 +314,7 @@ func initBootstrapNode(t testing.TB) func() {
 		PrivKeyBytes: nil,
 		ListenAddrs: []multiaddr.Multiaddr{
 			multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
-			multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic"),
+			multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
 		},
 		UserAgent:      config.UserAgent,
 		BootstrapPeers: []peer.AddrInfo{},

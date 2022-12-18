@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 
 	"github.com/anywherelan/awl/awldns"
@@ -36,7 +35,7 @@ func init() {
 
 		// copy of cze-1 in case dns does not work
 		"/ip4/195.181.214.203/tcp/6150/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
-		"/ip4/195.181.214.203/udp/6150/quic/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
+		"/ip4/195.181.214.203/udp/6150/quic-v1/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
 	} {
 		ma, err := multiaddr.NewMultiaddr(s)
 		if err != nil {
@@ -128,20 +127,9 @@ func ImportConfig(data []byte, directory string) error {
 
 func setDefaults(conf *Config, bus awlevent.Bus) {
 	// P2pNode
-
-	// Previously these addresses were used as default, but not anymore. Remove them from config to use new real defaults
-	default4ListenAddrs := []string{
-		"/ip4/0.0.0.0/tcp/0",
-		"/ip6/::/tcp/0",
-		"/ip4/0.0.0.0/udp/0/quic",
-		"/ip6/::/udp/0/quic",
+	if conf.P2pNode.ListenAddresses == nil {
+		conf.P2pNode.ListenAddresses = make([]string, 0)
 	}
-	default6ListenAddrs := append([]string{"/ip4/0.0.0.0/udp/0", "/ip6/::/udp/0"}, default4ListenAddrs...)
-	if stringSlicesEqual(conf.P2pNode.ListenAddresses, default4ListenAddrs) ||
-		stringSlicesEqual(conf.P2pNode.ListenAddresses, default6ListenAddrs) || conf.P2pNode.ListenAddresses == nil {
-		conf.P2pNode.ListenAddresses = []string{}
-	}
-
 	if conf.P2pNode.BootstrapPeers == nil {
 		conf.P2pNode.BootstrapPeers = make([]string, 0)
 	}
@@ -223,25 +211,4 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if i := conf.Update.TrayAutoCheckInterval; i == "" || i == "24h" {
 		conf.Update.TrayAutoCheckInterval = "8h"
 	}
-}
-
-// stringSlicesEqual compares slices by content and ignores order. It also allocates copies of s1, s2.
-func stringSlicesEqual(s1, s2 []string) bool {
-	if len(s1) != len(s2) {
-		return false
-	}
-	s1Copy := make([]string, len(s1))
-	copy(s1Copy, s1)
-	s2Copy := make([]string, len(s2))
-	copy(s2Copy, s2)
-	sort.Strings(s1Copy)
-	sort.Strings(s2Copy)
-
-	for i := range s1Copy {
-		if s1Copy[i] != s2Copy[i] {
-			return false
-		}
-	}
-
-	return true
 }
