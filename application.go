@@ -29,6 +29,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
+	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
@@ -245,6 +246,12 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		panic(err)
 	}
 
+	resourceLimitsConfig := rcmgr.InfiniteLimits
+	mgr, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(resourceLimitsConfig))
+	if err != nil {
+		panic(err)
+	}
+
 	return p2p.HostConfig{
 		PrivKeyBytes:   a.Conf.PrivKey(),
 		ListenAddrs:    a.Conf.GetListenAddresses(),
@@ -255,10 +262,9 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 			libp2p.EnableAutoRelay(
 				autorelay.WithNumRelays(p2p.DesiredRelays),
 				autorelay.WithBootDelay(p2p.RelayBootDelay),
-				// TODO: remove after next minor release
-				autorelay.WithCircuitV1Support(),
 				autorelay.WithStaticRelays(a.Conf.GetBootstrapPeers()),
 			),
+			libp2p.ResourceManager(mgr),
 			libp2p.EnableHolePunching(),
 			libp2p.NATPortMap(),
 		},
