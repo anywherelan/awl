@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -147,7 +148,7 @@ func (d *Device) tunPacketsReader() {
 		}
 
 		size, err := d.tun.Read(data.Buffer[:], tunPacketOffset)
-		if err == io.EOF {
+		if err == os.ErrClosed {
 			return
 		} else if err != nil {
 			d.logger.Errorf("Failed to read packet from TUN device: %v", err)
