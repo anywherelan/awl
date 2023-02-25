@@ -259,10 +259,10 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		BootstrapPeers: a.Conf.GetBootstrapPeers(),
 		Libp2pOpts: []libp2p.Option{
 			libp2p.EnableRelay(),
-			libp2p.EnableAutoRelay(
+			libp2p.EnableAutoRelayWithStaticRelays(
+				a.Conf.GetBootstrapPeers(),
 				autorelay.WithNumRelays(p2p.DesiredRelays),
 				autorelay.WithBootDelay(p2p.RelayBootDelay),
-				autorelay.WithStaticRelays(a.Conf.GetBootstrapPeers()),
 			),
 			libp2p.ResourceManager(mgr),
 			libp2p.EnableHolePunching(),

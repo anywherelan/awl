@@ -2,7 +2,7 @@
 
 ## Dependencies
 
-* Go (1.19)
+* Go (1.20)
 * Git
 * Docker - only for cross-compilation of awl-tray for linux, do not need for development
 * gcc, gtk3, libappindicator3 for awl-tray on Linux ([see more](https://github.com/anywherelan/systray#platform-notes))

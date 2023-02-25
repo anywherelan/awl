@@ -3,10 +3,10 @@ package awl
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/rand"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -246,7 +246,10 @@ func testPacket(length int) []byte {
 	if length > len(data) {
 		packet = make([]byte, length)
 		copy(packet, data)
-		rand.Read(packet[len(data):])
+		_, err = rand.Read(packet[len(data):])
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	vpnPacket := vpn.Packet{}
@@ -351,7 +354,7 @@ func ensurePeersAvailableInDHT(a *require.Assertions, peer1, peer2 testPeer) {
 		_, err2 := peer2.app.P2p.FindPeer(context.Background(), peer1.app.P2p.PeerID())
 
 		return err1 == nil && err2 == nil
-	}, time.Second, 30*time.Millisecond)
+	}, 5*time.Second, 30*time.Millisecond)
 }
 
 func makeFriends(a *require.Assertions, peer1, peer2 testPeer) {

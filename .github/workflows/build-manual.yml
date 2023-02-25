@@ -32,7 +32,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.19.x
+          go-version: 1.20.x
           cache: true
           cache-dependency-path: awl/go.sum
       - uses: actions/setup-java@v3
@@ -55,8 +55,8 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@latest
           go get -d golang.org/x/mobile/cmd/gomobile
           gomobile init
-          go mod tidy -compat=1.19
-          cd cmd/awl-tray && go mod tidy -compat=1.19 && cd ../..
+          go mod tidy -compat=1.20
+          cd cmd/awl-tray && go mod tidy -compat=1.20 && cd ../..
           ./build.sh docker-images
           ./build.sh release
           echo "ls build"
