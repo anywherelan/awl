@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	logBufSize = 100 * 1024
+	logBufSize = 1 << 20
 )
 
 //go:embed static
