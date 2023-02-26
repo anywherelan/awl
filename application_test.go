@@ -3,10 +3,10 @@ package awl
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/rand"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -22,9 +22,11 @@ import (
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
+	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
@@ -33,179 +35,156 @@ import (
 
 func init() {
 	useAwldns = false
+	config.DefaultBootstrapPeers = nil
 }
 
 func TestMakeFriends(t *testing.T) {
-	a := require.New(t)
-	closeBootstrapNode := initBootstrapNode(t)
-	defer closeBootstrapNode()
+	ts := NewTestSuite(t)
 
-	peer1 := newTestPeer(t, false)
-	defer peer1.Close()
-	peer2 := newTestPeer(t, false)
-	defer peer2.Close()
+	peer1 := ts.newTestPeer(false)
+	peer2 := ts.newTestPeer(false)
 
-	makeFriends(a, peer2, peer1)
+	ts.makeFriends(peer2, peer1)
 }
 
 func TestRemovePeer(t *testing.T) {
-	a := require.New(t)
-	closeBootstrapNode := initBootstrapNode(t)
-	defer closeBootstrapNode()
+	ts := NewTestSuite(t)
 
-	peer1 := newTestPeer(t, false)
-	defer peer1.Close()
-	peer2 := newTestPeer(t, false)
-	defer peer2.Close()
+	peer1 := ts.newTestPeer(false)
+	peer2 := ts.newTestPeer(false)
 
-	makeFriends(a, peer2, peer1)
+	ts.makeFriends(peer2, peer1)
 
 	// Remove peer2 from peer1
 	err := peer1.api.RemovePeer(peer2.PeerID())
-	a.NoError(err)
+	ts.NoError(err)
 
 	peer2From1, err := peer1.api.KnownPeerConfig(peer2.PeerID())
-	a.EqualError(err, "peer not found")
-	a.Nil(peer2From1)
+	ts.EqualError(err, "peer not found")
+	ts.Nil(peer2From1)
 	_, blockedPeerExists := peer1.app.Conf.GetBlockedPeer(peer2.PeerID())
-	a.True(blockedPeerExists)
+	ts.True(blockedPeerExists)
 
 	time.Sleep(500 * time.Millisecond)
 	peer1From2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
-	a.NoError(err)
-	a.NotNil(peer1From2)
-	a.True(peer1From2.Confirmed)
-	a.True(peer1From2.Declined)
+	ts.NoError(err)
+	ts.NotNil(peer1From2)
+	ts.True(peer1From2.Confirmed)
+	ts.True(peer1From2.Declined)
 
-	a.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
-	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
+	ts.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
+	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 
 	// Add peer2 from peer1 - should succeed
 	err = peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
-	a.NoError(err)
+	ts.NoError(err)
 	time.Sleep(500 * time.Millisecond)
 
 	peer2From1, err = peer1.api.KnownPeerConfig(peer2.PeerID())
-	a.NoError(err)
-	a.True(peer2From1.Confirmed)
-	a.False(peer2From1.Declined)
+	ts.NoError(err)
+	ts.True(peer2From1.Confirmed)
+	ts.False(peer2From1.Declined)
 
 	_, blockedPeerExists = peer1.app.Conf.GetBlockedPeer(peer2.PeerID())
-	a.False(blockedPeerExists)
+	ts.False(blockedPeerExists)
 
 	peer1From2, err = peer2.api.KnownPeerConfig(peer1.PeerID())
-	a.NoError(err)
-	a.NotNil(peer1From2)
-	a.True(peer1From2.Confirmed)
-	a.False(peer1From2.Declined)
+	ts.NoError(err)
+	ts.NotNil(peer1From2)
+	ts.True(peer1From2.Confirmed)
+	ts.False(peer1From2.Declined)
 
-	a.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
-	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
+	ts.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
+	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 }
 
 func TestDeclinePeerFriendRequest(t *testing.T) {
-	a := require.New(t)
-	closeBootstrapNode := initBootstrapNode(t)
-	defer closeBootstrapNode()
+	ts := NewTestSuite(t)
 
-	peer1 := newTestPeer(t, false)
-	defer peer1.Close()
-	peer2 := newTestPeer(t, false)
-	defer peer2.Close()
-	ensurePeersAvailableInDHT(a, peer1, peer2)
+	peer1 := ts.newTestPeer(false)
+	peer2 := ts.newTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
 
 	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
-	a.NoError(err)
+	ts.NoError(err)
 
 	var authRequests []entity.AuthRequest
-	a.Eventually(func() bool {
+	ts.Eventually(func() bool {
 		authRequests, err = peer2.api.AuthRequests()
-		a.NoError(err)
+		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
 	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", true)
-	a.NoError(err)
+	ts.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)
 	knownPeer, exists := peer1.app.Conf.GetPeer(peer2.PeerID())
-	a.True(exists)
-	a.False(knownPeer.Confirmed)
-	a.True(knownPeer.Declined)
+	ts.True(exists)
+	ts.False(knownPeer.Confirmed)
+	ts.True(knownPeer.Declined)
 
-	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
+	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 	_, blockedPeerExists := peer2.app.Conf.GetBlockedPeer(peer1.PeerID())
-	a.True(blockedPeerExists)
+	ts.True(blockedPeerExists)
 }
 
 func TestAutoAcceptFriendRequest(t *testing.T) {
-	a := require.New(t)
-	closeBootstrapNode := initBootstrapNode(t)
-	defer closeBootstrapNode()
+	ts := NewTestSuite(t)
 
-	peer1 := newTestPeer(t, false)
-	defer peer1.Close()
-	peer2 := newTestPeer(t, false)
-	defer peer2.Close()
-	ensurePeersAvailableInDHT(a, peer1, peer2)
+	peer1 := ts.newTestPeer(false)
+	peer2 := ts.newTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
 
 	peer2.app.Conf.Lock()
 	peer2.app.Conf.P2pNode.AutoAcceptAuthRequests = true
 	peer2.app.Conf.Unlock()
 
 	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
-	a.NoError(err)
+	ts.NoError(err)
 
-	a.Eventually(func() bool {
+	ts.Eventually(func() bool {
 		knownPeers, err := peer2.api.KnownPeers()
-		a.NoError(err)
+		ts.NoError(err)
 		return len(knownPeers) == 1
 	}, 15*time.Second, 50*time.Millisecond)
 	time.Sleep(200 * time.Millisecond)
 
 	knownPeer, exists := peer1.app.Conf.GetPeer(peer2.PeerID())
-	a.True(exists)
-	a.True(knownPeer.Confirmed)
-	a.False(knownPeer.Declined)
+	ts.True(exists)
+	ts.True(knownPeer.Confirmed)
+	ts.False(knownPeer.Declined)
 
 	knownPeer, exists = peer2.app.Conf.GetPeer(peer1.PeerID())
-	a.True(exists)
-	a.True(knownPeer.Confirmed)
-	a.False(knownPeer.Declined)
+	ts.True(exists)
+	ts.True(knownPeer.Confirmed)
+	ts.False(knownPeer.Declined)
 }
 
 func TestUniquePeerAlias(t *testing.T) {
-	a := require.New(t)
-	closeBootstrapNode := initBootstrapNode(t)
-	defer closeBootstrapNode()
+	ts := NewTestSuite(t)
 
-	peer1 := newTestPeer(t, false)
-	defer peer1.Close()
-	peer2 := newTestPeer(t, false)
-	defer peer2.Close()
-	peer3 := newTestPeer(t, false)
-	defer peer3.Close()
-	ensurePeersAvailableInDHT(a, peer1, peer3)
+	peer1 := ts.newTestPeer(false)
+	peer2 := ts.newTestPeer(false)
+	peer3 := ts.newTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	ts.ensurePeersAvailableInDHT(peer2, peer3)
 
 	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer")
-	a.NoError(err)
+	ts.NoError(err)
 
 	time.Sleep(200 * time.Millisecond)
 
 	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer")
-	a.EqualError(err, api.ErrorPeerAliasIsNotUniq)
+	ts.EqualError(err, api.ErrorPeerAliasIsNotUniq)
 }
 
 func BenchmarkTunnelPackets(b *testing.B) {
-	a := require.New(b)
-	closeBootstrapNode := initBootstrapNode(b)
-	defer closeBootstrapNode()
+	ts := NewTestSuite(b)
 
-	peer1 := newTestPeer(b, true)
-	defer peer1.Close()
-	peer2 := newTestPeer(b, true)
-	defer peer2.Close()
+	peer1 := ts.newTestPeer(true)
+	peer2 := ts.newTestPeer(true)
 
-	makeFriends(a, peer2, peer1)
+	ts.makeFriends(peer2, peer1)
 	b.ResetTimer()
 
 	packetSizes := []int{40, 300, 800, 1300, 1800, 2300, 2800, 3500}
@@ -246,7 +225,10 @@ func testPacket(length int) []byte {
 	if length > len(data) {
 		packet = make([]byte, length)
 		copy(packet, data)
-		rand.Read(packet[len(data):])
+		_, err = rand.Read(packet[len(data):])
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	vpnPacket := vpn.Packet{}
@@ -258,6 +240,20 @@ func testPacket(length int) []byte {
 	vpnPacket.RecalculateChecksum()
 
 	return vpnPacket.Packet
+}
+
+type TestSuite struct {
+	*require.Assertions
+
+	t              testing.TB
+	bootstrapAddrs []string
+}
+
+func NewTestSuite(t testing.TB) *TestSuite {
+	ts := &TestSuite{t: t, Assertions: require.New(t)}
+	ts.initBootstrapNode()
+
+	return ts
 }
 
 type testPeer struct {
@@ -274,16 +270,14 @@ func (tp testPeer) PeerID() string {
 	return tp.app.Conf.P2pNode.PeerID
 }
 
-func newTestPeer(t testing.TB, disableLogging bool) testPeer {
-	a := require.New(t)
-
-	tempDir := t.TempDir()
-	t.Setenv(config.AppDataDirEnvKey, tempDir)
+func (ts *TestSuite) newTestPeer(disableLogging bool) testPeer {
+	tempDir := ts.t.TempDir()
+	ts.t.Setenv(config.AppDataDirEnvKey, tempDir)
+	tempConf := config.NewConfig(eventbus.NewBus())
 	if disableLogging {
-		tempConf := config.NewConfig(eventbus.NewBus())
 		tempConf.LoggerLevel = "fatal"
-		tempConf.Save()
 	}
+	tempConf.Save()
 
 	app := New()
 	app.SetupLoggerAndConfig()
@@ -294,21 +288,31 @@ func newTestPeer(t testing.TB, disableLogging bool) testPeer {
 	}
 	app.Conf.HttpListenAddress = "127.0.0.1:0"
 	app.Conf.SetListenAddresses(p2p.UnicastListenAddrs())
+	app.Conf.P2pNode.BootstrapPeers = ts.bootstrapAddrs
 
 	testTUN := NewTestTUN()
 	err := app.Init(context.Background(), testTUN.TUN())
-	a.NoError(err)
+	ts.NoError(err)
 
-	return testPeer{
+	tp := testPeer{
 		app: app,
 		api: apiclient.New(app.Api.Address()),
 		tun: testTUN,
 	}
+
+	ts.t.Cleanup(func() {
+		tp.Close()
+	})
+
+	return tp
 }
 
-func initBootstrapNode(t testing.TB) func() {
+func (ts *TestSuite) initBootstrapNode() {
 	peerstore, err := pstoremem.NewPeerstore()
-	require.NoError(t, err)
+	ts.NoError(err)
+	resourceLimitsConfig := rcmgr.InfiniteLimits
+	mgr, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(resourceLimitsConfig))
+	ts.NoError(err)
 
 	hostConfig := p2p.HostConfig{
 		PrivKeyBytes: nil,
@@ -321,62 +325,72 @@ func initBootstrapNode(t testing.TB) func() {
 		Libp2pOpts: []libp2p.Option{
 			libp2p.DisableRelay(),
 			libp2p.ForceReachabilityPublic(),
+			libp2p.ResourceManager(mgr),
 		},
 		Peerstore:    peerstore,
 		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
+		DHTOpts: []dht.Option{
+			dht.Mode(dht.ModeServer),
+		},
 	}
 
 	p2pSrv := p2p.NewP2p(context.Background())
 	p2pHost, err := p2pSrv.InitHost(hostConfig)
-	require.NoError(t, err)
+	ts.NoError(err)
 	err = p2pSrv.Bootstrap()
-	require.NoError(t, err)
+	ts.NoError(err)
 
 	peerInfo := peer.AddrInfo{ID: p2pHost.ID(), Addrs: p2pHost.Addrs()}
 	addrs, err := peer.AddrInfoToP2pAddrs(&peerInfo)
-	require.NoError(t, err)
-
-	previousBootstrapPeers := config.DefaultBootstrapPeers
-	config.DefaultBootstrapPeers = addrs
-
-	return func() {
-		config.DefaultBootstrapPeers = previousBootstrapPeers
-		_ = p2pSrv.Close()
+	ts.NoError(err)
+	ts.bootstrapAddrs = make([]string, len(addrs))
+	for i := range addrs {
+		ts.bootstrapAddrs[i] = addrs[i].String()
 	}
+
+	ts.t.Cleanup(func() {
+		_ = p2pSrv.Close()
+	})
 }
 
-func ensurePeersAvailableInDHT(a *require.Assertions, peer1, peer2 testPeer) {
-	a.Eventually(func() bool {
-		_, err1 := peer1.app.P2p.FindPeer(context.Background(), peer2.app.P2p.PeerID())
-		_, err2 := peer2.app.P2p.FindPeer(context.Background(), peer1.app.P2p.PeerID())
+func (ts *TestSuite) ensurePeersAvailableInDHT(peer1, peer2 testPeer) {
+	ts.Eventually(func() bool {
+		err1 := peer1.app.P2p.Bootstrap()
+		err2 := peer2.app.P2p.Bootstrap()
+		if err1 != nil || err2 != nil {
+			return false
+		}
+
+		_, err1 = peer1.app.P2p.FindPeer(context.Background(), peer2.app.P2p.PeerID())
+		_, err2 = peer2.app.P2p.FindPeer(context.Background(), peer1.app.P2p.PeerID())
 
 		return err1 == nil && err2 == nil
-	}, time.Second, 30*time.Millisecond)
+	}, 20*time.Second, 100*time.Millisecond)
 }
 
-func makeFriends(a *require.Assertions, peer1, peer2 testPeer) {
-	ensurePeersAvailableInDHT(a, peer1, peer2)
+func (ts *TestSuite) makeFriends(peer1, peer2 testPeer) {
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
 	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
-	a.NoError(err)
+	ts.NoError(err)
 
 	var authRequests []entity.AuthRequest
-	a.Eventually(func() bool {
+	ts.Eventually(func() bool {
 		authRequests, err = peer2.api.AuthRequests()
-		a.NoError(err)
+		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
 	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", false)
-	a.NoError(err)
+	ts.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)
-	a.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
+	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 	knownPeer, exists := peer2.app.Conf.GetPeer(peer1.PeerID())
-	a.True(exists)
-	a.True(knownPeer.Confirmed)
+	ts.True(exists)
+	ts.True(knownPeer.Confirmed)
 
 	knownPeer, exists = peer1.app.Conf.GetPeer(peer2.PeerID())
-	a.True(exists)
-	a.True(knownPeer.Confirmed)
+	ts.True(exists)
+	ts.True(knownPeer.Confirmed)
 }
 
 type TestTUN struct {
