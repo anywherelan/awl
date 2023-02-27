@@ -29,6 +29,10 @@ func Test_convertBytesToIECUnits(t *testing.T) {
 			input:  1153434,
 			output: "1.1 MiB",
 		},
+		{
+			input:  4 << 30,
+			output: "4 GiB",
+		},
 	}
 
 	for _, tCase := range tCases {

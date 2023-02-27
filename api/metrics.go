@@ -20,10 +20,11 @@ func getStatsInIECUnits(stats metrics.Stats) entity.StatsInUnits {
 
 func convertBytesToIECUnits(bytesSize float64) string {
 	const unit = float64(1024)
-	IECUnits := [8]string{
+	IECUnits := [9]string{
 		"",
 		"Ki",
 		"Mi",
+		"Gi",
 		"Ti",
 		"Pi",
 		"Ei",
