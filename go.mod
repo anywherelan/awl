@@ -5,25 +5,25 @@ go 1.20
 require (
 	github.com/GrigoryKrasnochub/updaterini v0.1.0
 	github.com/anywherelan/ts-dns v0.0.0-20211016195049-babc83989aee
-	github.com/go-playground/validator/v10 v10.11.2
+	github.com/go-playground/validator/v10 v10.12.0
 	github.com/google/go-querystring v1.1.0
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/ipfs/go-log/v2 v2.5.1
 	github.com/labstack/echo/v4 v4.10.2
-	github.com/libp2p/go-libp2p v0.26.0
+	github.com/libp2p/go-libp2p v0.26.4
 	github.com/libp2p/go-libp2p-kad-dht v0.21.1
 	github.com/libp2p/go-libp2p-kbucket v0.5.0
-	github.com/miekg/dns v1.1.50
+	github.com/miekg/dns v1.1.52
 	github.com/milosgajdos/tenus v0.0.3
 	github.com/mr-tron/base58 v1.2.0
 	github.com/multiformats/go-multiaddr v0.8.0
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/stretchr/testify v1.8.2
-	github.com/urfave/cli/v2 v2.24.4
-	go.uber.org/multierr v1.9.0
+	github.com/urfave/cli/v2 v2.25.0
+	go.uber.org/multierr v1.10.0
 	go.uber.org/zap v1.24.0
-	golang.org/x/net v0.7.0
-	golang.org/x/sys v0.5.0
+	golang.org/x/net v0.8.0
+	golang.org/x/sys v0.6.0
 	golang.zx2c4.com/wireguard v0.0.0-20210905140043-2ef39d47540c
 	golang.zx2c4.com/wireguard/windows v0.4.10
 	inet.af/netaddr v0.0.0-20220811202034-502d2d690317
@@ -74,7 +74,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.1 // indirect
 	github.com/koron/go-ssdp v0.0.3 // indirect
 	github.com/labstack/gommon v0.4.0 // indirect
-	github.com/leodido/go-urn v1.2.1 // indirect
+	github.com/leodido/go-urn v1.2.2 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-cidranger v1.1.0 // indirect
 	github.com/libp2p/go-flow-metrics v0.1.0 // indirect
@@ -117,7 +117,7 @@ require (
 	github.com/quic-go/qtls-go1-19 v0.2.1 // indirect
 	github.com/quic-go/qtls-go1-20 v0.1.1 // indirect
 	github.com/quic-go/quic-go v0.33.0 // indirect
-	github.com/quic-go/webtransport-go v0.5.1 // indirect
+	github.com/quic-go/webtransport-go v0.5.2 // indirect
 	github.com/raulk/go-watchdog v1.3.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
@@ -131,13 +131,13 @@ require (
 	go.uber.org/fx v1.18.2 // indirect
 	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230221090011-e4bae7ad2296 // indirect
-	golang.org/x/crypto v0.6.0 // indirect
+	golang.org/x/crypto v0.7.0 // indirect
 	golang.org/x/exp v0.0.0-20221205204356-47842c84f3db // indirect
-	golang.org/x/mod v0.7.0 // indirect
+	golang.org/x/mod v0.8.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/text v0.7.0 // indirect
+	golang.org/x/text v0.8.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
-	golang.org/x/tools v0.3.0 // indirect
+	golang.org/x/tools v0.6.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
