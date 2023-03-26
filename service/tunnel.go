@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -219,7 +220,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			stream, err = t.makeTunnelStream(ctx, vp.peerID)
 			cancel()
 			if err != nil {
-				return err
+				return fmt.Errorf("make tunnel stream: %v", err)
 			}
 		}
 		err = protocol.WriteUint64(stream, uint64(len(packet.Packet)))

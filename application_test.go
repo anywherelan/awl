@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/quic-go/quic-go/integrationtests/tools/israce"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
@@ -177,6 +179,52 @@ func TestUniquePeerAlias(t *testing.T) {
 
 	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer")
 	ts.EqualError(err, api.ErrorPeerAliasIsNotUniq)
+}
+
+func TestTunnelPackets(t *testing.T) {
+	if israce.Enabled && runtime.GOOS == "windows" {
+		t.Skip("race mode on windows is too slow for this test")
+	}
+
+	ts := NewTestSuite(t)
+
+	peer1 := ts.newTestPeer(false)
+	peer2 := ts.newTestPeer(false)
+
+	ts.makeFriends(peer2, peer1)
+
+	const packetSize = 2500
+	const packetsCount = 5000
+
+	peer1.tun.ReferenceInboundPacketLen = packetSize
+	peer2.tun.ReferenceInboundPacketLen = packetSize
+
+	wg := &sync.WaitGroup{}
+
+	sendPackets := func(peer testPeer) {
+		defer wg.Done()
+		packet := testPacket(packetSize)
+
+		for i := 0; i < packetsCount; i++ {
+			peer.tun.Outbound <- packet
+			// to don't have packets loss
+			const sleepEvery = 100
+			if i != 0 && i%sleepEvery == 0 {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+
+	wg.Add(2)
+	go sendPackets(peer1)
+	go sendPackets(peer2)
+	wg.Wait()
+
+	time.Sleep(300 * time.Millisecond)
+	received1 := peer1.tun.InboundCount()
+	received2 := peer2.tun.InboundCount()
+	ts.EqualValues(packetsCount, received1)
+	ts.EqualValues(packetsCount, received2)
 }
 
 func BenchmarkTunnelPackets(b *testing.B) {
