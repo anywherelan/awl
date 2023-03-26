@@ -242,7 +242,7 @@ func (c *Config) GetBootstrapPeers() []peer.AddrInfo {
 	allMultiaddrs = append(allMultiaddrs, DefaultBootstrapPeers...)
 	addrInfos, err := peer.AddrInfosFromP2pAddrs(allMultiaddrs...)
 	if err != nil {
-		logger.Warn("invalid one or more bootstrap addr info from config")
+		logger.Warnf("invalid one or more bootstrap addr info from config: %v", err)
 		addrInfos, err = peer.AddrInfosFromP2pAddrs(DefaultBootstrapPeers...)
 		if err != nil {
 			panic(err)
