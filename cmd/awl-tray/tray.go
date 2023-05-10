@@ -10,12 +10,13 @@ import (
 	"runtime"
 	"sort"
 
+	"fyne.io/systray"
 	"github.com/GrigoryKrasnochub/updaterini"
 	ico "github.com/Kodeworks/golang-image-ico"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/update"
 	"github.com/gen2brain/beeep"
-	"github.com/getlantern/systray"
+	"golang.org/x/exp/slices"
 )
 
 var (
@@ -33,6 +34,7 @@ var (
 	//go:embed Icon.png
 	appIcon []byte
 
+	// TODO: reuse icon on disk between runs. Put it to data dir?
 	tempIconFilepath = filepath.Join(os.TempDir(), "awl-icon.png")
 )
 
@@ -80,7 +82,7 @@ func initTray() {
 	}()
 	systray.AddSeparator()
 
-	peersMenu = systray.AddMenuItem("Peers", "")
+	peersMenu = systray.AddMenuItem("Peers", "Peers")
 	go func() {
 		// On windows systray does not trigger clicked event on menus with submenus
 		for range peersMenu.ClickedCh {
@@ -157,13 +159,11 @@ func refreshMenusOnStoppedServer() {
 }
 
 var peersSubmenus []*systray.MenuItem
+var previousOnlinePeers []string
+var previousOfflinePeers []string
 
+// TODO: submenus on linux doesn't work reliably
 func refreshPeersSubmenus() {
-	for _, submenu := range peersSubmenus {
-		submenu.Hide()
-	}
-	peersSubmenus = nil
-
 	app.Conf.RLock()
 	onlinePeers := make([]string, 0)
 	offlinePeers := make([]string, 0)
@@ -183,6 +183,18 @@ func refreshPeersSubmenus() {
 	sort.Strings(onlinePeers)
 	sort.Strings(offlinePeers)
 
+	if slices.Equal(previousOnlinePeers, onlinePeers) && slices.Equal(previousOfflinePeers, offlinePeers) {
+		return
+	}
+
+	previousOnlinePeers = onlinePeers
+	previousOfflinePeers = offlinePeers
+
+	for _, submenu := range peersSubmenus {
+		submenu.Remove()
+	}
+	peersSubmenus = nil
+
 	onlineSubmenu := peersMenu.AddSubMenuItem("Online peers:", "")
 	peersSubmenus = append(peersSubmenus, onlineSubmenu)
 	for _, peerName := range onlinePeers {
@@ -193,6 +205,7 @@ func refreshPeersSubmenus() {
 	// Workaround due to lack of separators in submenus.
 	// https://github.com/getlantern/systray/issues/150
 	// https://github.com/getlantern/systray/issues/170
+	// TODO: in fyne fork separators should work on linux
 	separatorMenu := peersMenu.AddSubMenuItem("_______________", "")
 	separatorMenu.Disable()
 	peersSubmenus = append(peersSubmenus, separatorMenu)
