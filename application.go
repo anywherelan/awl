@@ -197,7 +197,7 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 		a.logger.Warnf("failed to read config file, creating new one: %v", loadConfigErr)
 	}
 	a.logger.Infof("Anywherelan %s (%s %s-%s)", config.Version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
-	a.logger.Infof("initialize app in %s directory", conf.DataDir())
+	a.logger.Infof("Initializing app in %s directory", conf.DataDir())
 
 	return a.logger
 }

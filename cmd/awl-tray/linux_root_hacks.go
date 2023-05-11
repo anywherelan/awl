@@ -4,15 +4,25 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/anywherelan/awl/cli"
+	"github.com/anywherelan/awl/config"
 	"github.com/godbus/dbus/v5"
 )
+
+var requiredEnvVars = [...]string{
+	config.AppDataDirEnvKey,
+	"DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
+	"XDG_CONFIG_HOME", "HOME", "XDG_RUNTIME_DIR", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE",
+}
 
 const logRootHacks = false
 
@@ -28,8 +38,11 @@ func initOSSpecificHacks() {
 	uid := os.Geteuid()
 	if uid != 0 {
 		logRootHack("process is run under non-root uid: %d", uid)
+		runItselfWithRoot()
 		return
 	}
+
+	setEnvFromArgs()
 
 	uid, err := getUserIdUnderRoot()
 	if err != nil {
@@ -51,6 +64,75 @@ func initOSSpecificHacks() {
 		err = os.Setenv("DISPLAY", defaultDisplay)
 		if err != nil {
 			fmt.Printf("error setenv DISPLAY: %v\n", err)
+		}
+	}
+}
+
+func runItselfWithRoot() {
+	// TODO: show pop-up describing that awl needs root for vpn? show it only on first launch?
+
+	executable, err := os.Executable()
+	if err != nil {
+		fmt.Printf("error finding executable path: %v\n", err)
+		executable = os.Args[0]
+	}
+
+	args := []string{executable, cli.WithEnvCommandName}
+
+	for _, key := range requiredEnvVars {
+		value := os.Getenv(key)
+		if value == "" {
+			continue
+		}
+		args = append(args, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	cmd := exec.Command("pkexec", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err = cmd.Start()
+	if err != nil {
+		fmt.Printf("error executing pkexec: %v\n", err)
+		os.Exit(1)
+	}
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals)
+	go func() {
+		for sig := range signals {
+			if cmd.ProcessState != nil {
+				// process is finished
+				return
+			}
+
+			err := cmd.Process.Signal(sig)
+			if err != nil && !errors.Is(err, os.ErrProcessDone) {
+				fmt.Printf("error sending (proxying) signal to pkexec: %v\n", err)
+			}
+		}
+	}()
+
+	err = cmd.Wait()
+	if err != nil {
+		exitCode := cmd.ProcessState.ExitCode()
+		fmt.Printf("error from waiting pkexec to finish: %v\n", err)
+		os.Exit(exitCode)
+	}
+
+	os.Exit(0)
+}
+
+func setEnvFromArgs() {
+	if len(os.Args) < 3 || os.Args[1] != cli.WithEnvCommandName {
+		return
+	}
+
+	envs := os.Args[2:]
+	for _, env := range envs {
+		key, val, exists := strings.Cut(env, "=")
+		if exists {
+			_ = os.Setenv(key, val)
 		}
 	}
 }

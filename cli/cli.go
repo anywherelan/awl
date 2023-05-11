@@ -19,7 +19,14 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+const (
+	WithEnvCommandName = "with-env"
+	CliCommandName     = "cli"
+)
+
 var defaultApiAddr = "127.0.0.1:" + strconv.Itoa(config.DefaultHTTPPort)
+
+var binaryName = path.Base(os.Args[0])
 
 type Application struct {
 	logger *log.ZapEventLogger
@@ -38,9 +45,15 @@ func New() *Application {
 func (a *Application) Run() {
 	if len(os.Args) == 1 {
 		return
-	} else if os.Args[1] != "cli" {
-		a.logger.Fatalf("Unknown command '%s', try '%s cli -h' for info on cli commands or 'awl' to start awl server", os.Args[1], path.Base(os.Args[0]))
+	} else if os.Args[1] == WithEnvCommandName {
+		// is handled in linux_root_hacks.go
+		return
+	} else if os.Args[1] == CliCommandName {
+		// ok, handle here below
+	} else {
+		a.logger.Fatalf("Unknown command '%s', try '%s cli -h' for info on cli commands or '%s' to start awl server", os.Args[1], binaryName, binaryName)
 	}
+
 	err := a.cliapp.Run(os.Args[1:])
 	if err != nil {
 		a.logger.Fatalf("Error occurred: %v", err)
@@ -52,7 +65,7 @@ func (a *Application) Run() {
 func (a *Application) init() {
 	a.cliapp = &cli.App{
 		Name:     "awl",
-		HelpName: path.Base(os.Args[0]) + " cli",
+		HelpName: binaryName + " " + CliCommandName,
 		Version:  config.Version,
 		Usage:    "p2p mesh vpn",
 		Flags: []cli.Flag{
