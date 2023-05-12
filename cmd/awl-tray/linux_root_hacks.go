@@ -4,11 +4,9 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strconv"
 	"strings"
 	"syscall"
@@ -97,26 +95,10 @@ func runItselfWithRoot() {
 		os.Exit(1)
 	}
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals)
-	go func() {
-		for sig := range signals {
-			if cmd.ProcessState != nil {
-				// process is finished
-				return
-			}
-
-			err := cmd.Process.Signal(sig)
-			if err != nil && !errors.Is(err, os.ErrProcessDone) {
-				fmt.Printf("error sending (proxying) signal to pkexec: %v\n", err)
-			}
-		}
-	}()
-
 	err = cmd.Wait()
 	if err != nil {
-		exitCode := cmd.ProcessState.ExitCode()
 		fmt.Printf("error from waiting pkexec to finish: %v\n", err)
+		exitCode := cmd.ProcessState.ExitCode()
 		os.Exit(exitCode)
 	}
 
