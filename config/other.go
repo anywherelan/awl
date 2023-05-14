@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 
 	"github.com/anywherelan/awl/awldns"
@@ -50,8 +51,9 @@ func CalcAppDataDir() string {
 	if envDir := os.Getenv(AppDataDirEnvKey); envDir != "" {
 		err := os.MkdirAll(envDir, dirsPerm)
 		if err != nil {
-			logger.Warnf("could not create data directory from env: %v", err)
+			logger.Errorf("could not create data directory from env: %v", err)
 		}
+		chownFileIfNeeded(envDir)
 		return envDir
 	}
 
@@ -80,6 +82,7 @@ func CalcAppDataDir() string {
 		logger.Warnf("could not create data directory in user dir: %v", err)
 		return ""
 	}
+	chownFileIfNeeded(userDataDir)
 
 	return userDataDir
 }
@@ -121,7 +124,7 @@ func ImportConfig(data []byte, directory string) error {
 		return fmt.Errorf("save file: %v", err)
 	}
 
-	logger.Infof("Imported new config to %s", path)
+	logger.Infof("Imported new config to '%s'", path)
 	return nil
 }
 
@@ -191,6 +194,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	// if err != nil {
 	//	logger.Warnf("could not create peerstore directory: %v", err)
 	// }
+	// chownFileIfNeeded(peerstoreDir)
 
 	emitter, err := bus.Emitter(new(awlevent.KnownPeerChanged), eventbus.Stateful)
 	if err != nil {
@@ -210,5 +214,15 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	}
 	if i := conf.Update.TrayAutoCheckInterval; i == "" || i == "24h" {
 		conf.Update.TrayAutoCheckInterval = "8h"
+	}
+}
+
+func chownFileIfNeeded(path string) {
+	if runtime.GOOS != "linux" || LinuxFilesOwnerUID == 0 {
+		return
+	}
+	err := os.Chown(path, LinuxFilesOwnerUID, LinuxFilesOwnerUID)
+	if err != nil {
+		logger.Errorf("Chown file '%s': %v", path, err)
 	}
 }

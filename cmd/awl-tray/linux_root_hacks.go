@@ -48,6 +48,7 @@ func initOSSpecificHacks() {
 		return
 	}
 	nonRootUid = uid
+	config.LinuxFilesOwnerUID = uid
 	logRootHack("found uid under root: %d", uid)
 
 	logRootHack("start connectSessionDbus")

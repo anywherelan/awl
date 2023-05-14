@@ -30,6 +30,10 @@ const (
 	DefaultPeerAlias = "peer"
 )
 
+// LinuxFilesOwnerUID is used to set correct files owner uid.
+// This is needed because by default all files belong to root when we run as root, but they are stored in user's directory.
+var LinuxFilesOwnerUID = os.Geteuid()
+
 type (
 	Config struct {
 		sync.RWMutex `swaggerignore:"true"`
@@ -349,6 +353,7 @@ func (c *Config) save() {
 	if err != nil {
 		logger.DPanicf("Save config: %v", err)
 	}
+	chownFileIfNeeded(path)
 }
 
 func (c *Config) path() string {
