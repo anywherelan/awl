@@ -194,30 +194,30 @@ func TestTunnelPackets(t *testing.T) {
 	ts.makeFriends(peer2, peer1)
 
 	const packetSize = 2500
-	const packetsCount = 5000
+	const packetsCount = 2600 // approx 1.1 p2p streams
 
 	peer1.tun.ReferenceInboundPacketLen = packetSize
 	peer2.tun.ReferenceInboundPacketLen = packetSize
 
 	wg := &sync.WaitGroup{}
 
-	sendPackets := func(peer testPeer) {
+	sendPackets := func(peer, peerWithInbound testPeer) {
 		defer wg.Done()
 		packet := testPacket(packetSize)
 
 		for i := 0; i < packetsCount; i++ {
 			peer.tun.Outbound <- packet
 			// to don't have packets loss
-			const sleepEvery = 100
-			if i != 0 && i%sleepEvery == 0 {
-				time.Sleep(100 * time.Millisecond)
+			inbound := peerWithInbound.tun.InboundCount()
+			if (int64(i) - inbound) >= 50 {
+				time.Sleep(50 * time.Millisecond)
 			}
 		}
 	}
 
 	wg.Add(2)
-	go sendPackets(peer1)
-	go sendPackets(peer2)
+	go sendPackets(peer1, peer2)
+	go sendPackets(peer2, peer1)
 	wg.Wait()
 
 	time.Sleep(300 * time.Millisecond)
