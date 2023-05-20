@@ -35,6 +35,8 @@ type Resolver struct {
 
 	udpServerWorking bool
 	tcpServerWorking bool
+
+	dnsAddress string
 }
 
 type config struct {
@@ -43,19 +45,18 @@ type config struct {
 	reverseMapping map[string]string
 }
 
-func NewResolver() *Resolver {
+func NewResolver(dnsAddress string) *Resolver {
 	r := &Resolver{
 		logger: log.Logger("awl/dns"),
 		udpClient: &dns.Client{
-			Net:            "udp",
-			SingleInflight: true,
+			Net: "udp",
 		},
 		tcpClient: &dns.Client{
-			Net:            "tcp",
-			SingleInflight: true,
+			Net: "tcp",
 		},
+		dnsAddress: dnsAddress,
 	}
-	r.cfg.Store(&config{upstreamDNS: "127.0.0.1:53"})
+	r.cfg.Store(&config{})
 
 	mux := dns.NewServeMux()
 	mux.HandleFunc(LocalDomain, r.dnsLocalDomainHandler)
@@ -63,20 +64,20 @@ func NewResolver() *Resolver {
 	mux.HandleFunc(".", r.dnsProxyHandler)
 
 	r.udpServer = &dns.Server{
-		Addr:    DNSAddress,
+		Addr:    dnsAddress,
 		Net:     "udp",
 		Handler: mux,
 		NotifyStartedFunc: func() {
-			r.logger.Infof("udp server has started on %s", DNSAddress)
+			r.logger.Infof("udp server has started on %s", dnsAddress)
 			r.udpServerWorking = true
 		},
 	}
 	r.tcpServer = &dns.Server{
-		Addr:    DNSAddress,
+		Addr:    dnsAddress,
 		Net:     "tcp",
 		Handler: mux,
 		NotifyStartedFunc: func() {
-			r.logger.Infof("tcp server has started on %s", DNSAddress)
+			r.logger.Infof("tcp server has started on %s", dnsAddress)
 			r.tcpServerWorking = true
 		},
 	}
@@ -127,7 +128,7 @@ func (r *Resolver) DNSAddress() string {
 		return ""
 	}
 
-	return DNSAddress
+	return r.dnsAddress
 }
 
 func (r *Resolver) Close() {
@@ -154,12 +155,14 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 	for _, question := range req.Question {
 		hostname := question.Name
 		qtype := question.Qtype
-		mappedIP, found := cfg.directMapping[hostname]
+		hostnameLower := strings.ToLower(hostname)
+		mappedIP, found := cfg.directMapping[hostnameLower]
 
 		switch qtype {
 		case dns.TypeA, dns.TypeAAAA, dns.TypeANY:
 			aRec := &dns.A{
 				Hdr: dns.RR_Header{
+					// we should return original name from the request as some clients expect that
 					Name:   hostname,
 					Rrtype: dns.TypeA,
 					Class:  dns.ClassINET,
