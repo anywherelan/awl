@@ -150,7 +150,6 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 
 	m := new(dns.Msg)
 	m.SetReply(req)
-	m.Authoritative = true
 
 	for _, question := range req.Question {
 		hostname := question.Name
@@ -179,6 +178,8 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 		}
 	}
 
+	processOwnResponse(req, resp, m)
+
 	_ = resp.WriteMsg(m)
 }
 
@@ -204,7 +205,6 @@ func (r *Resolver) ptrv4Handler(resp dns.ResponseWriter, req *dns.Msg) {
 
 	m := new(dns.Msg)
 	m.SetReply(req)
-	m.Authoritative = true
 
 	ptr := &dns.PTR{
 		Hdr: dns.RR_Header{
@@ -216,6 +216,9 @@ func (r *Resolver) ptrv4Handler(resp dns.ResponseWriter, req *dns.Msg) {
 		Ptr: mappedName,
 	}
 	m.Answer = append(m.Answer, ptr)
+
+	processOwnResponse(req, resp, m)
+
 	_ = resp.WriteMsg(m)
 }
 
@@ -245,6 +248,24 @@ func (r *Resolver) loadConfig() config {
 		return config{}
 	}
 	return *cfg
+}
+
+func processOwnResponse(req *dns.Msg, respWriter dns.ResponseWriter, resp *dns.Msg) {
+	maxSize := dns.MinMsgSize
+	if respWriter.LocalAddr().Network() == "tcp" {
+		maxSize = dns.MaxMsgSize
+	} else {
+		if optRR := req.IsEdns0(); optRR != nil {
+			udpsize := int(optRR.UDPSize())
+			if udpsize > maxSize {
+				maxSize = udpsize
+			}
+		}
+	}
+	resp.Truncate(maxSize)
+
+	resp.Authoritative = true
+	resp.RecursionAvailable = true
 }
 
 func TrimDomainName(domain string) string {
