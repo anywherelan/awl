@@ -301,7 +301,10 @@ func NewDNSService(conf *config.Config, eventbus awlevent.Bus, ctx context.Conte
 
 func (a *DNSService) initDNS(interfaceName string) {
 	var err error
-	a.dnsResolver = awldns.NewResolver()
+	a.dnsResolver = awldns.NewResolver(awldns.DNSAddress)
+	a.upstreamDNS = awldns.DefaultUpstreamDNSAddress
+	a.refreshDNSConfig()
+
 	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
 		a.refreshDNSConfig()
 	}, a.eventbus, new(awlevent.KnownPeerChanged))
