@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/GrigoryKrasnochub/updaterini v0.1.0
-	github.com/anywherelan/ts-dns v0.0.0-20211016195049-babc83989aee
+	github.com/anywherelan/ts-dns v0.0.0-20230521153737-fb351a66bdb5
 	github.com/go-playground/validator/v10 v10.13.0
 	github.com/google/go-querystring v1.1.0
 	github.com/ipfs/go-datastore v0.6.0
@@ -25,8 +25,8 @@ require (
 	go.uber.org/zap v1.24.0
 	golang.org/x/net v0.9.0
 	golang.org/x/sys v0.8.0
-	golang.zx2c4.com/wireguard v0.0.0-20210905140043-2ef39d47540c
-	golang.zx2c4.com/wireguard/windows v0.4.10
+	golang.zx2c4.com/wireguard v0.0.0-20230325221338-052af4a8072b
+	golang.zx2c4.com/wireguard/windows v0.5.3
 	inet.af/netaddr v0.0.0-20220811202034-502d2d690317
 )
 
@@ -142,6 +142,7 @@ require (
 	golang.org/x/text v0.9.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.7.0 // indirect
+	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	gonum.org/v1/gonum v0.11.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

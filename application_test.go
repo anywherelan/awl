@@ -490,34 +490,47 @@ type testTun struct {
 
 func (t *testTun) File() *os.File { return nil }
 
-func (t *testTun) Read(data []byte, offset int) (int, error) {
-	select {
-	case <-t.t.closed:
-		return 0, os.ErrClosed
-	case msg := <-t.t.Outbound:
-		return copy(data[offset:], msg), nil
+func (t *testTun) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
+	for i, buf := range bufs {
+		select {
+		case <-t.t.closed:
+			return n, os.ErrClosed
+		case msg := <-t.t.Outbound:
+			copyN := copy(buf[offset:], msg)
+			sizes[i] = copyN
+			n++
+		}
 	}
+
+	return n, nil
 }
 
-func (t *testTun) Write(data []byte, offset int) (int, error) {
-	msg := data[offset:]
-	if len(msg) != t.t.ReferenceInboundPacketLen {
-		return 0, errors.New("packets length mismatch")
+func (t *testTun) Write(bufs [][]byte, offset int) (n int, err error) {
+	for _, buf := range bufs {
+		msg := buf[offset:]
+		if len(msg) != t.t.ReferenceInboundPacketLen {
+			return n, errors.New("packets length mismatch")
+		}
+		select {
+		case <-t.t.closed:
+			return n, os.ErrClosed
+		default:
+		}
+		atomic.AddInt64(&t.t.inboundCount, 1)
+		n++
 	}
-	select {
-	case <-t.t.closed:
-		return 0, os.ErrClosed
-	default:
-	}
-	atomic.AddInt64(&t.t.inboundCount, 1)
 
-	return len(msg), nil
+	return n, nil
 }
 
-func (t *testTun) Flush() error           { return nil }
-func (t *testTun) MTU() (int, error)      { return vpn.InterfaceMTU, nil }
-func (t *testTun) Name() (string, error)  { return "testTun", nil }
-func (t *testTun) Events() chan tun.Event { return t.t.events }
+func (t *testTun) BatchSize() int {
+	return 1
+}
+
+func (t *testTun) Flush() error             { return nil }
+func (t *testTun) MTU() (int, error)        { return vpn.InterfaceMTU, nil }
+func (t *testTun) Name() (string, error)    { return "testTun", nil }
+func (t *testTun) Events() <-chan tun.Event { return t.t.events }
 func (t *testTun) Close() error {
 	close(t.t.closed)
 	close(t.t.events)

@@ -150,6 +150,7 @@ func (t *Tunnel) Close() {
 }
 
 func (t *Tunnel) backgroundReadPackets() {
+	// TODO: batch read
 	for packet := range t.device.OutboundChan() {
 		t.peersLock.RLock()
 		vpnPeer, ok := t.netIPToPeer[string(packet.Dst)]
@@ -223,6 +224,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 				return fmt.Errorf("make tunnel stream: %v", err)
 			}
 		}
+		// TODO: write packet len and packet data in one stream.Write - probably it's much more efficient
 		err = protocol.WriteUint64(stream, uint64(len(packet.Packet)))
 		if err != nil {
 			return err

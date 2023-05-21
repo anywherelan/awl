@@ -6,17 +6,19 @@ package vpn
 import (
 	"fmt"
 	"net"
+	"net/netip"
 
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/tun"
-	"golang.zx2c4.com/wireguard/tun/wintun"
 	"golang.zx2c4.com/wireguard/windows/elevate"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )
 
+var WintunGUID *windows.GUID
+
 func init() {
 	var err error
-	tun.WintunPool, err = wintun.MakePool("Anywherelan")
+	tun.WintunTunnelType = "Anywherelan"
 	if err != nil {
 		panic(err)
 	}
@@ -24,6 +26,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+	WintunGUID = &guid
 	tun.WintunStaticRequestedGUID = &guid
 }
 
@@ -31,7 +34,7 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Devi
 	var tunDevice tun.Device
 	err := elevate.DoAsSystem(func() error {
 		var err error
-		tunDevice, err = tun.CreateTUN(ifname, mtu)
+		tunDevice, err = tun.CreateTUNWithRequestedGUID(ifname, WintunGUID, mtu)
 		if err != nil {
 			return fmt.Errorf("create tun: %v", err)
 		}
@@ -43,7 +46,12 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Devi
 
 	nativeTunDevice := tunDevice.(*tun.NativeTun)
 	luid := winipcfg.LUID(nativeTunDevice.LUID())
-	err = luid.SetIPAddresses([]net.IPNet{{localIP, ipMask}})
+
+	ones, _ := ipMask.Size()
+	netipAddr := netip.MustParseAddr(localIP.String())
+	prefix := netip.PrefixFrom(netipAddr, ones)
+
+	err = luid.SetIPAddresses([]netip.Prefix{prefix})
 	if err != nil {
 		return nil, fmt.Errorf("unable to setup interface IP: %v", err)
 	}
