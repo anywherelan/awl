@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -20,8 +21,8 @@ const (
 	InterfaceMTU   = 3500
 	maxContentSize = InterfaceMTU * 2 // TODO: determine real size
 	outboundChCap  = 50
-	// internal tun header
-	tunPacketOffset    = 4
+	// internal tun header. see offset in tun_darwin (4) and tun_linux (virtioNetHdrLen, currently 10)
+	tunPacketOffset    = 14
 	ipv4offsetChecksum = 10
 )
 
@@ -31,8 +32,8 @@ type Device struct {
 	localIP    net.IP
 	outboundCh chan *Packet
 
-	outboundDataPool sync.Pool
-	logger           *log.ZapEventLogger
+	packetsPool sync.Pool
+	logger      *log.ZapEventLogger
 }
 
 func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipMask net.IPMask) (*Device, error) {
@@ -57,7 +58,7 @@ func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipM
 		mtu:        int64(realMtu),
 		localIP:    localIP,
 		outboundCh: make(chan *Packet, outboundChCap),
-		outboundDataPool: sync.Pool{
+		packetsPool: sync.Pool{
 			New: func() interface{} {
 				return new(Packet)
 			}},
@@ -70,14 +71,15 @@ func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipM
 }
 
 func (d *Device) GetTempPacket() *Packet {
-	return d.outboundDataPool.Get().(*Packet)
+	return d.packetsPool.Get().(*Packet)
 }
 
 func (d *Device) PutTempPacket(data *Packet) {
 	data.clear()
-	d.outboundDataPool.Put(data)
+	d.packetsPool.Put(data)
 }
 
+// TODO: batch write
 func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
 	if data.IsIPv6 {
 		// TODO: implement. We need to set Device.localIP ipv6 instead of ipv4
@@ -88,11 +90,12 @@ func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
 	}
 	data.RecalculateChecksum()
 
-	n, err := d.tun.Write(data.Buffer[:tunPacketOffset+len(data.Packet)], tunPacketOffset)
+	bufs := [][]byte{data.Buffer[:tunPacketOffset+len(data.Packet)]}
+	packetsCount, err := d.tun.Write(bufs, tunPacketOffset)
 	if err != nil {
 		return fmt.Errorf("write packet to tun: %v", err)
-	} else if n < len(data.Packet) {
-		d.logger.Warnf("wrote %d bytes, len(packet): %d", n, len(data.Packet))
+	} else if packetsCount < len(bufs) {
+		d.logger.Warnf("wrote %d packets, len(bufs): %d", packetsCount, len(bufs))
 	}
 
 	return nil
@@ -139,33 +142,49 @@ func (d *Device) tunEventsReader() {
 
 func (d *Device) tunPacketsReader() {
 	defer close(d.outboundCh)
-	var data *Packet
+
+	batchSize := d.tun.BatchSize()
+	packets := make([]*Packet, batchSize)
+	bufs := make([][]byte, batchSize)
+	sizes := make([]int, batchSize)
+
 	for {
-		if data == nil {
-			data = d.GetTempPacket()
-		} else {
-			data.clear()
+		for i := range packets {
+			if packets[i] == nil {
+				packets[i] = d.GetTempPacket()
+			} else {
+				packets[i].clear()
+			}
+			bufs[i] = packets[i].Buffer[:]
+			sizes[i] = 0
 		}
 
-		size, err := d.tun.Read(data.Buffer[:], tunPacketOffset)
-		if err == os.ErrClosed {
+		packetsCount, err := d.tun.Read(bufs, sizes, tunPacketOffset)
+		for i := 0; i < packetsCount; i++ {
+			size := sizes[i]
+			if size == 0 || size > maxContentSize {
+				continue
+			}
+
+			data := packets[i]
+			data.Packet = data.Buffer[tunPacketOffset : size+tunPacketOffset]
+			okay := data.Parse()
+			if !okay {
+				continue
+			}
+
+			d.outboundCh <- data
+			packets[i] = nil
+		}
+
+		if errors.Is(err, tun.ErrTooManySegments) {
+			continue
+		} else if errors.Is(err, os.ErrClosed) {
 			return
 		} else if err != nil {
-			d.logger.Errorf("Failed to read packet from TUN device: %v", err)
+			d.logger.Errorf("Failed to read packets from TUN device: %v", err)
 			return
 		}
-		if size == 0 || size > maxContentSize {
-			continue
-		}
-
-		data.Packet = data.Buffer[tunPacketOffset : size+tunPacketOffset]
-		okay := data.Parse()
-		if !okay {
-			continue
-		}
-
-		d.outboundCh <- data
-		data = nil
 	}
 }
 

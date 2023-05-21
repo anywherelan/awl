@@ -5,7 +5,7 @@ builddir="$awldir/build"
 awlflutterdir="$awldir/../awl-flutter"
 tempdir=$(dirname $(mktemp -u))
 
-wintun_version="wintun-0.13"
+wintun_version="wintun-0.14.1"
 
 # until https://github.com/golang/go/issues/37475 is implemented
 VERSION=$(git describe --tags --always --abbrev=8 --dirty)
