@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"net/netip"
 	"os"
 	"runtime"
 	"strings"
@@ -33,7 +34,6 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
-	"inet.af/netaddr"
 )
 
 const (
@@ -324,7 +324,7 @@ func (a *DNSService) initDNS(interfaceName string) {
 		panic(err)
 	}
 	newOSConfig := dns.OSConfig{
-		Nameservers:  []netaddr.IP{netaddr.MustParseIP(awldns.DNSIp)},
+		Nameservers:  []netip.Addr{netip.MustParseAddr(awldns.DNSIp)},
 		MatchDomains: []dnsname.FQDN{fqdn},
 	}
 
