@@ -129,6 +129,10 @@ func ImportConfig(data []byte, directory string) error {
 }
 
 func setDefaults(conf *Config, bus awlevent.Bus) {
+	isEmptyConfig := conf.Version == ""
+
+	conf.Version = Version
+
 	// P2pNode
 	if conf.P2pNode.ListenAddresses == nil {
 		conf.P2pNode.ListenAddresses = make([]string, 0)
@@ -147,7 +151,11 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.HttpListenAddress == "" {
 		conf.HttpListenAddress = "127.0.0.1:" + strconv.Itoa(DefaultHTTPPort)
 	}
-	conf.Version = Version
+	if isEmptyConfig {
+		conf.HttpListenOnAdminHost = true
+	}
+	// TODO: remove in next release
+	conf.HttpListenOnAdminHost = true
 
 	if conf.VPNConfig.IPNet == "" {
 		conf.VPNConfig.IPNet = defaultNetworkSubnet
