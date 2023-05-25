@@ -57,29 +57,95 @@ and `awl-tray` is for desktop usage: it has nice system tray service to quickly 
 start/stop/restart it or to see which peers are online. Both versions have web-based ui for configuration and
 monitoring, and terminal interface [cli](#terminal-based-client).
 
-First, download archive from [releases page](https://github.com/anywherelan/awl/releases), extract it to the place you
-like
-
-TODO: update after release
+First, download archive from [releases page](https://github.com/anywherelan/awl/releases), extract it to any place you
+like.
 
 ## Linux
 
-Make sure `zenity` or `kdialog` are installed.
+### Desktop (`awl-tray`)
 
-```
+Make sure `zenity` is installed. It's not mandatory, but highly recommended in order to have working notifications and
+modal dialogs.
+
+```bash
 sudo apt install -y zenity
 ```
 
-You need to run executable with sudo rights in order to get access to `/dev/tun` interface.
+After downloading just execute binary as any other app. It will ask root permissions in order to get access
+to `/dev/tun` and to create virtual network interface. For now, it won't automatically create desktop entry, but it will
+be added soon.
 
-## Windows
+After starting the program you will see icon in system tray below. Press right click and choose `Open Web UI`. Or you
+can manually go to the http://admin.awl
 
-TODO
+### Server (`awl`)
 
-You need to run program as administrator. This is needed because only admins can create virtual network interfaces.
+Download and extract binary to `/etc/anywherelan/` directory.
+
+```bash
+# run under root
+mkdir -p /etc/anywherelan
+cd /etc/anywherelan
+# NOTE: you need to set the latest release tag
+wget https://github.com/anywherelan/awl/releases/download/v0.7.0/awl-linux-amd64-v0.7.0.tar.gz
+tar xfz awl-linux-amd64-v0.7.0.tar.gz
+```
+
+For running as a daemon and to start on system's boot it's recommended to configure systemd unit, see below.
+
+Create file with the following config `nano awl.service`.
+
+```
+[Unit]
+Description=Anywherelan server
+After=network-online.target nss-lookup.target
+Wants=network-online.target nss-lookup.target
+ConditionPathExists=/etc/anywherelan/awl
+
+[Service]
+Type=simple
+Environment="AWL_DATA_DIR=/etc/anywherelan"
+WorkingDirectory=/etc/anywherelan/
+ExecStart=/etc/anywherelan/awl
+Restart=always
+RestartSec=5s
+LimitNOFILE=4000
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Setup systemd unit:
+
+```bash
+ln awl.service /etc/systemd/system/awl.service
+systemctl daemon-reload
+systemctl enable awl.service
+systemctl start awl.service
+systemctl status awl.service
+```
+
+Yay, awl is up and running!
+
+```bash
+# print server status
+./awl cli me stats
+# print help
+./awl cli -h
+```
+
+See [cli](#terminal-based-client) for more information on terminal client.
+
+## Windows desktop (`awl-tray`)
+
+After downloading you need to unpack zip archive and to run program as administrator (right click on binary -> run as
+administrator). This is necessary because only admins can create virtual network interfaces.
 
 It's known problem that some antivirus software may get false detection, in this case you need to manually allow this
 application.
+
+After starting the program you will see icon in system tray below. Press right click and choose `Open Web UI`. Or you
+can manually go to the http://admin.awl
 
 ## Android
 
@@ -87,7 +153,43 @@ Simply install apk from [releases page](https://github.com/anywherelan/awl/relea
 
 ## Connecting peers
 
-TODO
+To connect two devices with each other, you need to have their `peer_id`s. `peer_id` is a unique identifier of your
+device. One peer can send "friend invitation" to another. The second peer can accept or block the first one. After
+accepting the invitation, peers can access each other by their IP on vpn network or by their .awl domain address.
+
+Below you can see example on how you can connect to public peer for testing purposes. This peer will automatically
+accept any invitations, so you don't need to wait for it.
+
+### Desktop/Android
+
+Go to web interface (http://admin.awl) or run application in case of android. You can find your `peer_id` by
+clicking `SHOW ID`. To invite peer you need to press `NEW PEER`. Let's add public peer as an example. Enter `peer_id`
+equal to `12D3KooWJMUjt9b5T1umzgzjLv5yG2ViuuF4qjmN65tsRXZGS1p8` and name it `awl-tester`. After a few seconds you will
+see a new peer in your list. Now try to go to the http://awl-tester.awl/. You should see a page with network speed test.
+Note that awl dns is currently unsupported on Android, see #17.
+
+If someone invites you, a notification will appear, and then you can accept/block this peer in the admin interface.
+
+### Server
+
+```bash
+cd /etc/anywherelan
+# print your peer_id
+./awl cli me id
+# print server status
+./awl cli me stats
+# print all incoming friend requests
+./awl cli peers requests
+# invite peer or accept incoming request
+./awl cli peers add --pid 12D3KooWJMUjt9b5T1umzgzjLv5yG2ViuuF4qjmN65tsRXZGS1p8 --name awl-tester
+# print all known peers
+./awl cli peers status
+
+# try to access new peer
+ping awl-tester.awl
+# or by IP
+ping 10.66.0.25
+```
 
 ## Config file location
 
