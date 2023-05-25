@@ -73,7 +73,7 @@ func initTray() {
 	go func() {
 		for range openBrowserMenu.ClickedCh {
 			if a := app; app != nil {
-				err := openURL("http://" + a.Api.Address())
+				err := openWebGUI(a)
 				if err != nil {
 					logger.Errorf("failed to open web ui: %v", err)
 				}

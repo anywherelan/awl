@@ -129,8 +129,6 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	if err != nil {
 		return fmt.Errorf("failed to setup api: %v", err)
 	}
-	// because of cyclic dependency between api and dns
-	a.Dns.api = a.Api
 
 	go a.P2p.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second, a.Conf.KnownPeersIds)
 	go a.AuthStatus.BackgroundRetryAuthRequests(a.ctx)
@@ -287,7 +285,6 @@ type DNSService struct {
 	eventbus awlevent.Bus
 	ctx      context.Context
 	logger   *log.ZapEventLogger
-	api      *api.Handler
 
 	dnsOsConfigurator   dns.OSConfigurator
 	dnsResolver         *awldns.Resolver
@@ -356,13 +353,12 @@ func (a *DNSService) initDNS(interfaceName string) {
 }
 
 func (a *DNSService) refreshDNSConfig() {
-	if a.api == nil || a.dnsResolver == nil {
-		a.logger.DPanicf("called refreshDNSConfig with nil api %v or resolver %v", a.api, a.dnsResolver)
+	if a.dnsResolver == nil {
+		a.logger.DPanicf("called refreshDNSConfig with nil resolver %v", a.dnsResolver)
 		return
 	}
 	dnsNamesMapping := a.conf.DNSNamesMapping()
-	apiHost, _, _ := net.SplitHostPort(a.api.Address())
-	dnsNamesMapping[config.HttpServerDomainName] = apiHost
+	dnsNamesMapping[config.AdminHttpServerDomainName] = config.AdminHttpServerIP
 	a.dnsResolver.ReceiveConfiguration(a.upstreamDNS, dnsNamesMapping)
 }
 

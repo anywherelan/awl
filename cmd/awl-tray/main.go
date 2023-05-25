@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +11,7 @@ import (
 
 	"fyne.io/systray"
 	"github.com/anywherelan/awl"
+	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/cli"
 	"github.com/anywherelan/awl/config"
@@ -139,4 +141,33 @@ func subscribeToNotifications(app *awl.Application) {
 			logger.Errorf("show notification: incoming friend request: %v", notifyErr)
 		}
 	}, app.Eventbus, new(awlevent.ReceivedAuthRequest))
+}
+
+func openWebGUI(a *awl.Application) error {
+	adminURL := "http://" + config.AdminHttpServerDomainName + "." + awldns.LocalDomain
+	if checkURL(adminURL) {
+		return openURL(adminURL)
+	}
+
+	return openURL("http://" + a.Api.Address())
+}
+
+func checkURL(url string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return false
+	}
+
+	return true
 }

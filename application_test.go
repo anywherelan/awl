@@ -342,6 +342,7 @@ func (ts *TestSuite) newTestPeer(disableLogging bool) testPeer {
 		})
 	}
 	app.Conf.HttpListenAddress = "127.0.0.1:0"
+	app.Conf.HttpListenOnAdminHost = false
 	app.Conf.SetListenAddresses([]multiaddr.Multiaddr{
 		multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
 		multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),

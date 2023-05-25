@@ -34,7 +34,8 @@ type Handler struct {
 	dns        DNSService
 	logBuffer  *ringbuffer.RingBuffer
 
-	echo *echo.Echo
+	echo      *echo.Echo
+	echoAdmin *echo.Echo
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -57,14 +58,32 @@ func NewHandler(conf *config.Config, p2p *p2p.P2p, authStatus *service.AuthStatu
 }
 
 func (h *Handler) SetupAPI() error {
+	e1, err := h.setupRouter(h.conf.HttpListenAddress)
+	if err != nil {
+		return err
+	}
+	h.echo = e1
+
+	if h.conf.HttpListenOnAdminHost {
+		echoAdmin, err := h.setupRouter(config.AdminHttpServerListenAddress)
+		if err != nil {
+			h.logger.Errorf("unable to bind web server on admin host %s: %v", config.AdminHttpServerListenAddress, err)
+		} else {
+			h.echoAdmin = echoAdmin
+		}
+	}
+
+	return nil
+}
+
+func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 	e := echo.New()
-	h.echo = e
 	e.HideBanner = true
 	e.HidePort = true
 	val := validator.New()
 	err := val.RegisterValidation("trimmed_str_not_empty", validateTrimmedStringNotEmpty, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	e.Validator = &customValidator{validator: val}
@@ -109,28 +128,37 @@ func (h *Handler) SetupAPI() error {
 	}
 
 	// Start
-	address := h.conf.HttpListenAddress
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		return fmt.Errorf("unable to bind address %s: %v", address, err)
+		return nil, fmt.Errorf("unable to bind address %s: %v", address, err)
 	}
-	h.echo.Listener = listener
+	e.Listener = listener
 	h.logger.Infof("starting web server on http://%s", listener.Addr().String())
 	go func() {
 		if err := e.StartServer(e.Server); err != nil && err != http.ErrServerClosed {
-			h.logger.Warnf("shutting down web server %s: %s", address, err)
+			h.logger.Warnf("shutting down web server %s: %v", address, err)
 		}
 	}()
 
-	return nil
+	return e, nil
 }
 
 func (h *Handler) SetupFrontend(fsys fs.FS) {
 	fileServer := http.FileServer(http.FS(fsys))
 	h.echo.GET("/*", echo.WrapHandler(fileServer))
+	if h.echoAdmin != nil {
+		h.echoAdmin.GET("/*", echo.WrapHandler(fileServer))
+	}
 }
 
 func (h *Handler) Shutdown(ctx context.Context) error {
+	if h.echoAdmin != nil {
+		err := h.echoAdmin.Server.Shutdown(ctx)
+		if err != nil {
+			h.logger.Errorf("error shutting down web server on admin host %s: %v", config.AdminHttpServerListenAddress, err)
+		}
+	}
+
 	return h.echo.Server.Shutdown(ctx)
 }
 

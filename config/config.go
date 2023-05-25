@@ -24,8 +24,10 @@ const (
 	AppDataDirEnvKey          = "AWL_DATA_DIR"
 
 	// TODO 8989 maybe?
-	DefaultHTTPPort      = 8639
-	HttpServerDomainName = "admin"
+	DefaultHTTPPort              = 8639
+	AdminHttpServerDomainName    = "admin"
+	AdminHttpServerIP            = "127.0.0.66"
+	AdminHttpServerListenAddress = "127.0.0.66:80"
 
 	DefaultPeerAlias = "peer"
 )
@@ -40,14 +42,15 @@ type (
 		dataDir      string
 		emitter      awlevent.Emitter
 
-		Version           string                 `json:"version"`
-		LoggerLevel       string                 `json:"loggerLevel"`
-		HttpListenAddress string                 `json:"httpListenAddress"`
-		P2pNode           P2pNodeConfig          `json:"p2pNode"`
-		VPNConfig         VPNConfig              `json:"vpn"`
-		KnownPeers        map[string]KnownPeer   `json:"knownPeers"`
-		BlockedPeers      map[string]BlockedPeer `json:"blockedPeers"`
-		Update            UpdateConfig           `json:"update"`
+		Version               string                 `json:"version"`
+		LoggerLevel           string                 `json:"loggerLevel"`
+		HttpListenAddress     string                 `json:"httpListenAddress"`
+		HttpListenOnAdminHost bool                   `json:"httpListenOnAdminHost"`
+		P2pNode               P2pNodeConfig          `json:"p2pNode"`
+		VPNConfig             VPNConfig              `json:"vpn"`
+		KnownPeers            map[string]KnownPeer   `json:"knownPeers"`
+		BlockedPeers          map[string]BlockedPeer `json:"blockedPeers"`
+		Update                UpdateConfig           `json:"update"`
 	}
 	P2pNodeConfig struct {
 		// Hex-encoded multihash representing a peer ID, calculated from Identity
