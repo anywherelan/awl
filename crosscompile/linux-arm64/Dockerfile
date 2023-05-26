@@ -21,3 +21,5 @@ RUN dpkg --add-architecture arm64 \
         libgtk-3-dev:arm64 \
         libappindicator3-dev:arm64 \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git config --global safe.directory '*'

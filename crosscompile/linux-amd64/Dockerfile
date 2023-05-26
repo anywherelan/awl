@@ -16,3 +16,5 @@ RUN apt update \
         libgtk-3-dev:amd64 \
         libappindicator3-dev:amd64 \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git config --global safe.directory '*'

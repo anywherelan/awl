@@ -19,3 +19,5 @@ RUN dpkg --add-architecture i386 \
         libgtk-3-dev:i386 \
         libappindicator3-dev:i386 \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git config --global safe.directory '*'

@@ -21,3 +21,5 @@ RUN dpkg --add-architecture armhf \
         libgtk-3-dev:armhf \
         libappindicator3-dev:armhf \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git config --global safe.directory '*'

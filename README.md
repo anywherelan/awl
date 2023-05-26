@@ -86,7 +86,7 @@ Download and extract binary to `/etc/anywherelan/` directory.
 # run under root
 mkdir -p /etc/anywherelan
 cd /etc/anywherelan
-# NOTE: you need to set the latest release tag
+# NOTE: you need to set the latest release tag and correct arch (x86/arm/etc)
 wget https://github.com/anywherelan/awl/releases/download/v0.7.0/awl-linux-amd64-v0.7.0.tar.gz
 tar xfz awl-linux-amd64-v0.7.0.tar.gz
 ```
@@ -188,7 +188,7 @@ cd /etc/anywherelan
 # try to access new peer
 ping awl-tester.awl
 # or by IP
-ping 10.66.0.25
+ping 10.66.0.2
 ```
 
 ## Config file location
