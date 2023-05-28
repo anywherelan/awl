@@ -91,6 +91,11 @@ jobs:
           ./awl cli peers status
 
           ./librespeed-cli --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
+
+          ping 10.66.0.2 -w 10 -c 5
+          # TODO: remove this temporal hack for linux
+          ping awl-tester.awl -w 10 -c 5 || true
+
           sleep 1
           sudo kill -SIGINT $awl_pid
           sleep 1
@@ -105,6 +110,9 @@ jobs:
           awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
           ./awl.exe cli peers status
           ./librespeed-cli.exe --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
+
+          ping -w 10000 -n 5 -a 10.66.0.2
+          ping -w 10000 -n 5 -a awl-tester.awl
 
           sleep 1
           kill -SIGINT $awl_pid
