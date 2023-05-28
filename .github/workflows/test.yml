@@ -67,9 +67,9 @@ jobs:
           CONFIG_LIBRESPEED: ${{ secrets.CONFIG_LIBRESPEED }}
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
-               curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.9/librespeed-cli_1.0.9_linux_amd64.tar.gz | tar -xzf -
+               curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.10/librespeed-cli_1.0.10_linux_amd64.tar.gz | tar -xzf -
           elif [ "$RUNNER_OS" == "Windows" ]; then
-               curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.9/librespeed-cli_1.0.9_windows_amd64.zip > download.zip
+               curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.10/librespeed-cli_1.0.10_windows_amd64.zip > download.zip
                unzip download.zip
           else
                echo "$RUNNER_OS not supported"
@@ -86,11 +86,16 @@ jobs:
           ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share | python3 -m json.tool
 
           sudo ./awl &
-          awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
           sleep 5
+          awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
           ./awl cli peers status
 
           ./librespeed-cli --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
+
+          ping 10.66.0.2 -w 10 -c 5
+          # TODO: remove this temporal hack for linux
+          ping awl-tester.awl -w 10 -c 5 || true
+
           sleep 1
           sudo kill -SIGINT $awl_pid
           sleep 1
@@ -101,10 +106,13 @@ jobs:
           ./librespeed-cli.exe --local-json config_librespeed.json --server 1 --json --share | python3 -m json.tool
 
           ./awl.exe &
-          awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
           sleep 5
+          awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
           ./awl.exe cli peers status
           ./librespeed-cli.exe --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
+
+          ping -w 10000 -n 5 -a 10.66.0.2
+          ping -w 10000 -n 5 -a awl-tester.awl
 
           sleep 1
           kill -SIGINT $awl_pid
