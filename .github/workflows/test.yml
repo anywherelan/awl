@@ -82,19 +82,20 @@ jobs:
       - name: Run librespeed-cli, awl, librespeed-cli through awl
         if: matrix.os == 'ubuntu-latest'
         run: |
-          chmod +x awl
-          ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share | python3 -m json.tool
-
           sudo ./awl &
-          sleep 5
+
+          chmod +x awl
+          ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
+
+          sleep 10
           awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
           ./awl cli peers status
 
-          ./librespeed-cli --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
+          ./librespeed-cli --local-json config_librespeed.json --server 2 --json --share --telemetry-level disabled | python3 -m json.tool
 
-          ping 10.66.0.2 -w 10 -c 5
+          ping 10.66.0.2 -w 20 -c 10
           # TODO: remove this temporal hack for linux
-          ping awl-tester.awl -w 10 -c 5 || true
+          ping awl-tester.awl -w 20 -c 10 || true
 
           sleep 1
           sudo kill -SIGINT $awl_pid
@@ -102,17 +103,18 @@ jobs:
       - name: Run librespeed-cli, awl, librespeed-cli through awl
         if: matrix.os == 'windows-latest'
         run: |
-          chmod +x awl.exe
-          ./librespeed-cli.exe --local-json config_librespeed.json --server 1 --json --share | python3 -m json.tool
-
           ./awl.exe &
-          sleep 5
+
+          chmod +x awl.exe
+          ./librespeed-cli.exe --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
+
+          sleep 10
           awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
           ./awl.exe cli peers status
-          ./librespeed-cli.exe --local-json config_librespeed.json --server 2 --json --share | python3 -m json.tool
+          ./librespeed-cli.exe --local-json config_librespeed.json --server 2 --json --share --telemetry-level disabled | python3 -m json.tool
 
-          ping -w 10000 -n 5 -a 10.66.0.2
-          ping -w 10000 -n 5 -a awl-tester.awl
+          ping -w 20000 -n 10 10.66.0.2
+          ping -w 20000 -n 10 -a awl-tester.awl
 
           sleep 1
           kill -SIGINT $awl_pid

@@ -24,7 +24,7 @@ func New(address string) *Client {
 		address: address,
 		cli: &http.Client{
 			Transport: &http.Transport{},
-			Timeout:   time.Second,
+			Timeout:   10 * time.Second,
 		},
 	}
 }
