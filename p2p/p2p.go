@@ -298,6 +298,7 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 		}(peerID)
 	}
 
+	_, connectedBootstrapPeersCount := p.BootstrapPeersStats()
 	bootstrapsInfo := make(map[string]BootstrapPeerDebugInfo)
 	var mu sync.Mutex
 
@@ -306,6 +307,11 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 		peerAddr := peerAddr
 		go func() {
 			defer wg.Done()
+
+			if connectedBootstrapPeersCount <= 2 {
+				p.ClearBackoff(peerAddr.ID)
+			}
+
 			err := p.host.Connect(ctx, peerAddr)
 			var info BootstrapPeerDebugInfo
 			if err != nil {

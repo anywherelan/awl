@@ -74,6 +74,10 @@ func (p *P2p) RoutingTablePeers() []kbucket.PeerInfo {
 	return p.dht.RoutingTable().GetPeerInfos()
 }
 
+func (p *P2p) NetworkSize() (int32, error) {
+	return p.dht.NetworkSize()
+}
+
 func (p *P2p) PeersWithAddrsCount() int {
 	return len(p.host.Peerstore().PeersWithAddrs())
 }
