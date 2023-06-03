@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anywherelan/awl/api/apiclient"
+	"github.com/mdp/qrterminal/v3"
 	"github.com/olekukonko/tablewriter"
 )
 
@@ -38,10 +39,24 @@ func printStatus(api *apiclient.Client) error {
 }
 
 func printPeerId(api *apiclient.Client) error {
-	stats, err := api.PeerInfo()
+	info, err := api.PeerInfo()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("your peer id: %s\n", stats.PeerID)
+	fmt.Printf("your peer id: %s\n", info.PeerID)
+
+	qrterminal.GenerateHalfBlock(info.PeerID, qrterminal.M, os.Stdout)
+
+	return nil
+}
+
+func renameMe(api *apiclient.Client, newName string) error {
+	err := api.UpdateMySettings(newName)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("my peer name updated successfully")
+
 	return nil
 }

@@ -107,10 +107,13 @@ func (c *Config) Save() {
 	c.RUnlock()
 }
 
-func (c *Config) IsUniqPeerAlias(alias string) bool {
+func (c *Config) IsUniqPeerAlias(excludePeerID, alias string) bool {
 	c.RLock()
 	defer c.RUnlock()
 	for _, kPeer := range c.KnownPeers {
+		if kPeer.PeerID == excludePeerID {
+			continue
+		}
 		if kPeer.Alias == alias {
 			return false
 		}
