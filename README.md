@@ -128,7 +128,11 @@ Yay, awl is up and running!
 
 ```bash
 # print server status
-./awl cli me stats
+./awl cli me status
+# set a name for your device
+./awl cli me rename --name your-name-here
+# print your peer id
+./awl cli me id
 # print help
 ./awl cli -h
 ```
@@ -168,7 +172,7 @@ cd /etc/anywherelan
 # print your peer_id
 ./awl cli me id
 # print server status
-./awl cli me stats
+./awl cli me status
 # print all incoming friend requests
 ./awl cli peers requests
 # invite peer or accept incoming request
@@ -177,9 +181,9 @@ cd /etc/anywherelan
 ./awl cli peers status
 
 # try to access new peer
-ping awl-tester.awl
-# or by IP
 ping 10.66.0.2
+# or by domain name
+ping awl-tester.awl
 ```
 
 ## Config file location
@@ -201,28 +205,32 @@ Both `awl` and `awl-tray` versions have CLI to communicate with vpn server.
 TODO: examples
 
 ```
-$ ./awl-tray cli -h
+$ ./awl cli -h     
 NAME:
-   awl - p2p mesh vpn
+   awl cli - p2p mesh vpn
 
 USAGE:
-   awl-tray cli [global options] command [command options] [arguments...]
+   awl cli [global options] command [command options] [arguments...]
 
 VERSION:
-   v0.5.0
+   v0.7.0
+
+DESCRIPTION:
+   Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are.
+   See more at the project page https://github.com/anywherelan/awl
 
 COMMANDS:
-   me        Group of commands to work with your stats and settings
-   peers     Group of commands to work with peers. Use to check friend requests and work with known peers
-   log       Prints application logs (default print 10 logs from the end of logs)
-   p2p_info  Prints p2p debug info
-   update    Updates awl to the latest version
-   help, h   Shows a list of commands or help for one command
+   me         Group of commands to work with your status and settings
+   peers      Group of commands to work with peers. Use to check friend requests and work with known peers
+   logs, log  Prints application logs (default print 10 logs from the end of logs)
+   p2p_info   Prints p2p debug info
+   update     Updates awl to the latest version
+   help, h    Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
    --api_addr value  awl api address, example: 127.0.0.1:8639
-   --help, -h        show help (default: false)
-   --version, -v     print the version (default: false)
+   --help, -h        show help
+   --version, -v     print the version
 ```
 
 ## Upgrading
@@ -247,7 +255,7 @@ cd /etc/anywherelan
 # restart with systemd in case you installed awl as described in Installation section
 systemctl restart awl
 # print current status
-./awl cli me stats
+./awl cli me status
 ```
 
 As alternative, on Desktop/Server you can download new version from [releases page](https://github.com/anywherelan/awl/releases) and manually replace old files with new ones.

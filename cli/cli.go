@@ -66,8 +66,11 @@ func (a *Application) init() {
 	a.cliapp = &cli.App{
 		Name:     "awl",
 		HelpName: binaryName + " " + CliCommandName,
-		Version:  config.Version,
-		Usage:    "p2p mesh vpn",
+		Description: "Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. " +
+			"Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are." +
+			"\nSee more at the project page https://github.com/anywherelan/awl",
+		Version: config.Version,
+		Usage:   "p2p mesh vpn",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:     "api_addr",
@@ -78,12 +81,13 @@ func (a *Application) init() {
 		Commands: []*cli.Command{
 			{
 				Name:  "me",
-				Usage: "Group of commands to work with your stats and settings",
+				Usage: "Group of commands to work with your status and settings",
 				Subcommands: []*cli.Command{
 					{
-						Name:   "stats",
-						Usage:  "Print your stats",
-						Before: a.initApiConnection,
+						Name:    "status",
+						Aliases: []string{"stats"},
+						Usage:   "Print your server status, network stats",
+						Before:  a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printStatus(a.api)
 						},
@@ -94,6 +98,21 @@ func (a *Application) init() {
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printPeerId(a.api)
+						},
+					},
+					{
+						Name:  "rename",
+						Usage: "Rename your peer",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: true,
+							},
+						},
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return renameMe(a.api, c.String("name"))
 						},
 					},
 				},
@@ -194,11 +213,37 @@ func (a *Application) init() {
 							return changePeerAlias(a.api, c.String("pid"), c.String("new_name"))
 						},
 					},
+					{
+						Name:  "update_domain",
+						Usage: "Change known peer domain name",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "domain",
+								Usage:    "peer domain name",
+								Required: true,
+							},
+						},
+						Before: a.initApiAndPeerId,
+						Action: func(c *cli.Context) error {
+							return changePeerDomain(a.api, c.String("pid"), c.String("domain"))
+						},
+					},
 				},
 			},
 			{
-				Name:  "log",
-				Usage: "Prints application logs (default print 10 logs from the end of logs)",
+				Name:    "logs",
+				Aliases: []string{"log"},
+				Usage:   "Prints application logs (default print 10 logs from the end of logs)",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:     "head",
@@ -260,10 +305,13 @@ func (a *Application) init() {
 					},
 				},
 				Action: func(c *cli.Context) error {
+					_, _ = fmt.Fprintf(a.cliapp.Writer, "current version: %s\n", config.Version)
+
 					conf, err := config.LoadConfig(eventbus.NewBus())
 					if err != nil {
 						return fmt.Errorf("update: read config: %v", err)
 					}
+
 					updService, err := update.NewUpdateService(conf, a.logger, update.AppTypeAwl)
 					if err != nil {
 						return fmt.Errorf("update: create update service: %v", err)
@@ -272,6 +320,7 @@ func (a *Application) init() {
 					if err != nil {
 						return fmt.Errorf("update: check for updates: %v", err)
 					}
+
 					if !status {
 						a.logger.Infof("app is already up-to-date")
 						return nil

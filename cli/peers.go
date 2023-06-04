@@ -217,3 +217,18 @@ func changePeerAlias(api *apiclient.Client, peerID, newAlias string) error {
 	fmt.Println("peer name updated successfully")
 	return nil
 }
+
+func changePeerDomain(api *apiclient.Client, peerID, newDomain string) error {
+	pcfg, err := api.KnownPeerConfig(peerID)
+	if err != nil {
+		return err
+	}
+
+	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{PeerID: peerID, Alias: pcfg.Alias, DomainName: newDomain})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("peer domain name updated successfully")
+	return nil
+}
