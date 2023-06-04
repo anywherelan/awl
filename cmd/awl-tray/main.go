@@ -15,6 +15,7 @@ import (
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/cli"
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/update"
 	"github.com/gen2brain/beeep"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
@@ -33,7 +34,7 @@ func getConfig() (*config.Config, error) {
 }
 
 func main() {
-	cli.New().Run()
+	cli.New(update.AppTypeAwlTray).Run()
 
 	initOSSpecificHacks()
 

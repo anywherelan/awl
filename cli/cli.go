@@ -29,14 +29,16 @@ var defaultApiAddr = "127.0.0.1:" + strconv.Itoa(config.DefaultHTTPPort)
 var binaryName = path.Base(os.Args[0])
 
 type Application struct {
-	logger *log.ZapEventLogger
-	api    *apiclient.Client
-	cliapp *cli.App
+	logger     *log.ZapEventLogger
+	api        *apiclient.Client
+	cliapp     *cli.App
+	updateType update.ApplicationType
 }
 
-func New() *Application {
+func New(updateType update.ApplicationType) *Application {
 	app := new(Application)
 	app.logger = log.Logger("awl/cli")
+	app.updateType = updateType
 	app.init()
 
 	return app
@@ -312,8 +314,7 @@ func (a *Application) init() {
 						return fmt.Errorf("update: read config: %v", err)
 					}
 
-					// TODO: use update.AppTypeAwlTray when it's invoked from awl-tray
-					updService, err := update.NewUpdateService(conf, a.logger, update.AppTypeAwl)
+					updService, err := update.NewUpdateService(conf, a.logger, a.updateType)
 					if err != nil {
 						return fmt.Errorf("update: create update service: %v", err)
 					}

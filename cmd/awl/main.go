@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	cli.New().Run()
+	cli.New(update.AppTypeAwl).Run()
 
 	app := awl.New()
 	logger := app.SetupLoggerAndConfig()
