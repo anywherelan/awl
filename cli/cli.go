@@ -312,6 +312,7 @@ func (a *Application) init() {
 						return fmt.Errorf("update: read config: %v", err)
 					}
 
+					// TODO: use update.AppTypeAwlTray when it's invoked from awl-tray
 					updService, err := update.NewUpdateService(conf, a.logger, update.AppTypeAwl)
 					if err != nil {
 						return fmt.Errorf("update: create update service: %v", err)
