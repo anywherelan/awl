@@ -11,9 +11,11 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/godbus/dbus/v5"
+
 	"github.com/anywherelan/awl/cli"
 	"github.com/anywherelan/awl/config"
-	"github.com/godbus/dbus/v5"
+	"github.com/anywherelan/awl/embeds"
 )
 
 var requiredEnvVars = [...]string{
@@ -64,6 +66,16 @@ func initOSSpecificHacks() {
 		if err != nil {
 			fmt.Printf("error setenv DISPLAY: %v\n", err)
 		}
+	}
+
+	iconPath, err := embeds.EmbedIcon(appIcon)
+	if err != nil {
+		logRootHack("error: create icon: %v", err)
+		return
+	}
+	err = embeds.EmbedDesktopFile(iconPath)
+	if err != nil {
+		logRootHack("error: create desktop file:  %v", err)
 	}
 }
 
