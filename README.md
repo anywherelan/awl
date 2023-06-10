@@ -4,7 +4,6 @@
     <a href="https://github.com/anywherelan/awl/actions/workflows/test.yml"><img alt="Test build status" src="https://github.com/anywherelan/awl/actions/workflows/test.yml/badge.svg" /></a>
 </p>
 
-> Disclaimer: Anywherelan is currently considered beta software. Be aware! Although I was using it for a long time with no issues in core functionality.
 
 # About
 
@@ -14,6 +13,7 @@ Some use cases:
 
 - connect to your home/work laptop with RDP/VNC/SSH, which is usually behind NAT. Much easier with awl instead of configuring port forwarding or using heavy VPNs
 - get secure access to your selfhosted services like Nextcloud, Home Assistant or Bitwarden without exposing them to the internet
+- gaming: local multiplayer like in one LAN
 - as an alternative instead of ngrok to share your development server with someone on another device for demonstration
 - you can use your old android device remotely with [scrcpy](https://github.com/Genymobile/scrcpy) + awl to run some android-only apps instead of using an emulator on your PC
 
@@ -63,6 +63,18 @@ For desktop there are two versions: `awl` and `awl-tray`. `awl` is mainly used f
 
 First, download archive from [releases page](https://github.com/anywherelan/awl/releases), extract it to any place you like.
 
+## Windows desktop (`awl-tray`)
+
+After downloading you need to unpack zip archive and to run program as administrator (right click on binary ➞ run as administrator). This is necessary because only admins can create virtual network interfaces.
+
+It's known problem that some antivirus software may get false detection, in this case you need to manually allow this application.
+
+After starting the program you will see icon in system tray below. Press right click and choose `Open Web UI`. Or you can manually go to the http://admin.awl
+
+## Android
+
+Simply install apk from [releases page](https://github.com/anywherelan/awl/releases) and launch the application.
+
 ## Linux
 
 ### Desktop (`awl-tray`)
@@ -86,8 +98,8 @@ Download and extract binary to `/etc/anywherelan/` directory.
 mkdir -p /etc/anywherelan
 cd /etc/anywherelan
 # NOTE: you need to set the latest release tag and correct arch (x86/arm/etc)
-wget https://github.com/anywherelan/awl/releases/download/v0.7.0/awl-linux-amd64-v0.7.0.tar.gz
-tar xfz awl-linux-amd64-v0.7.0.tar.gz
+wget https://github.com/anywherelan/awl/releases/download/v0.8.0/awl-linux-amd64-v0.8.0.tar.gz
+tar xfz awl-linux-amd64-v0.8.0.tar.gz
 ```
 
 For running as a daemon and to start on system's boot it's recommended to configure systemd unit, see below.
@@ -138,18 +150,6 @@ Yay, awl is up and running!
 ```
 
 See [cli](#terminal-based-client) for more information on terminal client.
-
-## Windows desktop (`awl-tray`)
-
-After downloading you need to unpack zip archive and to run program as administrator (right click on binary ➞ run as administrator). This is necessary because only admins can create virtual network interfaces.
-
-It's known problem that some antivirus software may get false detection, in this case you need to manually allow this application.
-
-After starting the program you will see icon in system tray below. Press right click and choose `Open Web UI`. Or you can manually go to the http://admin.awl
-
-## Android
-
-Simply install apk from [releases page](https://github.com/anywherelan/awl/releases) and launch the application.
 
 ## Connecting peers
 
