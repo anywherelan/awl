@@ -57,7 +57,7 @@ gobuild-linux() {
   for arch in 386 amd64 arm arm64 mips mipsle; do
     archive_name="$name-linux-$arch-$VERSION.tar.gz"
     filename="$name"
-    GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     tar -czf "$archive_name" "$filename"
     rm "$filename"
     mv "$archive_name" "$builddir"
@@ -71,7 +71,7 @@ gobuild-windows() {
     install-wintun "$arch"
     archive_name="$name-windows-$arch-$VERSION.zip"
     filename="$name.exe"
-    GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     zip "$archive_name" "$filename"
     rm "$filename"
     mv "$archive_name" "$builddir"
@@ -135,8 +135,8 @@ build-awl-cross() {
 # build desktop version for windows and others OS
 build-awl-tray-cross() {
   cd "$awldir/cmd/awl-tray"
+  gobuild-linux awl-tray
   gobuild-windows awl-tray
-  build-awl-tray-linux-cross
 }
 
 # build desktop version based on current environment
@@ -153,38 +153,20 @@ build-awl-tray() {
     archive_name="$archive_name.tar.gz"
   fi
   cd "$awldir/cmd/awl-tray"
-  go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
-  # set host's rights because when build from docker it will be root:root
-  host_uid="$(stat -c "%u" "$builddir")"
-  host_gid="$(stat -c "%g" "$builddir")"
-  chown "$host_uid:$host_gid" "$filename"
+  CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
   if [ "$goos" == "windows" ]; then
     zip "$archive_name" "$filename"
   elif [ "$goos" == "linux" ]; then
     tar -czf "$archive_name" "$filename"
   fi
-  chown "$host_uid:$host_gid" "$archive_name"
   rm "$filename"
   mv "$archive_name" "$builddir"
-}
-
-build-awl-tray-linux-cross() {
-  cd "$awldir"
-  for arch in 386 amd64 arm arm64; do
-    docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp "awl-cross-$arch" /bin/sh -c './build.sh awl-tray'
-  done
 }
 
 # build server and desktop versions
 build-desktop-cross() {
   build-awl-cross
   build-awl-tray-cross
-}
-
-build-docker-images() {
-  for arch in 386 amd64 arm arm64; do
-    docker build -t "awl-cross-$arch" "./crosscompile/linux-$arch"
-  done
 }
 
 case "${1:-default}" in
@@ -207,9 +189,6 @@ android)
 awl-tray)
   download-wintun
   build-awl-tray
-  ;;
-docker-images)
-  build-docker-images
   ;;
 deps)
   download-wintun
