@@ -98,8 +98,8 @@ Download and extract binary to `/etc/anywherelan/` directory.
 mkdir -p /etc/anywherelan
 cd /etc/anywherelan
 # NOTE: you need to set the latest release tag and correct arch (x86/arm/etc)
-wget https://github.com/anywherelan/awl/releases/download/v0.8.0/awl-linux-amd64-v0.8.0.tar.gz
-tar xfz awl-linux-amd64-v0.8.0.tar.gz
+wget https://github.com/anywherelan/awl/releases/download/v0.8.1/awl-linux-amd64-v0.8.1.tar.gz
+tar xfz awl-linux-amd64-v0.8.1.tar.gz
 ```
 
 For running as a daemon and to start on system's boot it's recommended to configure systemd unit, see below.
@@ -213,7 +213,7 @@ USAGE:
    awl cli [global options] command [command options] [arguments...]
 
 VERSION:
-   v0.7.0
+   v0.8.1
 
 DESCRIPTION:
    Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are.
