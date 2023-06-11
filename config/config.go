@@ -9,12 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anywherelan/awl/awlevent"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/mr-tron/base58/base58"
 	"github.com/multiformats/go-multiaddr"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/anywherelan/awl/awlevent"
 )
 
 const (
@@ -359,7 +360,7 @@ func (c *Config) save() {
 	if err != nil {
 		logger.DPanicf("Save config: %v", err)
 	}
-	chownFileIfNeeded(path)
+	ChownFileIfNeeded(path)
 }
 
 func (c *Config) path() string {

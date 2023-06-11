@@ -9,11 +9,12 @@ import (
 	"runtime"
 	"strconv"
 
-	"github.com/anywherelan/awl/awldns"
-	"github.com/anywherelan/awl/awlevent"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/multiformats/go-multiaddr"
+
+	"github.com/anywherelan/awl/awldns"
+	"github.com/anywherelan/awl/awlevent"
 )
 
 const (
@@ -53,7 +54,7 @@ func CalcAppDataDir() string {
 		if err != nil {
 			logger.Errorf("could not create data directory from env: %v", err)
 		}
-		chownFileIfNeeded(envDir)
+		ChownFileIfNeeded(envDir)
 		return envDir
 	}
 
@@ -82,7 +83,7 @@ func CalcAppDataDir() string {
 		logger.Warnf("could not create data directory in user dir: %v", err)
 		return ""
 	}
-	chownFileIfNeeded(userDataDir)
+	ChownFileIfNeeded(userDataDir)
 
 	return userDataDir
 }
@@ -202,7 +203,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	// if err != nil {
 	//	logger.Warnf("could not create peerstore directory: %v", err)
 	// }
-	// chownFileIfNeeded(peerstoreDir)
+	// ChownFileIfNeeded(peerstoreDir)
 
 	emitter, err := bus.Emitter(new(awlevent.KnownPeerChanged), eventbus.Stateful)
 	if err != nil {
@@ -225,7 +226,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	}
 }
 
-func chownFileIfNeeded(path string) {
+func ChownFileIfNeeded(path string) {
 	if runtime.GOOS != "linux" || LinuxFilesOwnerUID == 0 {
 		return
 	}

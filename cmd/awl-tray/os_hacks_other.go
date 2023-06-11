@@ -4,10 +4,15 @@
 package main
 
 import (
+	"os"
+
 	"github.com/skratchdot/open-golang/open"
+
+	"github.com/anywherelan/awl/embeds"
 )
 
 func initOSSpecificHacks() {
+	embeds.EmbedIcon()
 }
 
 func openURL(input string) error {
@@ -16,4 +21,8 @@ func openURL(input string) error {
 
 func getRealUserID() (uint32, bool) {
 	return 0, false
+}
+
+func removeIcon() error {
+	return os.Remove(embeds.GetIconPath())
 }

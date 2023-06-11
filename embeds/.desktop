@@ -1,6 +1,6 @@
 [Desktop Entry]
 # https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html
-Name=Anywherelan {VERSION}
+Name=Anywherelan
 GenericName=VPN
 Icon={ICONPATH}
 Comment=Open source mesh VPN

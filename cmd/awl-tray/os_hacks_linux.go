@@ -24,10 +24,10 @@ var requiredEnvVars = [...]string{
 	"XDG_CONFIG_HOME", "HOME", "XDG_RUNTIME_DIR", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE",
 }
 
-const logRootHacks = false
+const logHacks = false
 
-func logRootHack(format string, a ...any) {
-	if logRootHacks {
+func logHack(format string, a ...any) {
+	if logHacks {
 		fmt.Printf(format+"\n", a...)
 	}
 }
@@ -37,7 +37,7 @@ var nonRootUid int
 func initOSSpecificHacks() {
 	uid := os.Geteuid()
 	if uid != 0 {
-		logRootHack("process is run under non-root uid: %d", uid)
+		logHack("process is run under non-root uid: %d", uid)
 		runItselfWithRoot()
 		return
 	}
@@ -51,31 +51,31 @@ func initOSSpecificHacks() {
 	}
 	nonRootUid = uid
 	config.LinuxFilesOwnerUID = uid
-	logRootHack("found uid under root: %d", uid)
+	logHack("found uid under root: %d", uid)
 
-	logRootHack("start connectSessionDbus")
+	logHack("start connectSessionDbus")
 	connectSessionDbus(nonRootUid)
-	logRootHack("end connectSessionDbus")
+	logHack("end connectSessionDbus")
 
 	display := os.Getenv("DISPLAY")
-	logRootHack("got DISPLAY from env: '%s'", display)
+	logHack("got DISPLAY from env: '%s'", display)
 	if display == "" {
 		defaultDisplay := ":0"
-		logRootHack("don't have DISPLAY from env, set to '%s'", defaultDisplay)
+		logHack("don't have DISPLAY from env, set to '%s'", defaultDisplay)
 		err = os.Setenv("DISPLAY", defaultDisplay)
 		if err != nil {
 			fmt.Printf("error setenv DISPLAY: %v\n", err)
 		}
 	}
 
-	iconPath, err := embeds.EmbedIcon(appIcon)
+	iconPath, err := embeds.EmbedIcon()
 	if err != nil {
-		logRootHack("error: create icon: %v", err)
+		logHack("error: create icon: %v", err)
 		return
 	}
 	err = embeds.EmbedDesktopFile(iconPath)
 	if err != nil {
-		logRootHack("error: create desktop file:  %v", err)
+		logHack("error: create desktop file:  %v", err)
 	}
 }
 
@@ -135,7 +135,7 @@ func setEnvFromArgs() {
 // to access another user's dbus session under root we need DBUS_SESSION_BUS_ADDRESS env var to be set and connect under user's uid
 // see https://stackoverflow.com/questions/6496847/access-another-users-d-bus-session
 func connectSessionDbus(userUid int) {
-	logRootHack("call syscall.Seteuid(%d)", userUid)
+	logHack("call syscall.Seteuid(%d)", userUid)
 	err := syscall.Seteuid(userUid)
 	if err != nil {
 		fmt.Printf("error from calling syscall.Seteuid(%d): %v\n", userUid, err)
@@ -143,11 +143,11 @@ func connectSessionDbus(userUid int) {
 	}
 
 	dbusAddress := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
-	logRootHack("got DBUS_SESSION_BUS_ADDRESS from env: '%s'", dbusAddress)
+	logHack("got DBUS_SESSION_BUS_ADDRESS from env: '%s'", dbusAddress)
 
 	if dbusAddress == "" {
 		defaultDbusAddress := fmt.Sprintf("unix:path=/run/user/%d/bus", userUid)
-		logRootHack("don't have DBUS_SESSION_BUS_ADDRESS from env, set to '%s'", defaultDbusAddress)
+		logHack("don't have DBUS_SESSION_BUS_ADDRESS from env, set to '%s'", defaultDbusAddress)
 		err = os.Setenv("DBUS_SESSION_BUS_ADDRESS", defaultDbusAddress)
 		if err != nil {
 			fmt.Printf("error setenv DBUS_SESSION_BUS_ADDRESS: %v\n", err)
@@ -159,7 +159,7 @@ func connectSessionDbus(userUid int) {
 		fmt.Printf("error connecting session dbus: %v\n", err)
 	}
 
-	logRootHack("call syscall.Seteuid(0)")
+	logHack("call syscall.Seteuid(0)")
 	err = syscall.Seteuid(0)
 	if err != nil {
 		fmt.Printf("error from calling syscall.Seteuid(0): %v\n", err)
@@ -203,4 +203,8 @@ func openURL(input string) error {
 	}
 
 	return cmd.Run()
+}
+
+func removeIcon() error {
+	return nil
 }
