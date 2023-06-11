@@ -70,7 +70,7 @@ jobs:
         run: |
           files_count="$(ls -1q awl/build/ | wc -l)"
           echo "built $files_count files"
-          if [ "$files_count" != "15" ]; then
+          if [ "$files_count" != "17" ]; then
                echo "::error::Files count mismatch"
                exit 1
           fi

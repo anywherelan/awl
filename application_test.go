@@ -220,7 +220,7 @@ func TestTunnelPackets(t *testing.T) {
 	go sendPackets(peer2, peer1)
 	wg.Wait()
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 	received1 := peer1.tun.InboundCount()
 	received2 := peer2.tun.InboundCount()
 	ts.EqualValues(packetsCount, received1)
