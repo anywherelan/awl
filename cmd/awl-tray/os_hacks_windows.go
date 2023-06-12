@@ -14,7 +14,7 @@ import (
 func initOSSpecificHacks() {
 	_, err := embeds.EmbedIcon()
 	if err != nil {
-		fmt.Printf("error: create icon: %v", err)
+		fmt.Printf("error: create icon: %v\n", err)
 	}
 }
 
