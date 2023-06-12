@@ -1,10 +1,10 @@
-//go:build !linux && !windows
-// +build !linux,!windows
+//go:build windows
+// +build windows
 
 package main
 
 import (
-	"os"
+	"fmt"
 
 	"github.com/skratchdot/open-golang/open"
 
@@ -12,7 +12,10 @@ import (
 )
 
 func initOSSpecificHacks() {
-	embeds.EmbedIcon()
+	_, err := embeds.EmbedIcon()
+	if err != nil {
+		fmt.Printf("error: create icon: %v", err)
+	}
 }
 
 func openURL(input string) error {
@@ -24,5 +27,5 @@ func getRealUserID() (uint32, bool) {
 }
 
 func removeIcon() error {
-	return os.Remove(embeds.GetIconPath())
+	return nil
 }
