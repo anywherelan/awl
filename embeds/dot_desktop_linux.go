@@ -23,6 +23,10 @@ const (
 )
 
 func EmbedDesktopFile(iconPath string) error {
+	if config.IsDevVersion() {
+		return nil
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("error: get home dir: %w", err)

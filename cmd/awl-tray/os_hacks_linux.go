@@ -70,12 +70,12 @@ func initOSSpecificHacks() {
 
 	iconPath, err := embeds.EmbedIcon()
 	if err != nil {
-		logHack("error: create icon: %v", err)
+		fmt.Printf("error: create icon: %v", err)
 		return
 	}
 	err = embeds.EmbedDesktopFile(iconPath)
 	if err != nil {
-		logHack("error: create desktop file:  %v", err)
+		fmt.Printf("error: create desktop file:  %v", err)
 	}
 }
 
