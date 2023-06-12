@@ -85,7 +85,7 @@ func onReady() {
 
 func onExit() {
 	StopServer()
-	_ = removeIcon()
+	_ = embeds.RemoveIconIfNeeded()
 }
 
 func InitServer() (err error) {

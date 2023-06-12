@@ -204,7 +204,3 @@ func openURL(input string) error {
 
 	return cmd.Run()
 }
-
-func removeIcon() error {
-	return nil
-}
