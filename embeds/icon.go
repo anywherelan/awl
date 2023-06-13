@@ -63,7 +63,7 @@ func EmbedIcon() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error: write file: %w", err)
 	}
-	config.ChownFileIfNeeded(iconDir)
+	config.ChownFileIfNeeded(iconPath)
 
 	appIconPath = iconPath
 
