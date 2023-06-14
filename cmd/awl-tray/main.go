@@ -10,15 +10,17 @@ import (
 	"time"
 
 	"fyne.io/systray"
+	"github.com/gen2brain/beeep"
+	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
+
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/cli"
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/embeds"
 	"github.com/anywherelan/awl/update"
-	"github.com/gen2brain/beeep"
-	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 )
 
 var (
@@ -42,8 +44,6 @@ func main() {
 }
 
 func onReady() {
-	_ = os.WriteFile(tempIconFilepath, appIcon, 0666)
-
 	quitCh := make(chan os.Signal, 1)
 	signal.Notify(quitCh, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	go func() {
@@ -85,7 +85,7 @@ func onReady() {
 
 func onExit() {
 	StopServer()
-	_ = os.Remove(tempIconFilepath)
+	_ = embeds.RemoveIconIfNeeded()
 }
 
 func InitServer() (err error) {
@@ -137,7 +137,7 @@ func subscribeToNotifications(app *awl.Application) {
 		if authRequest.Name != "" {
 			title = fmt.Sprintf("Anywherelan: friend request from %s", authRequest.Name)
 		}
-		notifyErr := beeep.Notify(title, "PeerID: \n"+authRequest.PeerID, tempIconFilepath)
+		notifyErr := beeep.Notify(title, "PeerID: \n"+authRequest.PeerID, embeds.GetIconPath())
 		if notifyErr != nil {
 			logger.Errorf("show notification: incoming friend request: %v", notifyErr)
 		}

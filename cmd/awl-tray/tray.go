@@ -5,18 +5,18 @@ import (
 	_ "embed"
 	"fmt"
 	"image"
-	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 
 	"fyne.io/systray"
 	"github.com/GrigoryKrasnochub/updaterini"
 	ico "github.com/Kodeworks/golang-image-ico"
-	"github.com/anywherelan/awl/config"
-	"github.com/anywherelan/awl/update"
 	"github.com/gen2brain/beeep"
 	"golang.org/x/exp/slices"
+
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/embeds"
+	"github.com/anywherelan/awl/update"
 )
 
 var (
@@ -30,34 +30,26 @@ var (
 
 const updateMenuLabel = "Check for updates"
 
-var (
-	//go:embed Icon.png
-	appIcon []byte
-
-	// TODO: reuse icon on disk between runs. Put it to data dir?
-	tempIconFilepath = filepath.Join(os.TempDir(), "awl-icon.png")
-)
-
 func getIcon() []byte {
 	switch runtime.GOOS {
 	case "linux", "darwin":
-		return appIcon
+		return embeds.GetIcon()
 	case "windows":
-		srcImg, _, err := image.Decode(bytes.NewReader(appIcon))
+		srcImg, _, err := image.Decode(bytes.NewReader(embeds.GetIcon()))
 		if err != nil {
 			logger.Errorf("Failed to decode source image: %v", err)
-			return appIcon
+			return embeds.GetIcon()
 		}
 
 		destBuf := new(bytes.Buffer)
 		err = ico.Encode(destBuf, srcImg)
 		if err != nil {
 			logger.Errorf("Failed to encode icon: %v", err)
-			return appIcon
+			return embeds.GetIcon()
 		}
 		return destBuf.Bytes()
 	default:
-		return appIcon
+		return embeds.GetIcon()
 	}
 }
 
@@ -282,7 +274,7 @@ func checkForUpdatesWithDesktopNotification() {
 
 	notifyErr := beeep.Notify("Anywherelan: new version available!",
 		fmt.Sprintf("Version %s: %s available for installation!\nUse tray menu option %q\n",
-			updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), updateMenuLabel), tempIconFilepath)
+			updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), updateMenuLabel), embeds.GetIconPath())
 	if notifyErr != nil {
 		logger.Errorf("show notification: new version available: %v", notifyErr)
 	}

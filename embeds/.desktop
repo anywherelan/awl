@@ -1,0 +1,13 @@
+[Desktop Entry]
+# https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html
+Name=Anywherelan
+GenericName=VPN
+Icon={ICONPATH}
+Comment=Open source mesh VPN
+Exec="{EXECPATH}"
+Version=1.0
+Type=Application
+Categories=Network;Utility;
+NoDisplay=false
+Terminal=false
+StartupNotify=false

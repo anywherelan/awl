@@ -5,9 +5,12 @@ package main
 
 import (
 	"github.com/skratchdot/open-golang/open"
+
+	"github.com/anywherelan/awl/embeds"
 )
 
 func initOSSpecificHacks() {
+	embeds.EmbedIcon()
 }
 
 func openURL(input string) error {
