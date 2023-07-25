@@ -209,7 +209,10 @@ func changePeerAlias(api *apiclient.Client, peerID, newAlias string) error {
 		return err
 	}
 
-	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{PeerID: peerID, Alias: newAlias, DomainName: pcfg.DomainName})
+	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID: peerID, DomainName: pcfg.DomainName, AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
+		Alias: newAlias,
+	})
 	if err != nil {
 		return err
 	}
@@ -224,11 +227,32 @@ func changePeerDomain(api *apiclient.Client, peerID, newDomain string) error {
 		return err
 	}
 
-	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{PeerID: peerID, Alias: pcfg.Alias, DomainName: newDomain})
+	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID: peerID, Alias: pcfg.Alias, AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
+		DomainName: newDomain,
+	})
 	if err != nil {
 		return err
 	}
 
 	fmt.Println("peer domain name updated successfully")
+	return nil
+}
+
+func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool) error {
+	pcfg, err := api.KnownPeerConfig(peerID)
+	if err != nil {
+		return err
+	}
+
+	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID: peerID, Alias: pcfg.Alias, DomainName: pcfg.DomainName,
+		AllowUsingAsExitNode: allow,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("AllowUsingAsExitNode config updated successfully")
 	return nil
 }

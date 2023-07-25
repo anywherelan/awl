@@ -181,6 +181,68 @@ func TestUniquePeerAlias(t *testing.T) {
 	ts.EqualError(err, api.ErrorPeerAliasIsNotUniq)
 }
 
+func TestUpdateUseAsExitNodeConfig(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.newTestPeer(false)
+	peer2 := ts.newTestPeer(false)
+
+	ts.makeFriends(peer2, peer1)
+
+	peer1Config, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+	ts.NoError(err)
+	ts.Equal(false, peer1Config.AllowedUsingAsExitNode)
+
+	// allow, check that peer1 got our config
+	err = peer2.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peer1.PeerID(),
+		Alias:                peer1Config.Alias,
+		DomainName:           peer1Config.DomainName,
+		AllowUsingAsExitNode: true,
+	})
+	ts.NoError(err)
+
+	var peer2Config *config.KnownPeer
+	ts.Eventually(func() bool {
+		peer2Config, err = peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+
+		return peer2Config.AllowedUsingAsExitNode
+	}, 15*time.Second, 100*time.Millisecond)
+
+	// allow from peer1, check that peer2 got our config
+	err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peer2.PeerID(),
+		Alias:                peer2Config.Alias,
+		DomainName:           peer2Config.DomainName,
+		AllowUsingAsExitNode: true,
+	})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		peer1Config, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+		ts.NoError(err)
+
+		return peer1Config.AllowedUsingAsExitNode && peer1Config.WeAllowUsingAsExitNode
+	}, 15*time.Second, 100*time.Millisecond)
+
+	// disallow from peer2, check that peer1 got our new config
+	err = peer2.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peer1.PeerID(),
+		Alias:                peer1Config.Alias,
+		DomainName:           peer1Config.DomainName,
+		AllowUsingAsExitNode: false,
+	})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		peer2Config, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+
+		return !peer2Config.AllowedUsingAsExitNode && peer2Config.WeAllowUsingAsExitNode
+	}, 15*time.Second, 100*time.Millisecond)
+}
+
 func TestTunnelPackets(t *testing.T) {
 	if israce.Enabled && runtime.GOOS == "windows" {
 		t.Skip("race mode on windows is too slow for this test")

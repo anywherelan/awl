@@ -152,14 +152,15 @@ func (s *AuthStatus) BlockPeer(peerID peer.ID, name string) {
 	}()
 }
 
-func (s *AuthStatus) createPeerInfo(_ config.KnownPeer, myPeerName string, declined bool) protocol.PeerStatusInfo {
+func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, declined bool) protocol.PeerStatusInfo {
 	if declined {
 		return protocol.PeerStatusInfo{
 			Declined: true,
 		}
 	}
 	myPeerInfo := protocol.PeerStatusInfo{
-		Name: myPeerName,
+		Name:                 myPeerName,
+		AllowUsingAsExitNode: peer.WeAllowUsingAsExitNode,
 	}
 
 	return myPeerInfo
@@ -180,6 +181,7 @@ func (s *AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo proto
 	if peer.Alias == "" {
 		peer.Alias = s.conf.GenUniqPeerAlias(peer.Name, peer.Alias)
 	}
+	peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode
 
 	return peer
 }

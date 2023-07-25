@@ -19,8 +19,9 @@ const (
 
 type (
 	PeerStatusInfo struct {
-		Name     string
-		Declined bool
+		Name                 string
+		Declined             bool
+		AllowUsingAsExitNode bool
 	}
 )
 

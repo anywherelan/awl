@@ -85,7 +85,9 @@ type (
 		// Has remote peer confirmed our invitation
 		Confirmed bool `json:"confirmed"`
 		// Has remote peer declined our invitation
-		Declined bool `json:"declined"`
+		Declined               bool `json:"declined"`
+		WeAllowUsingAsExitNode bool `json:"weAllowUsingAsExitNode"`
+		AllowedUsingAsExitNode bool `json:"allowedUsingAsExitNode"`
 	}
 	BlockedPeer struct {
 		// Hex-encoded multihash representing a peer ID

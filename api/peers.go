@@ -46,6 +46,8 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 			Connected:              h.p2p.IsConnected(id),
 			Confirmed:              knownPeer.Confirmed,
 			Declined:               knownPeer.Declined,
+			WeAllowUsingAsExitNode: knownPeer.WeAllowUsingAsExitNode,
+			AllowedUsingAsExitNode: knownPeer.AllowedUsingAsExitNode,
 			LastSeen:               knownPeer.LastSeen,
 			Connections:            h.p2p.PeerConnectionsInfo(id),
 			NetworkStats:           netStats,
@@ -120,11 +122,11 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
 	}
 	knownPeer.Alias = req.Alias
-
 	knownPeer.DomainName = req.DomainName
+	knownPeer.WeAllowUsingAsExitNode = req.AllowUsingAsExitNode
+
 	h.conf.UpsertPeer(knownPeer)
 
-	// not necessary now because we do not send anything
 	go func() {
 		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerID, knownPeer)
 	}()

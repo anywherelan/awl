@@ -28,9 +28,10 @@ type (
 		PeerID string `validate:"required"`
 	}
 	UpdatePeerSettingsRequest struct {
-		PeerID     string `validate:"required"`
-		Alias      string `validate:"required,trimmed_str_not_empty"`
-		DomainName string
+		PeerID               string `validate:"required"`
+		Alias                string `validate:"required,trimmed_str_not_empty"`
+		DomainName           string
+		AllowUsingAsExitNode bool
 	}
 	UpdateMySettingsRequest struct {
 		Name string
@@ -50,6 +51,8 @@ type (
 		Connected              bool
 		Confirmed              bool
 		Declined               bool
+		WeAllowUsingAsExitNode bool
+		AllowedUsingAsExitNode bool
 		LastSeen               time.Time
 		Connections            []p2p.ConnectionInfo
 		NetworkStats           metrics.Stats
