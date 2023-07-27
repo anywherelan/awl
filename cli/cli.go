@@ -240,6 +240,31 @@ func (a *Application) init() {
 							return changePeerDomain(a.api, c.String("pid"), c.String("domain"))
 						},
 					},
+					{
+						Name:  "allow_exit_node",
+						Usage: "Allow known peer to use this device as exit node (as socks5 proxy)",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+							&cli.BoolFlag{
+								Name:     "allow",
+								Usage:    "allow",
+								Required: false,
+							},
+						},
+						Before: a.initApiAndPeerId,
+						Action: func(c *cli.Context) error {
+							return setAllowUsingAsExitNode(a.api, c.String("pid"), c.Bool("allow"))
+						},
+					},
 				},
 			},
 			{
