@@ -165,7 +165,11 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.VPNConfig.IPNet = defaultNetworkSubnet
 	}
 	if conf.VPNConfig.InterfaceName == "" {
-		conf.VPNConfig.InterfaceName = defaultInterfaceName
+		if runtime.GOOS == "darwin" {
+			conf.VPNConfig.InterfaceName = "utun"
+		} else {
+			conf.VPNConfig.InterfaceName = defaultInterfaceName
+		}
 	}
 
 	uniqAliases := make(map[string]struct{}, len(conf.KnownPeers))

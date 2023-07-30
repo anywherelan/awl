@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
-	"strconv"
 
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-// TODO: untested
 func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Device, error) {
 	ipNet := &net.IPNet{
 		IP:   localIP,
@@ -29,9 +27,18 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Devi
 		return nil, fmt.Errorf("get interface name: %v", err)
 	}
 
-	err = exec.Command("ifconfig", realIfname, "inet", ipNet.String(), "mtu", strconv.FormatInt(int64(mtu), 10), "up").Run()
+	err = exec.Command("ifconfig", realIfname, "inet", ipNet.String(), localIP.String()).Run()
 	if err != nil {
-		return nil, fmt.Errorf("unable to setup interface: %v", err)
+		return nil, fmt.Errorf("unable to setup interface mask: %v", err)
+	}
+
+	ipNetMasked := &net.IPNet{
+		IP:   localIP.Mask(ipMask),
+		Mask: ipMask,
+	}
+	err = exec.Command("route", "-q", "-n", "add", "-inet", ipNetMasked.String(), "-iface", realIfname).Run()
+	if err != nil {
+		return nil, fmt.Errorf("unable to setup interface route: %v", err)
 	}
 
 	return tunDevice, nil
