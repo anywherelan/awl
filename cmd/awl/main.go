@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -16,6 +18,16 @@ import (
 
 func main() {
 	cli.New(update.AppTypeAwl).Run()
+
+	uid := os.Geteuid()
+	if uid == 0 {
+		// this is required to allow listening on config.AdminHttpServerIP address
+		//nolint:gosec
+		err := exec.Command("ifconfig", "lo0", "alias", config.AdminHttpServerIP, "up").Run()
+		if err != nil {
+			fmt.Printf("error: `ifconfig lo0 alias %s up`: %v\n", config.AdminHttpServerIP, err)
+		}
+	}
 
 	app := awl.New()
 	logger := app.SetupLoggerAndConfig()
