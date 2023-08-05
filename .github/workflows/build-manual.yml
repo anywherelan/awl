@@ -59,12 +59,18 @@ jobs:
           cd cmd/awl-tray && go mod tidy -compat=1.20 && cd ../..
           ./build.sh release
           echo "ls build"
-          ls -la build
+          ls -lah build
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
           name: awl-release-build
           path: awl/build/*
+          if-no-files-found: error
+      - name: Upload flutter web artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: awl-release-static
+          path: awl/static/
           if-no-files-found: error
       - name: Assert number of built files
         run: |
@@ -74,3 +80,43 @@ jobs:
                echo "::error::Files count mismatch"
                exit 1
           fi
+
+  build-macos:
+    runs-on: macos-latest
+    needs: [ build ]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout awl code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # also fetch tags for 'git describe'
+          ref: ${{ github.event.inputs.awl_ref }}
+          path: 'awl'
+      - name: Retrieve saved static/ build
+        uses: actions/download-artifact@v3
+        with:
+          name: awl-release-static
+          path: awl/static
+
+      - name: Install Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.20.x
+          cache: true
+          cache-dependency-path: awl/go.sum
+
+      - name: Build
+        run: |
+          cd awl
+          mkdir build
+          ./build.sh release-macos
+          echo "ls build"
+          ls -lah build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: awl-release-build-macos
+          path: awl/build/*
+          if-no-files-found: error
