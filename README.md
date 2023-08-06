@@ -90,51 +90,9 @@ After downloading just execute binary as any other app. It will ask root permiss
 After starting the program you will see icon in system tray below. Press right click and choose `Open Web UI`. Or you can manually go to the http://admin.awl
 
 ### Server (`awl`)
-
-Download and extract binary to `/etc/anywherelan/` directory.
-
 ```bash
-# run under root
-mkdir -p /etc/anywherelan
-cd /etc/anywherelan
-# NOTE: you need to set the latest release tag and correct arch (x86/arm/etc)
-wget https://github.com/anywherelan/awl/releases/download/v0.8.1/awl-linux-amd64-v0.8.1.tar.gz
-tar xfz awl-linux-amd64-v0.8.1.tar.gz
-```
-
-For running as a daemon and to start on system's boot it's recommended to configure systemd unit, see below.
-
-Create file with the following config `nano awl.service`.
-
-```
-[Unit]
-Description=Anywherelan server
-After=network-online.target nss-lookup.target
-Wants=network-online.target nss-lookup.target
-ConditionPathExists=/etc/anywherelan/awl
-
-[Service]
-Type=simple
-Environment="AWL_DATA_DIR=/etc/anywherelan"
-WorkingDirectory=/etc/anywherelan/
-ExecStart=/etc/anywherelan/awl
-Restart=always
-RestartSec=5s
-LimitNOFILE=4000
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Setup systemd unit:
-
+bash <(curl -sL https://raw.githubusercontent.com/anywherelan/awl/master/install.sh)
 ```bash
-ln awl.service /etc/systemd/system/awl.service
-systemctl daemon-reload
-systemctl enable awl.service
-systemctl start awl.service
-systemctl status awl.service
-```
 
 Yay, awl is up and running!
 
