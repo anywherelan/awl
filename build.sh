@@ -64,6 +64,19 @@ gobuild-linux() {
   done
 }
 
+# build for macOS
+gobuild-macos() {
+  name="$1"
+  for arch in amd64 arm64; do
+    archive_name="$name-macos-$arch-$VERSION.zip"
+    filename="$name"
+    CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    zip "$archive_name" "$filename"
+    rm "$filename"
+    mv "$archive_name" "$builddir"
+  done
+}
+
 # build for windows OS
 gobuild-windows() {
   name="$1"
@@ -176,6 +189,10 @@ release)
   build-web
   build-android
   build-desktop-cross
+  ;;
+release-macos)
+  cd "$awldir/cmd/awl-tray"
+  gobuild-macos awl-tray
   ;;
 web)
   build-web

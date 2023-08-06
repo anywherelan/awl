@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest ]
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -64,12 +64,16 @@ jobs:
       - name: Download librespeed-cli
         env:
           CONFIG_AWL_LINUX: ${{ secrets.CONFIG_AWL_LINUX }}
+          CONFIG_AWL_MACOS: ${{ secrets.CONFIG_AWL_MACOS }}
           CONFIG_AWL_WINDOWS: ${{ secrets.CONFIG_AWL_WINDOWS }}
           CONFIG_LIBRESPEED: ${{ secrets.CONFIG_LIBRESPEED }}
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
                curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.10/librespeed-cli_1.0.10_linux_amd64.tar.gz | tar -xzf -
                echo $CONFIG_AWL_LINUX > config_awl.json
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+               curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.10/librespeed-cli_1.0.10_darwin_amd64.tar.gz | tar -xzf -
+               echo $CONFIG_AWL_MACOS > config_awl.json
           elif [ "$RUNNER_OS" == "Windows" ]; then
                curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.10/librespeed-cli_1.0.10_windows_amd64.zip > download.zip
                unzip download.zip
@@ -84,9 +88,9 @@ jobs:
       - name: Run librespeed-cli, awl, librespeed-cli through awl
         if: matrix.os == 'ubuntu-latest'
         run: |
+          chmod +x awl
           sudo ./awl &
 
-          chmod +x awl
           ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
 
           sleep 10
@@ -103,11 +107,31 @@ jobs:
           sudo kill -SIGINT $awl_pid
           sleep 1
       - name: Run librespeed-cli, awl, librespeed-cli through awl
+        if: matrix.os == 'macos-latest'
+        run: |
+          chmod +x awl
+          sudo ./awl &
+
+          ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
+
+          sleep 10
+          awl_pid=`jobs -l | grep './awl' | awk '{print $2}'`
+          ./awl cli peers status
+
+          ./librespeed-cli --local-json config_librespeed.json --server 2 --json --share --telemetry-level disabled | python3 -m json.tool
+
+          ping 10.66.0.2 -c 10
+          ping awl-tester.awl -c 10
+
+          sleep 1
+          sudo kill -SIGINT $awl_pid
+          sleep 1
+      - name: Run librespeed-cli, awl, librespeed-cli through awl
         if: matrix.os == 'windows-latest'
         run: |
+          chmod +x awl.exe
           ./awl.exe &
 
-          chmod +x awl.exe
           ./librespeed-cli.exe --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
 
           sleep 10
