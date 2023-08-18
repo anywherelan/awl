@@ -1,4 +1,6 @@
-# Get lastest version
+#!/bin/bash
+
+# Get latest version
 version=$(wget -qO- -t1 -T2 "https://api.github.com/repos/anywherelan/awl/releases/latest" | grep "tag_name" | head -n 1 | awk -F ":" '{print $2}' | sed 's/\"//g;s/,//g;s/ //g')
 
 # Get architecture
@@ -40,7 +42,7 @@ cd /etc/anywherelan
 # NOTE: you need to set the latest release tag and correct arch (x86/arm/etc)
 wget https://github.com/anywherelan/awl/releases/download/${version}/awl-linux-${architecture}-${version}.tar.gz
 tar xfz awl-linux-${architecture}-${version}.tar.gz
-ln awl /usr/bin/awl
+ln -s /etc/anywherelan/awl /usr/bin/awl
 rm awl-linux-${architecture}-${version}.tar.gz
 
 # Create systemd file
@@ -69,3 +71,5 @@ systemctl daemon-reload
 systemctl enable awl.service
 systemctl start awl.service
 systemctl status awl.service
+
+echo "Anywherelan was installed successfully to /etc/anywherelan"

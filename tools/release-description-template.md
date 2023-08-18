@@ -8,14 +8,19 @@ For instructions on how to install anywherelan [see readme](https://github.com/a
 
 ## Desktop version (awl-tray)
 
-### Linux binary builds
-
-{{range .AwlTrayLinux}}
-[{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
-
 ### Windows binary builds
 
 {{range .AwlTrayWindows}}
+[{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
+
+### macOS binary builds
+
+{{range .AwlTrayMacos}}
+[{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
+
+### Linux binary builds
+
+{{range .AwlTrayLinux}}
 [{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
 
 ## Server version (awl)

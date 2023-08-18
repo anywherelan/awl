@@ -25,16 +25,16 @@ Some use cases:
 - if both devices don't have public IP addresses (thus peer-to-peer is unavailable), awl will send your encrypted data through community relays (donates for infrastructure are welcome!)
 - TLS encryption
 - DNS server built-in. It allows using domains for your devices, like `work-laptop.awl` instead of IP address
-- works on Windows, Linux, Android
+- works on Windows, Linux, macOS, Android
 
 ## :camera: Screenshots
 
 <div align="center">
   <table cellpadding="0" cellspacing="0" style="margin: auto; border-collapse: collapse;">
     <tr style="border: none;"><td style="border: none;">
-      <img src="docs/images/desktop.png" width="800" alt="Fyne Hello Dark Theme" />
+      <img src="docs/images/desktop.png" width="800" />
     </td><td style="border: none;">
-      <img src="docs/images/desktop-tray.png" width="200" alt="Fyne Hello Dark Theme" />
+      <img src="docs/images/desktop-tray.png" width="200" />
     </td></tr>
   </table>
 </div>
@@ -42,9 +42,9 @@ Some use cases:
 <div align="center">
   <table cellpadding="0" cellspacing="0" style="margin: auto; border-collapse: collapse;">
     <tr style="border: none;"><td style="border: none;">
-      <img src="docs/images/android-info.png" width="300" alt="Fyne Hello Dark Theme" />
+      <img src="docs/images/android-info.png" width="300" />
     </td><td style="border: none;">
-      <img src="docs/images/android-peers.png" width="300" alt="Fyne Hello Dark Theme" />
+      <img src="docs/images/android-peers.png" width="300" />
     </td></tr>
   </table>
 </div>
@@ -59,9 +59,13 @@ At first, awl connects to community [bootstrap nodes](https://github.com/anywher
 
 # Installation
 
-For desktop there are two versions: `awl` and `awl-tray`. `awl` is mainly used for servers and other headless purposes and `awl-tray` is for desktop usage: it has nice system tray service to quickly get status of the vpn server, start/stop/restart it or to see which peers are online. Both versions have web-based ui for configuration and monitoring, and terminal interface [cli](#terminal-based-client).
+For desktop there are two versions: `awl` and `awl-tray`. `awl` is mainly used for servers and other headless purposes and `awl-tray` is for desktop usage: it has nice system tray service (app indicator) to quickly get status of the vpn server, start/stop/restart it or to see which peers are online. Both versions have web-based ui for configuration and monitoring, and terminal interface [cli](#terminal-based-client).
 
-First, download archive from [releases page](https://github.com/anywherelan/awl/releases), extract it to any place you like.
+First, download archive from [releases page](https://github.com/anywherelan/awl/releases) for your OS and processor architecture, extract it to any place you like.
+
+## Android
+
+Simply install apk from [releases page](https://github.com/anywherelan/awl/releases) and launch the application.
 
 ## Windows desktop (`awl-tray`)
 
@@ -71,9 +75,11 @@ It's known problem that some antivirus software may get false detection, in this
 
 After starting the program you will see icon in system tray below. Press right click and choose `Open Web UI`. Or you can manually go to the http://admin.awl
 
-## Android
+## macOS
 
-Simply install apk from [releases page](https://github.com/anywherelan/awl/releases) and launch the application.
+After downloading you need to unpack zip archive, right-click the `awl-tray` binary and select `Open`. You'll be warned that the app is from unidentified developer (because app isn't signed, it costs money), click "Open" to run it. It will also ask for admin rights. This is necessary because only admins can create virtual network interfaces.
+
+After starting the program you will see icon in the system tray. Press right click and choose `Open Web UI`. Or you can manually go to the http://admin.awl
 
 ## Linux
 
@@ -85,26 +91,31 @@ Make sure `zenity` is installed. It's not mandatory, but highly recommended in o
 sudo apt install -y zenity
 ```
 
-After downloading just execute binary as any other app. It will ask root permissions in order to get access to `/dev/tun` and to create virtual network interface. For now, it won't automatically create desktop entry, but it will be added soon.
+After downloading just execute binary as any other app. It will ask root permissions in order to get access to `/dev/tun` and to create virtual network interface. It will automatically create desktop entry, so next time you can run awl from applications list.
 
 After starting the program you will see icon in system tray below. Press right click and choose `Open Web UI`. Or you can manually go to the http://admin.awl
 
 ### Server (`awl`)
-```bash
-bash <(curl -sL https://raw.githubusercontent.com/anywherelan/awl/master/install.sh)
-```bash
 
-Yay, awl is up and running!
+To automatically install awl use the script below. It will install latest awl version as systemd service `awl.service`, binary and config files will be in `/etc/anywherelan/`. Also, awl will be started on every system reboot.
+
+```bash
+curl -sL https://raw.githubusercontent.com/anywherelan/awl/master/install.sh | sudo bash
+```
+
+Awl is up and running!
 
 ```bash
 # print server status
-./awl cli me status
+awl cli me status
 # set a name for your device
-./awl cli me rename --name your-name-here
+awl cli me rename --name your-name-here
 # print your peer id
-./awl cli me id
+awl cli me id
 # print help
-./awl cli -h
+awl cli -h
+# print systemd service status
+systemctl status awl.service
 ```
 
 See [cli](#terminal-based-client) for more information on terminal client.
@@ -126,17 +137,16 @@ If someone invites you, a notification will appear, and then you can accept/bloc
 ### Server
 
 ```bash
-cd /etc/anywherelan
 # print your peer_id
-./awl cli me id
+awl cli me id
 # print server status
-./awl cli me status
+awl cli me status
 # print all incoming friend requests
-./awl cli peers requests
+awl cli peers requests
 # invite peer or accept incoming request
-./awl cli peers add --pid 12D3KooWJMUjt9b5T1umzgzjLv5yG2ViuuF4qjmN65tsRXZGS1p8 --name awl-tester
+awl cli peers add --pid 12D3KooWJMUjt9b5T1umzgzjLv5yG2ViuuF4qjmN65tsRXZGS1p8 --name awl-tester
 # print all known peers
-./awl cli peers status
+awl cli peers status
 
 # try to access new peer
 ping 10.66.0.2
@@ -150,7 +160,7 @@ Awl looks for config file `config_awl.json` in paths in this order:
 
 - in directory provided by environment variable `AWL_DATA_DIR`, if set. If path does not exist or there is no config file, awl will initialize new config in this path
 - in the same directory as executable (if config file exists here)
-- in OS-specific config directory. For example, on Unix it's `$HOME/.config/anywherelan`, on Windows it's `%AppData%/anywherelan`. If there is no config here, awl will initialize new config in this path
+- in OS-specific config directory. For example, on Linux it's `$HOME/.config/anywherelan/`, on Windows it's `%AppData%/anywherelan/` and on macOS it's `$HOME/Library/Application Support/anywherelan/`. If there is no config here, awl will initialize new config in this path
 
 Tip: you can force using config file in the same directory with executable by creating `config_awl.json` with content `{}` before first launch.
 
@@ -220,11 +230,20 @@ As alternative, on Desktop/Server you can download new version from [releases pa
 
 # Roadmap
 
-- add support for awl dns for android ([#17](https://github.com/anywherelan/awl/issues/17))
-- add support for macOS ([#18](https://github.com/anywherelan/awl/issues/18))
 - performance improvements for vpn tunnel protocol
 - exit nodes - let you route all internet traffic through other peers
+- add support for awl dns for android ([#17](https://github.com/anywherelan/awl/issues/17))
 
 # Contributing
 
-TODO
+Contributions to this repository are very welcome.
+
+You can help by creating:
+- Bug reports - unexpected behavior, crashes
+- Feature proposals - proposal to change/add/delete some features
+- Documentation - improves to this README.md are appreciated
+- Pull Requests - implementing a new feature yourself or fixing bugs. If the change is big, then it's a good idea to open a new issue first to discuss changes.
+
+# License
+
+The project is licensed under the [MPLv2](LICENSE).

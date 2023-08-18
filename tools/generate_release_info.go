@@ -25,6 +25,7 @@ func main() {
 	var awlWindows []string
 	var awlTrayLinux []string
 	var awlTrayWindows []string
+	var awlTrayMacos []string
 
 	for _, file := range files {
 		if file.IsDir() {
@@ -43,6 +44,8 @@ func main() {
 			awlTrayLinux = append(awlTrayLinux, filename)
 		case strings.HasPrefix(filename, "awl-tray-windows"):
 			awlTrayWindows = append(awlTrayWindows, filename)
+		case strings.HasPrefix(filename, "awl-tray-macos"):
+			awlTrayMacos = append(awlTrayMacos, filename)
 		}
 	}
 
@@ -50,6 +53,7 @@ func main() {
 	sort.Strings(awlWindows)
 	sort.Strings(awlTrayLinux)
 	sort.Strings(awlTrayWindows)
+	sort.Strings(awlTrayMacos)
 
 	releaseTag := strings.TrimPrefix(awlAndroid, "awl-android-")
 	releaseTag = strings.TrimSuffix(releaseTag, ".apk")
@@ -66,6 +70,7 @@ func main() {
 		"AwlWindows":     awlWindows,
 		"AwlTrayLinux":   awlTrayLinux,
 		"AwlTrayWindows": awlTrayWindows,
+		"AwlTrayMacos":   awlTrayMacos,
 	}
 
 	err = temp.Execute(os.Stdout, data)
