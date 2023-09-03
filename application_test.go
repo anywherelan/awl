@@ -290,17 +290,17 @@ func TestTunnelPackets(t *testing.T) {
 }
 
 func BenchmarkTunnelPackets(b *testing.B) {
-	ts := NewTestSuite(b)
-
-	peer1 := ts.newTestPeer(true)
-	peer2 := ts.newTestPeer(true)
-
-	ts.makeFriends(peer2, peer1)
-	b.ResetTimer()
-
 	packetSizes := []int{40, 300, 800, 1300, 1800, 2300, 2800, 3500}
 	for _, packetSize := range packetSizes {
 		b.Run(fmt.Sprintf("%d bytes per package", packetSize), func(b *testing.B) {
+			ts := NewTestSuite(b)
+
+			peer1 := ts.newTestPeer(true)
+			peer2 := ts.newTestPeer(true)
+
+			ts.makeFriends(peer2, peer1)
+			b.ResetTimer()
+
 			b.SetBytes(int64(packetSize))
 			var packetsSent int64
 			packet := testPacket(packetSize)
@@ -310,9 +310,9 @@ func BenchmarkTunnelPackets(b *testing.B) {
 				peer1.tun.Outbound <- packet
 				atomic.AddInt64(&packetsSent, 1)
 				// to have packet_loss at reasonable level (but more than 0)
-				const sleepEvery = 40
+				const sleepEvery = 80
 				if i != 0 && i%sleepEvery == 0 {
-					time.Sleep(sleepEvery * 8 * time.Microsecond)
+					time.Sleep(1 * time.Millisecond)
 				}
 			}
 			received := peer2.tun.InboundCount()
@@ -393,6 +393,7 @@ func (ts *TestSuite) newTestPeer(disableLogging bool) testPeer {
 	tempConf := config.NewConfig(eventbus.NewBus())
 	if disableLogging {
 		tempConf.LoggerLevel = "fatal"
+		log.SetAllLoggers(log.LevelFatal)
 	}
 	tempConf.Save()
 

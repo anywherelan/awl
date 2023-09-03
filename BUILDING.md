@@ -2,7 +2,7 @@
 
 ## Dependencies
 
-* Go (1.20)
+* Go (1.21)
 * Git
 * gcc, gtk3, libappindicator3 for awl-tray on Linux ([see more](https://github.com/anywherelan/systray#platform-notes))
   - only for development, do not need for release build
