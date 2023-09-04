@@ -32,7 +32,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.20.x
+          go-version: 1.21.x
           cache: true
           cache-dependency-path: awl/go.sum
       - uses: actions/setup-java@v3
@@ -41,7 +41,7 @@ jobs:
           java-version: '12.x'
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.10.x'
+          flutter-version: '3.13.x'
           channel: 'stable'
       - run: flutter --version
       - name: Install ndk-bundle
@@ -55,8 +55,8 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@latest
           go get -d golang.org/x/mobile/cmd/gomobile
           gomobile init
-          go mod tidy -compat=1.20
-          cd cmd/awl-tray && go mod tidy -compat=1.20 && cd ../..
+          go mod tidy -compat=1.21
+          cd cmd/awl-tray && go mod tidy -compat=1.21 && cd ../..
           ./build.sh release
           echo "ls build"
           ls -lah build
@@ -103,7 +103,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.20.x
+          go-version: 1.21.x
           cache: true
           cache-dependency-path: awl/go.sum
 
