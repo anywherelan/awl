@@ -49,6 +49,20 @@ jobs:
       - name: Install ndk-bundle
         run: $ANDROID_HOME/tools/bin/sdkmanager --install "ndk-bundle"
 
+      - name: Configure Keystore for Android
+        run: |
+          echo "$KEYSTORE_UPLOAD_JKS" | base64 --decode > app/upload-keystore.jks
+          echo "storeFile=upload-keystore.jks" >> key.properties
+          echo "keyAlias=$KEYSTORE_KEY_ALIAS" >> key.properties
+          echo "storePassword=$KEYSTORE_STORE_PASSWORD" >> key.properties
+          echo "keyPassword=$KEYSTORE_KEY_PASSWORD" >> key.properties
+        env:
+          KEYSTORE_UPLOAD_JKS: ${{ secrets.KEYSTORE_UPLOAD_JKS }}
+          KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+        working-directory: awl-flutter/android
+
       - name: Build
         run: |
           export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk-bundle
@@ -59,6 +73,9 @@ jobs:
           gomobile init
           go mod tidy -compat=1.21
           cd cmd/awl-tray && go mod tidy -compat=1.21 && cd ../..
+          echo "check go mod tidy and git dirty"
+          test -z "$(git status --porcelain)" || (git status; git diff && false)
+          echo "start building"          
           ./build.sh release
           echo "ls build"
           ls -lah build
