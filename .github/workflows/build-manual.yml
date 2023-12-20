@@ -17,24 +17,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout awl code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref }}
           path: 'awl'
       - name: Checkout awl-flutter code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: 'anywherelan/awl-flutter'
           ref: ${{ github.event.inputs.awl_flutter_ref }}
           path: 'awl-flutter'
 
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: 1.21.x
           cache: true
-          cache-dependency-path: awl/go.sum
+          cache-dependency-path: |
+            awl/go.sum
+            awl/cmd/awl-tray/go.sum
       - uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
@@ -89,7 +91,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout awl code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref }}
@@ -101,11 +103,13 @@ jobs:
           path: awl/static
 
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: 1.21.x
           cache: true
-          cache-dependency-path: awl/go.sum
+          cache-dependency-path: |
+            awl/go.sum
+            awl/cmd/awl-tray/go.sum
 
       - name: Build
         run: |

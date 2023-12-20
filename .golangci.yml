@@ -33,6 +33,15 @@ linters:
     - exportloopref
     - sqlclosecheck
     - wastedassign
+    - ineffassign
+    - mirror
+    - nilnil
+    - nosprintfhostport
+    - dupl
+    # TODO: add and fix issues
+    #- revive
+    #- noctx
+    #- musttag
 linters-settings:
   prealloc:
     # Report preallocation suggestions only on simple loops that have no returns/breaks/continues/gotos in them.
@@ -58,6 +67,7 @@ issues:
     - path: _test\.go # to exclude all test files for linter errcheck
       linters:
         - errcheck
+        - goconst
     - linters:
         - gosec
       text: "G101:"
