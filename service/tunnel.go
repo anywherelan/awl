@@ -9,12 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anywherelan/awl/config"
-	"github.com/anywherelan/awl/protocol"
-	"github.com/anywherelan/awl/vpn"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/protocol"
+	"github.com/anywherelan/awl/vpn"
 )
 
 const (
@@ -224,12 +225,13 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 				return fmt.Errorf("make tunnel stream: %v", err)
 			}
 		}
-		// TODO: write packet len and packet data in one stream.Write - probably it's much more efficient
-		err = protocol.WriteUint64(stream, uint64(len(packet.Packet)))
-		if err != nil {
-			return err
-		}
-		_, err = stream.Write(packet.Packet)
+
+		tmpPacket := t.device.GetTempPacket()
+		defer t.device.PutTempPacket(tmpPacket)
+
+		protocolPacket := protocol.WritePacketToBuf(tmpPacket.Buffer[:], packet.Packet)
+		_, err = stream.Write(protocolPacket)
+
 		return err
 	}
 
