@@ -21,7 +21,7 @@ const (
 	InterfaceMTU   = 3500
 	maxContentSize = InterfaceMTU * 2 // TODO: determine real size
 	outboundChCap  = 50
-	// internal tun header. see offset in tun_darwin (4) and tun_linux (virtioNetHdrLen, currently 10)
+	// internal tun header. see offset in tun_darwin (4) and tun_linux (virtioNetHdrLen, currently 10).
 	tunPacketOffset    = 14
 	ipv4offsetChecksum = 10
 )
@@ -305,7 +305,7 @@ func checksumIPv4TCPUDP(headerAndPayload []byte, protocol uint32, srcIP net.IP, 
 
 // Calculate the TCP/IP checksum defined in rfc1071. The passed-in csum is any
 // initial checksum data that's already been computed.
-// Borrowed from google/gopacket
+// Borrowed from google/gopacket.
 func tcpipChecksum(data []byte, csum uint32) uint16 {
 	// to handle odd lengths, we loop to length - 1, incrementing by 2, then
 	// handle the last byte specifically by checking against the original

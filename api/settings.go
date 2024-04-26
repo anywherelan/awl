@@ -13,7 +13,7 @@ import (
 // @Accept json
 // @Produce json
 // @Success 200 {object} entity.PeerInfo
-// @Router /settings/peer_info [GET]
+// @Router /settings/peer_info [GET].
 func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 	totalBootstraps, connectedBootstraps := h.p2p.BootstrapPeersStats()
 	netStats := h.p2p.NetworkStats()
@@ -41,7 +41,7 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 // @Produce json
 // @Param body body entity.UpdateMySettingsRequest true "Params"
 // @Success 200 "OK"
-// @Router /settings/update [POST]
+// @Router /settings/update [POST].
 func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 	req := entity.UpdateMySettingsRequest{}
 	err = c.Bind(&req)
@@ -68,7 +68,7 @@ func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 // @Accept json
 // @Produce json
 // @Success 200 {object} config.Config
-// @Router /settings/export_server_config [GET]
+// @Router /settings/export_server_config [GET].
 func (h *Handler) ExportServerConfiguration(c echo.Context) (err error) {
 	data := h.conf.Export()
 
