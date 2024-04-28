@@ -109,7 +109,7 @@ func (c *Client) P2pDebugInfo() (*entity.P2pDebugInfo, error) {
 }
 
 // ApplicationLog
-// send numberOfLogs = 0 to print all logs
+// send numberOfLogs = 0 to print all logs.
 func (c *Client) ApplicationLog(numberOfLogs int, startFromHead bool) (string, error) {
 	qParams := entity.LogRequest{
 		StartFromHead: startFromHead,

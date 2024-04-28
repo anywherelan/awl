@@ -9,7 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/metrics"
 )
 
-// Requests
+// Requests.
 type (
 	LogRequest struct {
 		StartFromHead bool `url:"from_head" query:"from_head"`
@@ -38,7 +38,7 @@ type (
 	}
 )
 
-// Responses
+// Responses.
 type (
 	KnownPeersResponse struct {
 		PeerID                 string

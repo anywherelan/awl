@@ -2,7 +2,7 @@
 
 awldir=$(pwd)
 builddir="$awldir/build"
-awlflutterdir="$awldir/../awl-flutter"
+awlflutterdir="../awl-flutter"
 tempdir=$(dirname $(mktemp -u))
 
 wintun_version="wintun-0.14.1"
@@ -120,7 +120,7 @@ build-android-lib() {
   go get -d golang.org/x/mobile/cmd/gomobile
   gomobile bind -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
   go mod edit -droprequire=golang.org/x/mobile
-  go mod tidy -compat=1.21
+  go mod tidy -compat=1.22
   mkdir -p "$awlflutterdir/android/app/src/main/libs"
   mv anywherelan.aar "$awlflutterdir/android/app/src/main/libs/"
 }

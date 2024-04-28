@@ -19,7 +19,7 @@ import (
 // @Summary Get p2p debug info
 // @Produce json
 // @Success 200 {object} entity.P2pDebugInfo
-// @Router /debug/p2p_info [GET]
+// @Router /debug/p2p_info [GET].
 func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 	metricsByProtocol := h.p2p.NetworkStatsByProtocol()
 	bandwidthByProtocol := make(map[string]entity.BandwidthInfo, len(metricsByProtocol))
@@ -62,7 +62,7 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 // @Param from_head query bool false "Print logs from the beginning of logs"
 // @Produce plain
 // @Success 200 {string} string "log text"
-// @Router /debug/log [GET]
+// @Router /debug/log [GET].
 func (h *Handler) GetLog(c echo.Context) (err error) {
 	req := entity.LogRequest{}
 	err = c.Bind(&req)
