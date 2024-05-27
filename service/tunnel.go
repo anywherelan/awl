@@ -176,10 +176,16 @@ func (t *Tunnel) makeTunnelStream(ctx context.Context, peerID peer.ID) (network.
 		return nil, err
 	}
 
-	stream, err := t.p2p.NewStream(ctx, peerID, protocol.TunnelPacketMethod)
+	newStreamFunc := t.p2p.NewStream
+	if t.conf.P2pNode.UseDedicatedConnForEachStream {
+		newStreamFunc = t.p2p.NewStreamWithDedicatedConn
+	}
+
+	stream, err := newStreamFunc(ctx, peerID, protocol.TunnelPacketMethod)
 	if err != nil {
 		return nil, err
 	}
+
 	return stream, nil
 }
 
@@ -193,7 +199,10 @@ type VpnPeer struct {
 // TODO: remove Tunnel from VpnPeer dependencies
 func (vp *VpnPeer) Start(t *Tunnel) {
 	go vp.backgroundInboundHandler(t)
-	go vp.backgroundOutboundHandler(t)
+
+	for i := 0; i < t.conf.P2pNode.ParallelSendingStreamsCount; i++ {
+		go vp.backgroundOutboundHandler(t)
+	}
 }
 
 func (vp *VpnPeer) Close(t *Tunnel) {
@@ -282,6 +291,7 @@ func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
 			t.device.PutTempPacket(packet)
 			continue
 		}
+		// TODO: add batching
 		err := t.device.WritePacket(packet, vp.localIP)
 		if err != nil {
 			t.logger.Warnf("write packet to vpn: %v", err)
