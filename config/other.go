@@ -144,6 +144,9 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.P2pNode.ReconnectionIntervalSec == 0 {
 		conf.P2pNode.ReconnectionIntervalSec = 10
 	}
+	if conf.P2pNode.ParallelSendingStreamsCount == 0 {
+		conf.P2pNode.ParallelSendingStreamsCount = 1
+	}
 
 	// Other
 	if conf.LoggerLevel == "" {
@@ -155,8 +158,6 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if isEmptyConfig {
 		conf.HttpListenOnAdminHost = true
 	}
-	// TODO: remove in next release
-	conf.HttpListenOnAdminHost = true
 
 	if conf.VPNConfig.IPNet == "" {
 		conf.VPNConfig.IPNet = defaultNetworkSubnet

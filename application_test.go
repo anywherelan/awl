@@ -14,12 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anywherelan/awl/api"
-	"github.com/anywherelan/awl/api/apiclient"
-	"github.com/anywherelan/awl/config"
-	"github.com/anywherelan/awl/entity"
-	"github.com/anywherelan/awl/p2p"
-	"github.com/anywherelan/awl/vpn"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
@@ -34,6 +28,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
+
+	"github.com/anywherelan/awl/api"
+	"github.com/anywherelan/awl/api/apiclient"
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/entity"
+	"github.com/anywherelan/awl/p2p"
+	"github.com/anywherelan/awl/vpn"
 )
 
 func init() {
@@ -310,7 +311,7 @@ func BenchmarkTunnelPackets(b *testing.B) {
 				peer1.tun.Outbound <- packet
 				atomic.AddInt64(&packetsSent, 1)
 				// to have packet_loss at reasonable level (but more than 0)
-				const sleepEvery = 80
+				const sleepEvery = 100
 				if i != 0 && i%sleepEvery == 0 {
 					time.Sleep(1 * time.Millisecond)
 				}

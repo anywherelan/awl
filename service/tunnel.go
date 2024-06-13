@@ -9,12 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anywherelan/awl/config"
-	"github.com/anywherelan/awl/protocol"
-	"github.com/anywherelan/awl/vpn"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/protocol"
+	"github.com/anywherelan/awl/vpn"
 )
 
 const (
@@ -175,10 +176,16 @@ func (t *Tunnel) makeTunnelStream(ctx context.Context, peerID peer.ID) (network.
 		return nil, err
 	}
 
-	stream, err := t.p2p.NewStream(ctx, peerID, protocol.TunnelPacketMethod)
+	newStreamFunc := t.p2p.NewStream
+	if t.conf.P2pNode.UseDedicatedConnForEachStream {
+		newStreamFunc = t.p2p.NewStreamWithDedicatedConn
+	}
+
+	stream, err := newStreamFunc(ctx, peerID, protocol.TunnelPacketMethod)
 	if err != nil {
 		return nil, err
 	}
+
 	return stream, nil
 }
 
@@ -192,7 +199,10 @@ type VpnPeer struct {
 // TODO: remove Tunnel from VpnPeer dependencies
 func (vp *VpnPeer) Start(t *Tunnel) {
 	go vp.backgroundInboundHandler(t)
-	go vp.backgroundOutboundHandler(t)
+
+	for i := 0; i < t.conf.P2pNode.ParallelSendingStreamsCount; i++ {
+		go vp.backgroundOutboundHandler(t)
+	}
 }
 
 func (vp *VpnPeer) Close(t *Tunnel) {
@@ -224,12 +234,13 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 				return fmt.Errorf("make tunnel stream: %v", err)
 			}
 		}
-		// TODO: write packet len and packet data in one stream.Write - probably it's much more efficient
-		err = protocol.WriteUint64(stream, uint64(len(packet.Packet)))
-		if err != nil {
-			return err
-		}
-		_, err = stream.Write(packet.Packet)
+
+		tmpPacket := t.device.GetTempPacket()
+		defer t.device.PutTempPacket(tmpPacket)
+
+		protocolPacket := protocol.WritePacketToBuf(tmpPacket.Buffer[:], packet.Packet)
+		_, err = stream.Write(protocolPacket)
+
 		return err
 	}
 
@@ -280,6 +291,7 @@ func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
 			t.device.PutTempPacket(packet)
 			continue
 		}
+		// TODO: add batching
 		err := t.device.WritePacket(packet, vp.localIP)
 		if err != nil {
 			t.logger.Warnf("write packet to vpn: %v", err)

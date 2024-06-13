@@ -62,6 +62,9 @@ type (
 		ListenAddresses         []string      `json:"listenAddresses"`
 		ReconnectionIntervalSec time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"`
 		AutoAcceptAuthRequests  bool          `json:"autoAcceptAuthRequests"`
+
+		UseDedicatedConnForEachStream bool `json:"useDedicatedConnForEachStream"`
+		ParallelSendingStreamsCount   int  `json:"parallelSendingStreamsCount"`
 	}
 	VPNConfig struct {
 		InterfaceName string `json:"interfaceName"`

@@ -70,7 +70,7 @@ func SendAuthResponse(stream io.Writer, response AuthPeerResponse) error {
 
 func ReadUint64(stream io.Reader) (uint64, error) {
 	var data [8]byte
-	n, err := stream.Read(data[:])
+	n, err := io.ReadFull(stream, data[:])
 	if err != nil {
 		return 0, err
 	}
@@ -82,9 +82,10 @@ func ReadUint64(stream io.Reader) (uint64, error) {
 	return value, nil
 }
 
-func WriteUint64(stream io.Writer, number uint64) error {
-	var data [8]byte
-	binary.BigEndian.PutUint64(data[:], number)
-	_, err := stream.Write(data[:])
-	return err
+func WritePacketToBuf(buf, packet []byte) []byte {
+	const lenBytesCount = 8
+	binary.BigEndian.PutUint64(buf, uint64(len(packet)))
+	n := copy(buf[lenBytesCount:], packet)
+
+	return buf[:lenBytesCount+n]
 }

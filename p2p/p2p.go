@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,7 @@ import (
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
+	msmux "github.com/multiformats/go-multistream"
 	"go.uber.org/multierr"
 )
 
@@ -209,6 +211,34 @@ func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (net
 	return p.host.NewStream(ctx, id, proto)
 }
 
+func (p *P2p) NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
+	ctx = network.WithUseTransient(ctx, "awl")
+
+	// mostly copied from NewStream()
+	// github.com/libp2p/go-libp2p@v0.32.2/p2p/host/basic/basic_host.go:634
+	conn, err := p.host.Network().DialPeer(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial: %v", err)
+	}
+
+	stream, err := conn.NewStream(ctx)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to create new stream: %v", err)
+	}
+
+	err = stream.SetProtocol(proto)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set protocol to stream: %v", err)
+	}
+	lzcon := msmux.NewMSSelect(stream, proto)
+
+	return &streamWrapper{
+		Stream: stream,
+		rw:     lzcon,
+	}, nil
+}
+
 func (p *P2p) IsConnected(peerID peer.ID) bool {
 	return p.host.Network().Connectedness(peerID) == network.Connected
 }
@@ -375,4 +405,35 @@ func DefaultListenAddrs() []multiaddr.Multiaddr {
 		multiaddr.StringCast(fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", defaultP2pPort)),
 		multiaddr.StringCast(fmt.Sprintf("/ip6/::/udp/%d/quic-v1", defaultP2pPort)),
 	}
+}
+
+// copied from
+// github.com/libp2p/go-libp2p@v0.32.2/p2p/host/basic/basic_host.go:1050
+type streamWrapper struct {
+	network.Stream
+	rw io.ReadWriteCloser
+}
+
+func (s *streamWrapper) Read(b []byte) (int, error) {
+	return s.rw.Read(b)
+}
+
+func (s *streamWrapper) Write(b []byte) (int, error) {
+	return s.rw.Write(b)
+}
+
+func (s *streamWrapper) Close() error {
+	return s.rw.Close()
+}
+
+func (s *streamWrapper) CloseWrite() error {
+	// Flush the handshake before closing, but ignore the error. The other
+	// end may have closed their side for reading.
+	//
+	// If something is wrong with the stream, the user will get on error on
+	// read instead.
+	if flusher, ok := s.rw.(interface{ Flush() error }); ok {
+		_ = flusher.Flush()
+	}
+	return s.Stream.CloseWrite()
 }

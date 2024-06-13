@@ -7,14 +7,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anywherelan/awl/awldns"
-	"github.com/anywherelan/awl/awlevent"
-	"github.com/anywherelan/awl/config"
-	"github.com/anywherelan/awl/protocol"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
+
+	"github.com/anywherelan/awl/awldns"
+	"github.com/anywherelan/awl/awlevent"
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/protocol"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
+	NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn))
 	ProtectPeer(id peer.ID)
 }
