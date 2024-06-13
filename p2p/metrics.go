@@ -56,7 +56,7 @@ func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
 		stat := conn.Stat()
 		info.Direction = strings.ToLower(stat.Direction.String())
 		info.Opened = stat.Opened
-		info.Transient = stat.Transient
+		info.Transient = stat.Limited
 		infos = append(infos, info)
 	}
 	return infos

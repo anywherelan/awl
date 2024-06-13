@@ -207,12 +207,12 @@ func (p *P2p) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
 }
 
 func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
-	ctx = network.WithUseTransient(ctx, "awl")
+	ctx = network.WithAllowLimitedConn(ctx, "awl")
 	return p.host.NewStream(ctx, id, proto)
 }
 
 func (p *P2p) NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
-	ctx = network.WithUseTransient(ctx, "awl")
+	ctx = network.WithAllowLimitedConn(ctx, "awl")
 
 	// mostly copied from NewStream()
 	// github.com/libp2p/go-libp2p@v0.32.2/p2p/host/basic/basic_host.go:634
@@ -240,7 +240,7 @@ func (p *P2p) NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto 
 }
 
 func (p *P2p) IsConnected(peerID peer.ID) bool {
-	return p.host.Network().Connectedness(peerID) == network.Connected
+	return p.host.Network().Connectedness(peerID) != network.NotConnected
 }
 
 func (p *P2p) ProtectPeer(id peer.ID) {

@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"image"
 	"runtime"
+	"slices"
 	"sort"
 
 	"fyne.io/systray"
 	"github.com/GrigoryKrasnochub/updaterini"
 	ico "github.com/Kodeworks/golang-image-ico"
 	"github.com/gen2brain/beeep"
-	"golang.org/x/exp/slices"
 
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/embeds"

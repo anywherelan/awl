@@ -3,9 +3,10 @@ package api
 import (
 	"net/http"
 
+	"github.com/labstack/echo/v4"
+
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
-	"github.com/labstack/echo/v4"
 )
 
 // @Tags Settings
@@ -72,5 +73,5 @@ func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 func (h *Handler) ExportServerConfiguration(c echo.Context) (err error) {
 	data := h.conf.Export()
 
-	return c.Blob(http.StatusOK, echo.MIMEApplicationJSONCharsetUTF8, data)
+	return c.Blob(http.StatusOK, echo.MIMEApplicationJSON, data)
 }
