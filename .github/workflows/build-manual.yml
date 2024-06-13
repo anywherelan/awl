@@ -80,13 +80,13 @@ jobs:
           echo "ls build"
           ls -lah build
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: awl-release-build
           path: awl/build/*
           if-no-files-found: error
       - name: Upload flutter web artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: awl-release-static
           path: awl/static/
@@ -114,7 +114,7 @@ jobs:
           ref: ${{ github.event.inputs.awl_ref }}
           path: 'awl'
       - name: Retrieve saved static/ build
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: awl-release-static
           path: awl/static
@@ -136,7 +136,7 @@ jobs:
           echo "ls build"
           ls -lah build
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: awl-release-build-macos
           path: awl/build/*
