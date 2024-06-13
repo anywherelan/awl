@@ -72,7 +72,7 @@ jobs:
                curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.10/librespeed-cli_1.0.10_linux_amd64.tar.gz | tar -xzf -
                echo $CONFIG_AWL_LINUX > config_awl.json
           elif [ "$RUNNER_OS" == "macOS" ]; then
-               curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.10/librespeed-cli_1.0.10_darwin_amd64.tar.gz | tar -xzf -
+               curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.10/librespeed-cli_1.0.10_darwin_arm64.tar.gz | tar -xzf -
                echo $CONFIG_AWL_MACOS > config_awl.json
           elif [ "$RUNNER_OS" == "Windows" ]; then
                curl -sSL https://github.com/librespeed/speedtest-cli/releases/download/v1.0.10/librespeed-cli_1.0.10_windows_amd64.zip > download.zip
