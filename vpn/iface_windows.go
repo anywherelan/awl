@@ -19,9 +19,6 @@ var WintunGUID *windows.GUID
 func init() {
 	var err error
 	tun.WintunTunnelType = "Anywherelan"
-	if err != nil {
-		panic(err)
-	}
 	guid, err := windows.GUIDFromString("{13b1820f-bcf0-4eef-ba5d-9e98f7283a26}")
 	if err != nil {
 		panic(err)
