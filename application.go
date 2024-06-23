@@ -12,15 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anywherelan/awl/api"
-	"github.com/anywherelan/awl/awldns"
-	"github.com/anywherelan/awl/awlevent"
-	"github.com/anywherelan/awl/config"
-	"github.com/anywherelan/awl/p2p"
-	"github.com/anywherelan/awl/protocol"
-	"github.com/anywherelan/awl/ringbuffer"
-	"github.com/anywherelan/awl/service"
-	"github.com/anywherelan/awl/vpn"
 	"github.com/anywherelan/ts-dns/net/dns"
 	"github.com/anywherelan/ts-dns/util/dnsname"
 	ds "github.com/ipfs/go-datastore"
@@ -34,6 +25,16 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
+
+	"github.com/anywherelan/awl/api"
+	"github.com/anywherelan/awl/awldns"
+	"github.com/anywherelan/awl/awlevent"
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/p2p"
+	"github.com/anywherelan/awl/protocol"
+	"github.com/anywherelan/awl/ringbuffer"
+	"github.com/anywherelan/awl/service"
+	"github.com/anywherelan/awl/vpn"
 )
 
 const (
@@ -205,6 +206,7 @@ func (a *Application) Ctx() context.Context {
 }
 
 func (a *Application) Close() {
+	a.Conf.Save()
 	if a.ctxCancel != nil {
 		a.ctxCancel()
 	}

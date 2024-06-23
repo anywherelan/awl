@@ -56,6 +56,7 @@ func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 	h.conf.Lock()
 	h.conf.P2pNode.Name = req.Name
 	h.conf.Unlock()
+	h.conf.Save()
 
 	go func() {
 		h.authStatus.ExchangeStatusInfoWithAllKnownPeers(h.ctx)
