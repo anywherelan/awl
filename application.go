@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anywherelan/ts-dns/control/controlknobs"
 	"github.com/anywherelan/ts-dns/net/dns"
 	"github.com/anywherelan/ts-dns/util/dnsname"
 	ds "github.com/ipfs/go-datastore"
@@ -312,7 +313,7 @@ func (a *DNSService) initDNS(interfaceName string) {
 	tsLogger := log.Logger("ts/dnsconf")
 	a.dnsOsConfigurator, err = dns.NewOSConfigurator(func(format string, args ...interface{}) {
 		tsLogger.Infof(format, args...)
-	}, interfaceName)
+	}, nil, &controlknobs.Knobs{}, interfaceName)
 	if err != nil {
 		a.logger.Errorf("create dns os configurator: %v", err)
 		return
