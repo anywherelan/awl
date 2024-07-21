@@ -1,10 +1,12 @@
 module github.com/anywherelan/awl
 
-go 1.22
+go 1.22.0
+
+toolchain go1.22.5
 
 require (
 	github.com/GrigoryKrasnochub/updaterini v0.1.0
-	github.com/anywherelan/ts-dns v0.0.0-20230521182336-d406eaaea19c
+	github.com/anywherelan/ts-dns v0.0.0-20240721135326-6d6b7b811853
 	github.com/go-playground/validator/v10 v10.22.0
 	github.com/google/go-querystring v1.1.0
 	github.com/ipfs/go-datastore v0.6.0
@@ -43,6 +45,7 @@ require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
+	github.com/dblohm7/wingoes v0.0.0-20240119213807-a09d6be7affa // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/docker/libcontainer v2.2.1+incompatible // indirect
@@ -55,7 +58,7 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
-	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/google/gopacket v1.1.19 // indirect
@@ -149,9 +152,8 @@ require (
 	go.uber.org/dig v1.17.1 // indirect
 	go.uber.org/fx v1.21.1 // indirect
 	go.uber.org/mock v0.4.0 // indirect
-	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/mem v0.0.0-20220726221520-4f986261bf13 // indirect
-	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
+	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/crypto v0.24.0 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/mod v0.18.0 // indirect
@@ -164,7 +166,6 @@ require (
 	gonum.org/v1/gonum v0.13.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	inet.af/netaddr v0.0.0-20220811202034-502d2d690317 // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
