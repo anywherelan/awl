@@ -10,12 +10,13 @@ import (
 )
 
 const (
-	Version  = "0.3.0"
-	basePath = "/awl/" + Version
+	version  = "0.3.0"
+	basePath = "/awl/" + version
 
 	AuthMethod         protocol.ID = basePath + "/auth/"
 	GetStatusMethod    protocol.ID = basePath + "/status/"
 	TunnelPacketMethod protocol.ID = basePath + "/tunnel/"
+	Socks5PacketMethod protocol.ID = basePath + "/socks5/"
 )
 
 type (

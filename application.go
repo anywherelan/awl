@@ -79,6 +79,7 @@ type Application struct {
 	Api        *api.Handler
 	AuthStatus *service.AuthStatus
 	Tunnel     *service.Tunnel
+	SOCKS5     *service.SOCKS5
 	Dns        *DNSService
 }
 
@@ -116,10 +117,15 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.Dns = NewDNSService(a.Conf, a.Eventbus, a.ctx, a.logger)
 	a.AuthStatus = service.NewAuthStatus(a.P2p, a.Conf, a.Eventbus)
 	a.Tunnel = service.NewTunnel(a.P2p, vpnDevice, a.Conf)
+	a.SOCKS5, err = service.NewSOCKS5(a.P2p, a.Conf)
+	if err != nil {
+		return fmt.Errorf("failed to init socks5: %v", err)
+	}
 
 	p2pHost.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
 	p2pHost.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
 	p2pHost.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
+	p2pHost.SetStreamHandler(protocol.Socks5PacketMethod, a.SOCKS5.ProxyStreamHandler)
 
 	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
 		a.Tunnel.RefreshPeersList()
@@ -135,6 +141,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	go a.P2p.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second, a.Conf.KnownPeersIds)
 	go a.AuthStatus.BackgroundRetryAuthRequests(a.ctx)
 	go a.AuthStatus.BackgroundExchangeStatusInfo(a.ctx)
+	go a.SOCKS5.ServeConns(a.ctx)
 
 	if useAwldns {
 		interfaceName, err := a.vpnDevice.InterfaceName()
@@ -230,6 +237,9 @@ func (a *Application) Close() {
 	}
 	if a.Tunnel != nil {
 		a.Tunnel.Close()
+	}
+	if a.SOCKS5 != nil {
+		a.SOCKS5.Close()
 	}
 	if a.vpnDevice != nil {
 		err := a.vpnDevice.Close()

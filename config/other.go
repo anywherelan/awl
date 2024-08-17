@@ -173,6 +173,14 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		}
 	}
 
+	if conf.SOCKS5 == (SOCKS5Config{}) {
+		conf.SOCKS5.ListenerEnabled = true
+		conf.SOCKS5.ProxyingEnabled = true
+	}
+	if conf.SOCKS5.ListenAddress == "" {
+		conf.SOCKS5.ListenAddress = defaultSOCKS5ListenAddress
+	}
+
 	uniqAliases := make(map[string]struct{}, len(conf.KnownPeers))
 	if conf.KnownPeers == nil {
 		conf.KnownPeers = make(map[string]KnownPeer)

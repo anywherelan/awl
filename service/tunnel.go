@@ -227,6 +227,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 	)
 	sendPacket := func(packet *vpn.Packet) (err error) {
 		if stream == nil {
+			// TODO: increase timeout?
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			stream, err = t.makeTunnelStream(ctx, vp.peerID)
 			cancel()
@@ -265,6 +266,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 				closeStream()
 			}
 			currentPacketsForStream += 1
+			// TODO: send multiple packets at once?
 			err := sendPacket(packet)
 			if err != nil {
 				t.logger.Warnf("send packet to peerID (%s) local ip (%s): %v", vp.peerID, vp.localIP, err)

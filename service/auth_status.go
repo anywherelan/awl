@@ -100,8 +100,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	// get the latest peer config to reduce race time between get and upsert (without locking)
 	// TODO: fix race completely
 	knownPeer, _ = s.conf.GetPeer(peerID)
-	newPeer := s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
-	s.conf.UpsertPeer(newPeer)
+	s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
 }
 
 func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID peer.ID, knownPeer config.KnownPeer) error {
@@ -141,8 +140,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 	// get the latest peer config to reduce race time between get and upsert (without locking)
 	// TODO: fix race completely
 	knownPeer, _ = s.conf.GetPeer(remotePeerID.String())
-	newPeer := s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
-	s.conf.UpsertPeer(newPeer)
+	s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
 
 	return nil
 }
@@ -168,11 +166,19 @@ func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, de
 	return myPeerInfo
 }
 
-func (s *AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protocol.PeerStatusInfo) config.KnownPeer {
+func (s *AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protocol.PeerStatusInfo) {
 	peer.LastSeen = time.Now()
 	if peerInfo.Declined {
 		peer.Declined = true
-		return peer
+		s.conf.UpsertPeer(peer)
+
+		s.conf.Lock()
+		defer s.conf.Unlock()
+		if s.conf.SOCKS5.UsingPeerID == peer.PeerID {
+			s.conf.SOCKS5.UsingPeerID = ""
+		}
+
+		return
 	}
 	peer.Name = peerInfo.Name
 	peer.Confirmed = true
@@ -185,7 +191,18 @@ func (s *AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo proto
 	}
 	peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode
 
-	return peer
+	s.conf.UpsertPeer(peer)
+
+	s.conf.Lock()
+	defer s.conf.Unlock()
+
+	if peer.AllowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == "" {
+		s.conf.SOCKS5.UsingPeerID = peer.PeerID
+	}
+
+	if !peer.AllowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == peer.PeerID {
+		s.conf.SOCKS5.UsingPeerID = ""
+	}
 }
 
 func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
