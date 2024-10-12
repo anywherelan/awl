@@ -1,11 +1,14 @@
 package socks5
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 
 	"github.com/haxii/socks5"
+	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/network"
 )
 
@@ -15,16 +18,20 @@ const (
 
 type Server struct {
 	socks *socks5.Server
+	conf  *socks5.Config
+	rule  *UpdatableRule
 }
 
 func NewServer() *Server {
+	rule := NewUpdatableRule(NewRuleDenyLocalhost())
 	conf := &socks5.Config{
 		// fake addr, we don't bind address for server
 		BindIP:   net.IPv4(127, 0, 0, 1),
 		BindPort: 8000,
-		// TODO: set?
-		Logger:   nil,
+		Rules:    rule,
+		Logger:   NewLogger(),
 		Resolver: nil,
+		// TODO: add optional password authentication method support
 	}
 	server, err := socks5.New(conf)
 	if err != nil {
@@ -33,7 +40,14 @@ func NewServer() *Server {
 
 	return &Server{
 		socks: server,
+		conf:  conf,
+		rule:  rule,
 	}
+}
+
+// SetRules is created for tests and not intended for real usage.
+func (s *Server) SetRules(rule socks5.RuleSet) {
+	s.rule.SetRule(rule)
 }
 
 func (s *Server) ServeStreamConn(stream network.Stream) error {
@@ -123,10 +137,6 @@ func (s *Server) sendReply(w io.Writer, resp uint8, addr *socks5.AddrSpec) error
 		return fmt.Errorf("failed to format address: %v", addr)
 	}
 
-	const (
-		socks5Version = uint8(5)
-	)
-
 	// Format the message
 	msg := make([]byte, 6+len(addrBody))
 	msg[0] = socks5Version
@@ -140,4 +150,73 @@ func (s *Server) sendReply(w io.Writer, resp uint8, addr *socks5.AddrSpec) error
 	// Send the message
 	_, err := w.Write(msg)
 	return err
+}
+
+type UpdatableRule struct {
+	rule atomic.Pointer[socks5.RuleSet]
+}
+
+func NewUpdatableRule(rule socks5.RuleSet) *UpdatableRule {
+	ur := &UpdatableRule{}
+	ur.SetRule(rule)
+
+	return ur
+}
+
+func (r *UpdatableRule) Allow(ctx context.Context, req *socks5.Request) (context.Context, bool) {
+	rule := *r.rule.Load()
+
+	return rule.Allow(ctx, req)
+}
+
+func (r *UpdatableRule) SetRule(rule socks5.RuleSet) {
+	r.rule.Store(&rule)
+}
+
+type RuleDenyLocalhost struct {
+	ipNet *net.IPNet
+}
+
+func NewRulePermitAll() socks5.RuleSet {
+	return socks5.PermitAll()
+}
+
+func NewRuleDenyLocalhost() *RuleDenyLocalhost {
+	_, ipNet, err := net.ParseCIDR("127.0.0.1/8")
+	if err != nil {
+		// verified in tests
+		panic(err)
+	}
+
+	return &RuleDenyLocalhost{
+		ipNet: ipNet,
+	}
+}
+
+func (r *RuleDenyLocalhost) Allow(ctx context.Context, req *socks5.Request) (context.Context, bool) {
+	addr := req.DestAddr
+	if addr == nil {
+		return ctx, true
+	}
+
+	if r.ipNet.Contains(addr.IP) {
+		return ctx, false
+	}
+
+	return ctx, true
+}
+
+type Logger struct {
+	logger *log.ZapEventLogger
+}
+
+func NewLogger() *Logger {
+	return &Logger{
+		logger: log.Logger("socks5/server"),
+	}
+}
+
+func (l *Logger) Printf(format string, v ...interface{}) {
+	// TODO: make more configurable log levels in upstream
+	l.logger.Infof(format, v...)
 }

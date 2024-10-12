@@ -53,3 +53,9 @@ func (c StreamConnWrapper) RemoteAddr() net.Addr {
 	//  we probably need this to return net.TCPAddr, to have correct address in proxy
 	return nil
 }
+
+func (c StreamConnWrapper) Close() error {
+	// Close in wrapper is no-op to not close underlying conn inside socks5 library
+	// Stream is closed at service layer
+	return nil
+}

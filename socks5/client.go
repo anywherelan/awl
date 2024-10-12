@@ -4,11 +4,14 @@ import (
 	"errors"
 	"net"
 	"time"
+
+	"github.com/ipfs/go-log/v2"
 )
 
 type Client struct {
 	listener net.Listener
 	connsCh  chan net.Conn
+	logger   *log.ZapEventLogger
 }
 
 func NewClient(listenAddr string) (*Client, error) {
@@ -18,13 +21,18 @@ func NewClient(listenAddr string) (*Client, error) {
 		return nil, err
 	}
 
+	logger := log.Logger("socks5/client")
+
 	cli := Client{
 		listener: listener,
 		connsCh:  make(chan net.Conn, 1),
+		logger:   logger,
 	}
 	go func() {
-		_ = cli.serve()
-		// TODO: log err
+		serveErr := cli.serve()
+		if serveErr != nil {
+			logger.Errorf("serving listener error, stopped serving: %v", serveErr)
+		}
 	}()
 
 	return &cli, nil
@@ -56,7 +64,8 @@ func (c *Client) serve() error {
 			// ok
 			timer.Stop()
 		case <-timer.C:
-			// TODO: log
+			c.logger.Error("couldn't process conn, closed and dropped conn")
+			_ = conn.Close()
 		}
 	}
 }

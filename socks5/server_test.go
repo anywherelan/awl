@@ -17,6 +17,7 @@ import (
 func TestProxy(t *testing.T) {
 	const listenAddr = "localhost:8673"
 	socksServer := NewServer()
+	socksServer.SetRules(NewRulePermitAll())
 	socksClient, err := NewClient(listenAddr)
 	require.NoError(t, err)
 	go func() {
@@ -33,6 +34,7 @@ func TestProxy(t *testing.T) {
 	})
 	go func() {
 		// TODO: handle properly
+		//nolint
 		_ = http.ListenAndServe(":3030", mux)
 	}()
 	httpTransport := &http.Transport{DialContext: dialer.(proxy.ContextDialer).DialContext}

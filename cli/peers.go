@@ -7,10 +7,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/olekukonko/tablewriter"
+
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/entity"
-	"github.com/olekukonko/tablewriter"
 )
 
 func printPeersStatus(api *apiclient.Client, format string) error {
@@ -210,8 +211,10 @@ func changePeerAlias(api *apiclient.Client, peerID, newAlias string) error {
 	}
 
 	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
-		PeerID: peerID, DomainName: pcfg.DomainName, AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
-		Alias: newAlias,
+		PeerID:               peerID,
+		Alias:                newAlias,
+		DomainName:           pcfg.DomainName,
+		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
 	})
 	if err != nil {
 		return err
@@ -228,8 +231,10 @@ func changePeerDomain(api *apiclient.Client, peerID, newDomain string) error {
 	}
 
 	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
-		PeerID: peerID, Alias: pcfg.Alias, AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
-		DomainName: newDomain,
+		PeerID:               peerID,
+		Alias:                pcfg.Alias,
+		DomainName:           newDomain,
+		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
 	})
 	if err != nil {
 		return err
@@ -246,7 +251,9 @@ func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool) e
 	}
 
 	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
-		PeerID: peerID, Alias: pcfg.Alias, DomainName: pcfg.DomainName,
+		PeerID:               peerID,
+		Alias:                pcfg.Alias,
+		DomainName:           pcfg.DomainName,
 		AllowUsingAsExitNode: allow,
 	})
 	if err != nil {

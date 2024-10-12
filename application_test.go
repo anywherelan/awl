@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go/integrationtests/tools/israce"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/net/proxy"
 	"golang.zx2c4.com/wireguard/tun"
@@ -195,6 +197,9 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 
 	ts.makeFriends(peer2, peer1)
 
+	current := goleak.IgnoreCurrent()
+	goleak.VerifyNone(t, current)
+
 	peer1Config, err := peer2.api.KnownPeerConfig(peer1.PeerID())
 	ts.NoError(err)
 	ts.Equal(false, peer1Config.AllowedUsingAsExitNode)
@@ -253,18 +258,24 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	}, 15*time.Second, 100*time.Millisecond)
 
 	ts.Equal("", peer1.app.Conf.SOCKS5.UsingPeerID)
-	testProxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, true)
+	testSOCKS5Proxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "general SOCKS server failure"))
 
-	testProxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, false)
+	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "connection not allowed by ruleset"))
+
+	peer1.app.SOCKS5.SetProxyingLocalhostEnabled(true)
+	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, "")
+	peer1.app.SOCKS5.SetProxyingLocalhostEnabled(false)
 }
 
-func testProxy(ts *TestSuite, proxyAddr string, expectSocksErr bool) {
+func testSOCKS5Proxy(ts *TestSuite, proxyAddr string, expectSocksErr string) {
 	// setup mock server
+	expectedBody := strings.Repeat("test text", 10_000)
 	addr := pickFreeAddr(ts.t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprintf(w, "test text")
+		_, _ = fmt.Fprint(w, expectedBody)
 	})
+	//nolint
 	httpServer := &http.Server{Addr: addr, Handler: mux}
 	go func() {
 		_ = httpServer.ListenAndServe()
@@ -280,9 +291,9 @@ func testProxy(ts *TestSuite, proxyAddr string, expectSocksErr bool) {
 	httpClient := http.Client{Transport: httpTransport}
 
 	// test
-	for range 5 {
+	for range 20 {
 		response, err := httpClient.Get(fmt.Sprintf("http://%s/test", addr))
-		if expectSocksErr {
+		if expectSocksErr != "" {
 			ts.Error(err)
 
 			var urlErr *url.Error
@@ -291,7 +302,7 @@ func testProxy(ts *TestSuite, proxyAddr string, expectSocksErr bool) {
 			ts.ErrorAs(urlErr.Err, &netErr)
 
 			ts.Equal("socks connect", netErr.Op)
-			ts.EqualError(netErr.Err, "unknown error general SOCKS server failure")
+			ts.EqualError(netErr.Err, expectSocksErr)
 
 			continue
 		}
@@ -302,7 +313,7 @@ func testProxy(ts *TestSuite, proxyAddr string, expectSocksErr bool) {
 		err = response.Body.Close()
 		ts.NoError(err)
 
-		ts.Equal("test text", string(body))
+		ts.Equal(expectedBody, string(body))
 	}
 }
 
@@ -317,6 +328,9 @@ func TestTunnelPackets(t *testing.T) {
 	peer2 := ts.newTestPeer(false)
 
 	ts.makeFriends(peer2, peer1)
+
+	current := goleak.IgnoreCurrent()
+	goleak.VerifyNone(t, current)
 
 	const packetSize = 2500
 	const packetsCount = 2600 // approx 1.1 p2p streams
@@ -416,6 +430,7 @@ func testPacket(length int) []byte {
 	return vpnPacket.Packet
 }
 
+// TODO: add support for goleak in TestSuite
 type TestSuite struct {
 	*require.Assertions
 

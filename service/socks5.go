@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/ipfs/go-log/v2"
 	pool "github.com/libp2p/go-buffer-pool"
@@ -27,6 +28,8 @@ type SOCKS5 struct {
 }
 
 func NewSOCKS5(p2pService P2p, conf *config.Config) (*SOCKS5, error) {
+	logger := log.Logger("awl/service/socks5")
+
 	var client *socks5.Client
 	if conf.SOCKS5.ListenerEnabled {
 		var err error
@@ -34,11 +37,13 @@ func NewSOCKS5(p2pService P2p, conf *config.Config) (*SOCKS5, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to start socks5 listener: %v", err)
 		}
+
+		logger.Infof("started socks5 proxy on socks5://%s", conf.SOCKS5.ListenAddress)
 	}
 
 	server := socks5.NewServer()
 	socks := &SOCKS5{
-		logger: log.Logger("awl/service/socks5"),
+		logger: logger,
 		p2p:    p2pService,
 		conf:   conf,
 		client: client,
@@ -56,7 +61,7 @@ func (s *SOCKS5) Close() {
 
 func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
 	defer func() {
-		_ = stream.Close()
+		_ = stream.Reset()
 	}()
 
 	remotePeer := stream.Conn().RemotePeer()
@@ -80,8 +85,14 @@ func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
 		return
 	}
 
-	_ = s.server.ServeStreamConn(stream)
 	// ignore error, we can do nothing about it
+	_ = s.server.ServeStreamConn(stream)
+
+	// stream.Write() + stream.Reset() are not guaranteed to run sequentially
+	// e.g reader on the other side may not read everything we sent because of stream.Reset()
+	// in case of socks5 errors (small payload), receiver could get EOF
+	// TODO: make better workaround for this. stream.CloseWrite(), etc doesn't help
+	time.Sleep(20 * time.Millisecond)
 }
 
 func (s *SOCKS5) ServeConns(ctx context.Context) {
@@ -98,6 +109,15 @@ func (s *SOCKS5) ServeConns(ctx context.Context) {
 	}
 }
 
+// SetProxyingLocalhostEnabled is created for tests and not intended for real usage.
+func (s *SOCKS5) SetProxyingLocalhostEnabled(enabled bool) {
+	if enabled {
+		s.server.SetRules(socks5.NewRulePermitAll())
+	} else {
+		s.server.SetRules(socks5.NewRuleDenyLocalhost())
+	}
+}
+
 func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 	defer func() {
 		_ = conn.Close()
@@ -109,7 +129,7 @@ func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 
 	if usePeerID == "" {
 		_ = s.server.SendServerFailureReply(conn)
-		return errors.New("no usable peer")
+		return errors.New("no peer is set for proxy")
 	}
 
 	peer, exists := s.conf.GetPeer(usePeerID)
@@ -129,7 +149,7 @@ func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 	defer func() {
-		_ = stream.Close()
+		_ = stream.Reset()
 	}()
 
 	s.handleStream(conn, stream)
@@ -149,7 +169,11 @@ func (s *SOCKS5) handleStream(conn net.Conn, stream network.Stream) {
 	go func() {
 		defer wg.Done()
 		// Copy from stream to conn
-		go s.copyStream(stream, conn)
+		s.copyStream(stream, conn)
+
+		// in some cases stream could finish writing before conn (e.g for errors)
+		// without closing conn we will have a deadlock
+		_ = conn.Close()
 	}()
 
 	wg.Wait()
