@@ -3,10 +3,11 @@ package entity
 import (
 	"time"
 
-	"github.com/anywherelan/awl/p2p"
-	"github.com/anywherelan/awl/protocol"
 	kbucket "github.com/libp2p/go-libp2p-kbucket"
 	"github.com/libp2p/go-libp2p/core/metrics"
+
+	"github.com/anywherelan/awl/p2p"
+	"github.com/anywherelan/awl/protocol"
 )
 
 // Requests
@@ -30,11 +31,15 @@ type (
 	UpdatePeerSettingsRequest struct {
 		PeerID               string `validate:"required"`
 		Alias                string `validate:"required,trimmed_str_not_empty"`
-		DomainName           string
+		DomainName           string `validate:"required,trimmed_str_not_empty"`
 		AllowUsingAsExitNode bool
 	}
 	UpdateMySettingsRequest struct {
 		Name string
+	}
+
+	UpdateProxySettingsRequest struct {
+		UsingPeerID string
 	}
 )
 
@@ -71,6 +76,15 @@ type (
 		Reachability            string `enums:"Unknown,Public,Private"`
 		AwlDNSAddress           string
 		IsAwlDNSSetAsSystem     bool
+		SOCKS5                  SOCKS5Info
+	}
+
+	SOCKS5Info struct {
+		ListenAddress   string
+		ProxyingEnabled bool
+		ListenerEnabled bool
+		UsingPeerID     string
+		UsingPeerName   string
 	}
 
 	StatsInUnits struct {
@@ -83,6 +97,14 @@ type (
 	AuthRequest struct {
 		PeerID string
 		protocol.AuthPeer
+	}
+
+	ListAvailableProxiesResponse struct {
+		Proxies []AvailableProxy
+	}
+	AvailableProxy struct {
+		PeerID   string
+		PeerName string
 	}
 )
 

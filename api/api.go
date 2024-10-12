@@ -10,14 +10,15 @@ import (
 	"runtime/pprof"
 	"strings"
 
-	"github.com/anywherelan/awl/config"
-	"github.com/anywherelan/awl/p2p"
-	"github.com/anywherelan/awl/ringbuffer"
-	"github.com/anywherelan/awl/service"
 	"github.com/go-playground/validator/v10"
 	"github.com/ipfs/go-log/v2"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/p2p"
+	"github.com/anywherelan/awl/ringbuffer"
+	"github.com/anywherelan/awl/service"
 )
 
 type DNSService interface {
@@ -108,6 +109,8 @@ func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 	// Settings
 	e.GET(GetMyPeerInfoPath, h.GetMyPeerInfo)
 	e.POST(UpdateMyInfoPath, h.UpdateMySettings)
+	e.GET(ListAvailableProxiesPath, h.ListAvailableProxies)
+	e.POST(UpdateProxySettingsPath, h.UpdateProxySettings)
 	e.GET(ExportServerConfigPath, h.ExportServerConfiguration)
 
 	// Debug
