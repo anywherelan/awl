@@ -30,6 +30,8 @@ const (
 	AdminHttpServerIP            = "127.0.0.66"
 	AdminHttpServerListenAddress = "127.0.0.66:80"
 
+	defaultSOCKS5ListenAddress = "127.0.0.66:8080"
+
 	DefaultPeerAlias = "peer"
 )
 
@@ -49,6 +51,7 @@ type (
 		HttpListenOnAdminHost bool                   `json:"httpListenOnAdminHost"`
 		P2pNode               P2pNodeConfig          `json:"p2pNode"`
 		VPNConfig             VPNConfig              `json:"vpn"`
+		SOCKS5                SOCKS5Config           `json:"socks5"`
 		KnownPeers            map[string]KnownPeer   `json:"knownPeers"`
 		BlockedPeers          map[string]BlockedPeer `json:"blockedPeers"`
 		Update                UpdateConfig           `json:"update"`
@@ -69,6 +72,14 @@ type (
 	VPNConfig struct {
 		InterfaceName string `json:"interfaceName"`
 		IPNet         string `json:"ipNet"`
+	}
+	SOCKS5Config struct {
+		ListenerEnabled bool `json:"listenerEnabled"`
+		// allow using my host as proxy
+		ProxyingEnabled bool   `json:"proxyingEnabled"`
+		ListenAddress   string `json:"listenAddress"`
+		// peer that is set as proxy
+		UsingPeerID string `json:"usingPeerID"`
 	}
 	KnownPeer struct {
 		// Hex-encoded multihash representing a peer ID

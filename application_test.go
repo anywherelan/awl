@@ -7,8 +7,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -26,7 +31,9 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go/integrationtests/tools/israce"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 	"go.uber.org/zap/zapcore"
+	"golang.org/x/net/proxy"
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/anywherelan/awl/api"
@@ -190,6 +197,9 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 
 	ts.makeFriends(peer2, peer1)
 
+	current := goleak.IgnoreCurrent()
+	goleak.VerifyNone(t, current)
+
 	peer1Config, err := peer2.api.KnownPeerConfig(peer1.PeerID())
 	ts.NoError(err)
 	ts.Equal(false, peer1Config.AllowedUsingAsExitNode)
@@ -211,6 +221,8 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		return peer2Config.AllowedUsingAsExitNode
 	}, 15*time.Second, 100*time.Millisecond)
 
+	ts.Equal(peer2.PeerID(), peer1.app.Conf.SOCKS5.UsingPeerID)
+
 	// allow from peer1, check that peer2 got our config
 	err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
 		PeerID:               peer2.PeerID(),
@@ -227,6 +239,8 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		return peer1Config.AllowedUsingAsExitNode && peer1Config.WeAllowUsingAsExitNode
 	}, 15*time.Second, 100*time.Millisecond)
 
+	ts.Equal(peer1.PeerID(), peer2.app.Conf.SOCKS5.UsingPeerID)
+
 	// disallow from peer2, check that peer1 got our new config
 	err = peer2.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
 		PeerID:               peer1.PeerID(),
@@ -242,6 +256,65 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 
 		return !peer2Config.AllowedUsingAsExitNode && peer2Config.WeAllowUsingAsExitNode
 	}, 15*time.Second, 100*time.Millisecond)
+
+	ts.Equal("", peer1.app.Conf.SOCKS5.UsingPeerID)
+	testSOCKS5Proxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "general SOCKS server failure"))
+
+	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "connection not allowed by ruleset"))
+
+	peer1.app.SOCKS5.SetProxyingLocalhostEnabled(true)
+	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, "")
+	peer1.app.SOCKS5.SetProxyingLocalhostEnabled(false)
+}
+
+func testSOCKS5Proxy(ts *TestSuite, proxyAddr string, expectSocksErr string) {
+	// setup mock server
+	expectedBody := strings.Repeat("test text", 10_000)
+	addr := pickFreeAddr(ts.t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, expectedBody)
+	})
+	//nolint
+	httpServer := &http.Server{Addr: addr, Handler: mux}
+	go func() {
+		_ = httpServer.ListenAndServe()
+	}()
+	defer func() {
+		httpServer.Shutdown(context.Background())
+	}()
+
+	// client
+	dialer, err := proxy.SOCKS5("tcp", proxyAddr, nil, nil)
+	ts.NoError(err)
+	httpTransport := &http.Transport{DialContext: dialer.(proxy.ContextDialer).DialContext}
+	httpClient := http.Client{Transport: httpTransport}
+
+	// test
+	for range 20 {
+		response, err := httpClient.Get(fmt.Sprintf("http://%s/test", addr))
+		if expectSocksErr != "" {
+			ts.Error(err)
+
+			var urlErr *url.Error
+			ts.ErrorAs(err, &urlErr)
+			var netErr *net.OpError
+			ts.ErrorAs(urlErr.Err, &netErr)
+
+			ts.Equal("socks connect", netErr.Op)
+			ts.EqualError(netErr.Err, expectSocksErr)
+
+			continue
+		}
+
+		ts.NoError(err)
+		body, err := io.ReadAll(response.Body)
+		ts.NoError(err)
+		err = response.Body.Close()
+		ts.NoError(err)
+
+		ts.Equal(expectedBody, string(body))
+	}
 }
 
 func TestTunnelPackets(t *testing.T) {
@@ -255,6 +328,9 @@ func TestTunnelPackets(t *testing.T) {
 	peer2 := ts.newTestPeer(false)
 
 	ts.makeFriends(peer2, peer1)
+
+	current := goleak.IgnoreCurrent()
+	goleak.VerifyNone(t, current)
 
 	const packetSize = 2500
 	const packetsCount = 2600 // approx 1.1 p2p streams
@@ -354,6 +430,7 @@ func testPacket(length int) []byte {
 	return vpnPacket.Packet
 }
 
+// TODO: add support for goleak in TestSuite
 type TestSuite struct {
 	*require.Assertions
 
@@ -412,6 +489,12 @@ func (ts *TestSuite) newTestPeer(disableLogging bool) testPeer {
 		multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
 	})
 	app.Conf.P2pNode.BootstrapPeers = ts.bootstrapAddrsStr
+	app.Conf.SOCKS5 = config.SOCKS5Config{
+		ListenerEnabled: true,
+		ProxyingEnabled: true,
+		ListenAddress:   pickFreeAddr(ts.t),
+		UsingPeerID:     "",
+	}
 
 	testTUN := NewTestTUN()
 	err := app.Init(context.Background(), testTUN.TUN())
@@ -600,4 +683,14 @@ func (t *testTun) Close() error {
 	close(t.t.closed)
 	close(t.t.events)
 	return nil
+}
+
+func pickFreeAddr(t testing.TB) string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	return l.Addr().String()
 }
