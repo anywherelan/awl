@@ -32,7 +32,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.22.x
+          go-version: 1.23.x
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -77,10 +77,10 @@ jobs:
           unset ANDROID_NDK_HOME
           cd awl
           go install golang.org/x/mobile/cmd/gomobile@latest
-          go get -d golang.org/x/mobile/cmd/gomobile
+          go get golang.org/x/mobile/cmd/gomobile
           gomobile init
-          go mod tidy -compat=1.22
-          cd cmd/awl-tray && go mod tidy -compat=1.22 && cd ../..
+          go mod tidy -compat=1.23
+          cd cmd/awl-tray && go mod tidy -compat=1.23 && cd ../..
           echo "check go mod tidy and git dirty"
           test -z "$(git status --porcelain)" || (git status; git diff && false)
           echo "start building"          
@@ -130,7 +130,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.22.x
+          go-version: 1.23.x
           cache: true
           cache-dependency-path: |
             awl/go.sum

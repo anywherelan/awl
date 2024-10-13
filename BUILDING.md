@@ -2,7 +2,7 @@
 
 ## Dependencies
 
-* Go (1.22)
+* Go (1.23)
 * Git
 * gomobile and Android Studio for Android ([see more](https://pkg.go.dev/golang.org/x/mobile/cmd/gomobile))
 * Flutter (3.13)

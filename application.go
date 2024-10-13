@@ -275,6 +275,7 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 				autorelay.WithNumRelays(p2p.DesiredRelays),
 				autorelay.WithBootDelay(p2p.RelayBootDelay),
 			),
+			libp2p.EnableAutoNATv2(),
 			libp2p.ResourceManager(mgr),
 			libp2p.EnableHolePunching(),
 			libp2p.NATPortMap(),

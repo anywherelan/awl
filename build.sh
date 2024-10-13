@@ -117,10 +117,11 @@ build-web() {
 # build android library
 build-android-lib() {
   cd "$awldir/cmd/gomobile-lib"
-  go get -d golang.org/x/mobile/cmd/gomobile
-  gomobile bind -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
+  go get golang.org/x/mobile/cmd/gomobile
+  # about `-checklinkname=0` https://github.com/wlynxg/anet#how-to-build-with-go-1230-or-later
+  gomobile bind -trimpath -ldflags "-s -w -checklinkname=0 -X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
   go mod edit -droprequire=golang.org/x/mobile
-  go mod tidy -compat=1.22
+  go mod tidy -compat=1.23
   mkdir -p "$awlflutterdir/android/app/src/main/libs"
   mv anywherelan.aar "$awlflutterdir/android/app/src/main/libs/"
 }
