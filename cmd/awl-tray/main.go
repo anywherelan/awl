@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -166,7 +168,13 @@ func checkURL(url string) bool {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode != 200 {
+		return false
+	}
+
+	buf := make([]byte, 8192)
+	_, _ = io.ReadFull(resp.Body, buf)
+	if !bytes.Contains(buf, []byte("Anywherelan")) {
 		return false
 	}
 
