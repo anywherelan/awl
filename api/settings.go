@@ -31,6 +31,16 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 		Reachability:            h.p2p.Reachability().String(),
 		AwlDNSAddress:           h.dns.AwlDNSAddress(),
 		IsAwlDNSSetAsSystem:     h.dns.IsAwlDNSSetAsSystem(),
+		SOCKS5: entity.SOCKS5Info{
+			ListenAddress:   h.conf.SOCKS5.ListenAddress,
+			ProxyingEnabled: h.conf.SOCKS5.ProxyingEnabled,
+			ListenerEnabled: h.conf.SOCKS5.ListenerEnabled,
+			UsingPeerID:     h.conf.SOCKS5.UsingPeerID,
+			UsingPeerName: func() string {
+				peer, _ := h.conf.GetPeer(h.conf.SOCKS5.UsingPeerID)
+				return peer.DisplayName()
+			}(),
+		},
 	}
 
 	return c.JSON(http.StatusOK, peerInfo)
@@ -75,4 +85,67 @@ func (h *Handler) ExportServerConfiguration(c echo.Context) (err error) {
 	data := h.conf.Export()
 
 	return c.Blob(http.StatusOK, echo.MIMEApplicationJSON, data)
+}
+
+// @Tags Settings
+// @Summary List available socks5 proxies
+// @Accept json
+// @Produce json
+// @Success 200 {object} entity.ListAvailableProxiesResponse
+// @Router /settings/list_proxies [GET]
+func (h *Handler) ListAvailableProxies(c echo.Context) (err error) {
+	h.conf.RLock()
+	proxies := []entity.AvailableProxy{}
+	for _, peer := range h.conf.KnownPeers {
+		if !peer.AllowedUsingAsExitNode {
+			continue
+		}
+
+		proxy := entity.AvailableProxy{
+			PeerID:   peer.PeerID,
+			PeerName: peer.DisplayName(),
+		}
+		proxies = append(proxies, proxy)
+	}
+	h.conf.RUnlock()
+
+	response := entity.ListAvailableProxiesResponse{
+		Proxies: proxies,
+	}
+
+	return c.JSON(http.StatusOK, response)
+}
+
+// @Tags Settings
+// @Summary Update current proxy settings
+// @Accept json
+// @Produce json
+// @Param body body entity.UpdateProxySettingsRequest true "Params"
+// @Success 200 "OK"
+// @Router /settings/set_proxy [POST]
+func (h *Handler) UpdateProxySettings(c echo.Context) (err error) {
+	req := entity.UpdateProxySettingsRequest{}
+	err = c.Bind(&req)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
+	}
+	if err = c.Validate(req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
+	}
+
+	peer, ok := h.conf.GetPeer(req.UsingPeerID)
+	if req.UsingPeerID == "" {
+		// ok
+	} else if !ok {
+		return c.JSON(http.StatusNotFound, ErrorMessage("peer not found"))
+	} else if !peer.AllowedUsingAsExitNode {
+		return c.JSON(http.StatusBadRequest, ErrorMessage("peer doesn't allow using as exit node"))
+	}
+
+	h.conf.Lock()
+	h.conf.SOCKS5.UsingPeerID = req.UsingPeerID
+	h.conf.Unlock()
+	h.conf.Save()
+
+	return c.NoContent(http.StatusOK)
 }

@@ -16,9 +16,11 @@ const (
 	GetAuthRequestsPath      = V0Prefix + "peers/auth_requests"
 
 	// Settings
-	GetMyPeerInfoPath      = V0Prefix + "settings/peer_info"
-	UpdateMyInfoPath       = V0Prefix + "settings/update"
-	ExportServerConfigPath = V0Prefix + "settings/export_server_config"
+	GetMyPeerInfoPath        = V0Prefix + "settings/peer_info"
+	UpdateMyInfoPath         = V0Prefix + "settings/update"
+	ListAvailableProxiesPath = V0Prefix + "settings/list_proxies"
+	UpdateProxySettingsPath  = V0Prefix + "settings/set_proxy"
+	ExportServerConfigPath   = V0Prefix + "settings/export_server_config"
 
 	// Debug
 	GetP2pDebugInfoPath = V0Prefix + "debug/p2p_info"
