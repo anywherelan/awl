@@ -1,6 +1,6 @@
 run:
   timeout: 5m
-  go: "1.22"
+  go: "1.23"
 
 linters:
   disable-all: true
@@ -30,7 +30,7 @@ linters:
     - misspell
     - whitespace
     - exhaustive
-    - exportloopref
+    - copyloopvar
     - sqlclosecheck
     - wastedassign
     - ineffassign
@@ -74,3 +74,6 @@ issues:
     - linters:
         - gosec
       text: "G404:"
+    - linters:
+        - gosec
+      text: "G115:" # integer overflow conversion int -> uint16
