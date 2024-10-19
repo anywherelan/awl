@@ -268,7 +268,6 @@ func (p *P2p) Bootstrap() error {
 
 	for _, peerAddr := range p.bootstrapPeers {
 		wg.Add(1)
-		peerAddr := peerAddr
 		p.host.ConnManager().Protect(peerAddr.ID, protectedBootstrapPeerTag)
 
 		go func() {
@@ -334,7 +333,6 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 
 	for _, peerAddr := range p.bootstrapPeers {
 		wg.Add(1)
-		peerAddr := peerAddr
 		go func() {
 			defer wg.Done()
 
