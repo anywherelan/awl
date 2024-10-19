@@ -21,6 +21,7 @@ import (
 
 var (
 	statusMenu      *systray.MenuItem
+	peersCountMenu  *systray.MenuItem
 	openBrowserMenu *systray.MenuItem
 	peersMenu       *systray.MenuItem
 	startStopMenu   *systray.MenuItem
@@ -60,6 +61,9 @@ func initTray() {
 
 	statusMenu = systray.AddMenuItem("", "")
 	statusMenu.Disable()
+
+	peersCountMenu = systray.AddMenuItem("", "")
+	peersCountMenu.Disable()
 
 	openBrowserMenu = systray.AddMenuItem("Open Web UI", "")
 	go func() {
@@ -134,6 +138,7 @@ func initTray() {
 
 func refreshMenusOnStartedServer() {
 	statusMenu.SetTitle("Status: running")
+	setPeersConnectedCounter(0)
 	openBrowserMenu.Enable()
 	peersMenu.Enable()
 	startStopMenu.SetTitle("Stop server")
@@ -144,10 +149,36 @@ func refreshMenusOnStartedServer() {
 
 func refreshMenusOnStoppedServer() {
 	statusMenu.SetTitle("Status: stopped")
+	setPeersConnectedCounter(0)
 	openBrowserMenu.Disable()
 	peersMenu.Disable()
 	startStopMenu.SetTitle("Start server")
 	restartMenu.Disable()
+}
+
+func setPeersConnectedCounter(peers int) {
+	peersCountMenu.SetTitle(fmt.Sprintf("Peers connected: %d", peers))
+}
+
+func refreshPeersCounterOnPeersConnectionChanged(peerID *string) {
+	app.Conf.RLock()
+	defer app.Conf.RUnlock()
+
+	if peerID != nil {
+		if _, known := app.Conf.GetPeer(*peerID); !known {
+			return
+		}
+	}
+
+	connected := 0
+	for _, knownPeer := range app.Conf.KnownPeers {
+		online := app.P2p.IsConnected(knownPeer.PeerId())
+		if online {
+			connected++
+		}
+	}
+
+	setPeersConnectedCounter(connected)
 }
 
 var peersSubmenus []*systray.MenuItem
