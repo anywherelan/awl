@@ -14,6 +14,7 @@ import (
 	"fyne.io/systray"
 	"github.com/gen2brain/beeep"
 	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 
 	"github.com/anywherelan/awl"
@@ -112,8 +113,21 @@ func InitServer() (err error) {
 	}
 	app.Api.SetupFrontend(awl.FrontendStatic())
 
+	// Peers counter updater
+	app.P2p.SubscribeConnectionEvents(
+		func(_ network.Network, conn network.Conn) {
+			peerID := conn.RemotePeer().String()
+			refreshPeersCounterOnPeersConnectionChanged(&peerID)
+		},
+		func(_ network.Network, conn network.Conn) {
+			peerID := conn.RemotePeer().String()
+			refreshPeersCounterOnPeersConnectionChanged(&peerID)
+		},
+	)
+
 	subscribeToNotifications(app)
 	refreshMenusOnStartedServer()
+	refreshPeersCounterOnPeersConnectionChanged(nil)
 
 	return nil
 }
