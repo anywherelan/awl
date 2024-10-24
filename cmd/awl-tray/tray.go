@@ -161,14 +161,14 @@ func setPeersConnectedCounter(peers int) {
 }
 
 func refreshPeersCounterOnPeersConnectionChanged(peerID *string) {
-	app.Conf.RLock()
-	defer app.Conf.RUnlock()
-
 	if peerID != nil {
 		if _, known := app.Conf.GetPeer(*peerID); !known {
 			return
 		}
 	}
+
+	app.Conf.RLock()
+	defer app.Conf.RUnlock()
 
 	connected := 0
 	for _, knownPeer := range app.Conf.KnownPeers {
