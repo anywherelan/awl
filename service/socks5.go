@@ -103,8 +103,14 @@ func (s *SOCKS5) ServeConns(ctx context.Context) {
 	proxyConns := s.client.ConnsChan()
 	for conn := range proxyConns {
 		go func() {
-			// TODO: check err?
-			_ = s.proxyConn(ctx, conn)
+			defer func() {
+				_ = conn.Close()
+			}()
+
+			err := s.proxyConn(ctx, conn)
+			if err != nil {
+				_ = s.server.SendServerFailureReply(conn)
+			}
 		}()
 	}
 }
@@ -119,22 +125,16 @@ func (s *SOCKS5) SetProxyingLocalhostEnabled(enabled bool) {
 }
 
 func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
-	defer func() {
-		_ = conn.Close()
-	}()
-
 	s.conf.RLock()
 	usePeerID := s.conf.SOCKS5.UsingPeerID
 	s.conf.RUnlock()
 
 	if usePeerID == "" {
-		_ = s.server.SendServerFailureReply(conn)
 		return errors.New("no peer is set for proxy")
 	}
 
 	peer, exists := s.conf.GetPeer(usePeerID)
 	if !exists || !peer.AllowedUsingAsExitNode {
-		_ = s.server.SendServerFailureReply(conn)
 		return fmt.Errorf("configured proxy peer %s don't allow us proxying", usePeerID)
 	}
 
@@ -158,34 +158,46 @@ func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 }
 
 func (s *SOCKS5) handleStream(conn net.Conn, stream network.Stream) {
+	// TODO: SetDeadline on conn for ~5 min just in case?
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		// Copy from conn to stream
-		s.copyStream(conn, stream)
+		_ = s.copyStream(conn, stream)
 	}()
 
 	go func() {
 		defer wg.Done()
 		// Copy from stream to conn
-		s.copyStream(stream, conn)
-
-		// in some cases stream could finish writing before conn (e.g for errors)
-		// without closing conn we will have a deadlock
-		_ = conn.Close()
+		_ = s.copyStream(stream, conn)
 	}()
 
 	wg.Wait()
 }
 
-func (s *SOCKS5) copyStream(from io.ReadCloser, to io.WriteCloser) {
+func (s *SOCKS5) copyStream(from io.ReadCloser, to io.WriteCloser) error {
 	const bufSize = 32 * 1024
 	buf := pool.Get(bufSize)
 
 	defer func() {
 		pool.Put(buf)
 	}()
-	_, _ = io.CopyBuffer(to, from, buf)
-	// ignore error, we can do nothing about it
+	_, err := io.CopyBuffer(to, from, buf)
+
+	type closeWriter interface {
+		CloseWrite() error
+	}
+	if conn, ok := to.(closeWriter); ok {
+		_ = conn.CloseWrite()
+	}
+
+	type closeReader interface {
+		CloseRead() error
+	}
+	if conn, ok := from.(closeReader); ok {
+		_ = conn.CloseRead()
+	}
+
+	return err
 }

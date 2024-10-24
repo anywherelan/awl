@@ -55,6 +55,7 @@ func (s *Server) ServeStreamConn(stream network.Stream) error {
 	return s.socks.ServeConn(conn)
 }
 
+// ServeConn is only used in tests. TODO: refactor tests
 func (s *Server) ServeConn(ioConn io.ReadWriteCloser) error {
 	conn := ReadWriterConnWrapper{ReadWriteCloser: ioConn}
 	return s.socks.ServeConn(conn)
