@@ -226,6 +226,14 @@ func (a *Application) Close() {
 			a.logger.Errorf("closing api server: %v", err)
 		}
 	}
+
+	if a.Tunnel != nil {
+		a.Tunnel.Close()
+	}
+	if a.SOCKS5 != nil {
+		a.SOCKS5.Close()
+	}
+
 	if a.P2p != nil {
 		err := a.P2p.Close()
 		if err != nil {
@@ -234,12 +242,6 @@ func (a *Application) Close() {
 	}
 	if a.Dns != nil {
 		a.Dns.Close()
-	}
-	if a.Tunnel != nil {
-		a.Tunnel.Close()
-	}
-	if a.SOCKS5 != nil {
-		a.SOCKS5.Close()
 	}
 	if a.vpnDevice != nil {
 		err := a.vpnDevice.Close()

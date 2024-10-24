@@ -32,6 +32,7 @@ type Device struct {
 	localIP    net.IP
 	outboundCh chan *Packet
 
+	closeCh     chan struct{}
 	packetsPool sync.Pool
 	logger      *log.ZapEventLogger
 }
@@ -62,7 +63,8 @@ func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipM
 			New: func() interface{} {
 				return new(Packet)
 			}},
-		logger: log.Logger("awl/vpn"),
+		logger:  log.Logger("awl/vpn"),
+		closeCh: make(chan struct{}),
 	}
 	go dev.tunEventsReader()
 	go dev.tunPacketsReader()
@@ -106,6 +108,7 @@ func (d *Device) OutboundChan() <-chan *Packet {
 }
 
 func (d *Device) Close() error {
+	close(d.closeCh)
 	return d.tun.Close()
 }
 
@@ -173,7 +176,12 @@ func (d *Device) tunPacketsReader() {
 				continue
 			}
 
-			d.outboundCh <- data
+			select {
+			case <-d.closeCh:
+				return
+			case d.outboundCh <- data:
+				// ok
+			}
 			packets[i] = nil
 		}
 
