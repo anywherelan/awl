@@ -193,6 +193,11 @@ func (p *P2p) ConnectPeer(ctx context.Context, peerID peer.ID) error {
 	if p.IsConnected(peerID) {
 		return nil
 	}
+
+	// FindPeer runs until peer is found in DHT or context is cancelled, so a timeout is mandatory
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	peerInfo, err := p.FindPeer(ctx, peerID)
 	if err != nil {
 		return fmt.Errorf("could not find peer %s: %v", peerID.String(), err)
@@ -299,17 +304,18 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 	}
 	p.connectToKnownPeers(ctx, interval, knownPeersIdsFunc())
 
-	t := time.NewTicker(interval)
-	defer t.Stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-ticker.C:
 		}
 
 		p.connectToKnownPeers(ctx, interval, knownPeersIdsFunc())
+		ticker.Reset(interval)
 	}
 }
 

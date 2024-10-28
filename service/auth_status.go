@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -91,7 +92,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 		s.logger.Errorf("sending status info to %s as an answer: %v", peerID, err)
 	}
 
-	s.logger.Infof("successfully exchanged status info with %s (%s)", knownPeer.DisplayName(), peerID)
+	s.logger.Infof("successfully exchanged status info (inbound) with %s (%s)", knownPeer.DisplayName(), peerID)
 	if isBlocked {
 		return
 	}
@@ -133,6 +134,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 		return fmt.Errorf("receiving status info: %v", err)
 	}
 
+	s.logger.Infof("successfully exchanged status info (outbound) with %s (%s)", knownPeer.DisplayName(), remotePeerID.String())
 	if isBlocked {
 		return nil
 	}
@@ -346,10 +348,7 @@ func (s *AuthStatus) ExchangeStatusInfoWithAllKnownPeers(ctx context.Context) {
 func (s *AuthStatus) BackgroundRetryAuthRequests(ctx context.Context) {
 	f := func() {
 		s.authsLock.RLock()
-		outgoingAuthsCopy := make(map[peer.ID]protocol.AuthPeer, len(s.outgoingAuths))
-		for key, val := range s.outgoingAuths {
-			outgoingAuthsCopy[key] = val
-		}
+		outgoingAuthsCopy := maps.Clone(s.outgoingAuths)
 		s.authsLock.RUnlock()
 
 		for peerID, auth := range outgoingAuthsCopy {
@@ -366,6 +365,7 @@ func (s *AuthStatus) BackgroundRetryAuthRequests(ctx context.Context) {
 			return
 		case <-ticker.C:
 			f()
+			ticker.Reset(backgroundRetryAuthRequests)
 		}
 	}
 }
@@ -380,6 +380,7 @@ func (s *AuthStatus) BackgroundExchangeStatusInfo(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.ExchangeStatusInfoWithAllKnownPeers(ctx)
+			ticker.Reset(backgroundExchangeStatusInfoInterval)
 		}
 	}
 }
