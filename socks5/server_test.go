@@ -1,50 +1,80 @@
 package socks5
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/proxy"
 )
 
 // How to test
 // curl --socks5 localhost:3030 https://api.ipify.org
 
-// TODO: prettify test, reuse code from application_test.go
 func TestProxy(t *testing.T) {
-	const listenAddr = "localhost:8673"
+	listenAddr := pickFreeAddr(t)
 	socksServer := NewServer()
 	socksServer.SetRules(NewRulePermitAll())
 	socksClient, err := NewClient(listenAddr)
 	require.NoError(t, err)
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		conn := <-socksClient.ConnsChan()
 		socksServer.ServeConn(conn)
 	}()
 
-	dialer, err := proxy.SOCKS5("tcp", listenAddr, nil, nil)
-	require.NoError(t, err)
-
+	upstreamAddr := pickFreeAddr(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, "test text")
 	})
+	//nolint
+	httpServer := &http.Server{Addr: upstreamAddr, Handler: mux}
 	go func() {
-		// TODO: handle properly
-		//nolint
-		_ = http.ListenAndServe(":3030", mux)
+		_ = httpServer.ListenAndServe()
 	}()
-	httpTransport := &http.Transport{DialContext: dialer.(proxy.ContextDialer).DialContext}
+	defer func() {
+		httpServer.Shutdown(context.Background())
+	}()
+
+	httpTransport := &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) {
+			return &url.URL{
+				Scheme: "socks5",
+				Host:   listenAddr,
+			}, nil
+		},
+	}
 	httpClient := http.Client{Transport: httpTransport}
 
-	response, err := httpClient.Get("http://localhost:3030/test")
+	response, err := httpClient.Get(fmt.Sprintf("http://%s/test", upstreamAddr))
 	require.NoError(t, err)
-	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	err = response.Body.Close()
 	require.NoError(t, err)
 
 	require.Equal(t, "test text", string(body))
+
+	httpTransport.CloseIdleConnections()
+	wg.Wait()
+}
+
+func pickFreeAddr(t testing.TB) string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	return l.Addr().String()
 }
