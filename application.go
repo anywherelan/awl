@@ -131,7 +131,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		a.Tunnel.RefreshPeersList()
 	}, a.Eventbus, new(awlevent.KnownPeerChanged))
 
-	handler := api.NewHandler(a.Conf, a.P2p, a.AuthStatus, a.Tunnel, a.LogBuffer, a.Dns)
+	handler := api.NewHandler(a.Conf, a.P2p, a.AuthStatus, a.Tunnel, a.SOCKS5, a.LogBuffer, a.Dns)
 	a.Api = handler
 	err = handler.SetupAPI()
 	if err != nil {

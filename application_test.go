@@ -200,6 +200,14 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	current := goleak.IgnoreCurrent()
 	goleak.VerifyNone(t, current)
 
+	info, err := peer1.api.PeerInfo()
+	ts.NoError(err)
+	ts.Equal("", info.SOCKS5.UsingPeerID)
+
+	availableProxies, err := peer1.api.ListAvailableProxies()
+	ts.NoError(err)
+	ts.Len(availableProxies, 0)
+
 	peer1Config, err := peer2.api.KnownPeerConfig(peer1.PeerID())
 	ts.NoError(err)
 	ts.Equal(false, peer1Config.AllowedUsingAsExitNode)
@@ -221,7 +229,13 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		return peer2Config.AllowedUsingAsExitNode
 	}, 15*time.Second, 100*time.Millisecond)
 
-	ts.Equal(peer2.PeerID(), peer1.app.Conf.SOCKS5.UsingPeerID)
+	info, err = peer1.api.PeerInfo()
+	ts.NoError(err)
+	ts.Equal(peer2.PeerID(), info.SOCKS5.UsingPeerID)
+
+	availableProxies, err = peer1.api.ListAvailableProxies()
+	ts.NoError(err)
+	ts.Len(availableProxies, 1)
 
 	// allow from peer1, check that peer2 got our config
 	err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
@@ -258,6 +272,11 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	}, 15*time.Second, 100*time.Millisecond)
 
 	ts.Equal("", peer1.app.Conf.SOCKS5.UsingPeerID)
+
+	availableProxies, err = peer1.api.ListAvailableProxies()
+	ts.NoError(err)
+	ts.Len(availableProxies, 0)
+
 	testSOCKS5Proxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "general SOCKS server failure"))
 
 	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "connection not allowed by ruleset"))
@@ -265,6 +284,24 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	peer1.app.SOCKS5.SetProxyingLocalhostEnabled(true)
 	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, "")
 	peer1.app.SOCKS5.SetProxyingLocalhostEnabled(false)
+
+	// Testing API
+	err = peer1.api.UpdateProxySettings(peer2.PeerID())
+	ts.ErrorContains(err, "peer doesn't allow using as exit node")
+
+	err = peer2.api.UpdateProxySettings("asd")
+	ts.ErrorContains(err, "peer not found")
+
+	info, err = peer2.api.PeerInfo()
+	ts.NoError(err)
+	ts.Equal(peer1.PeerID(), info.SOCKS5.UsingPeerID)
+
+	err = peer2.api.UpdateProxySettings("")
+	ts.NoError(err)
+
+	info, err = peer2.api.PeerInfo()
+	ts.NoError(err)
+	ts.Equal("", info.SOCKS5.UsingPeerID)
 }
 
 func testSOCKS5Proxy(ts *TestSuite, proxyAddr string, expectSocksErr string) {

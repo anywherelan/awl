@@ -14,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/entity"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/socks5"
 )
@@ -57,6 +58,29 @@ func (s *SOCKS5) Close() {
 	if s.client != nil {
 		_ = s.client.Close()
 	}
+}
+
+func (s *SOCKS5) ListAvailableProxies() []entity.AvailableProxy {
+	s.conf.RLock()
+	proxies := []entity.AvailableProxy{}
+	for _, peer := range s.conf.KnownPeers {
+		if !peer.AllowedUsingAsExitNode {
+			continue
+		}
+
+		if !s.p2p.IsConnected(peer.PeerId()) {
+			continue
+		}
+
+		proxy := entity.AvailableProxy{
+			PeerID:   peer.PeerID,
+			PeerName: peer.DisplayName(),
+		}
+		proxies = append(proxies, proxy)
+	}
+	s.conf.RUnlock()
+
+	return proxies
 }
 
 func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {

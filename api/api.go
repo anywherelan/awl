@@ -32,6 +32,7 @@ type Handler struct {
 	p2p        *p2p.P2p
 	authStatus *service.AuthStatus
 	tunnel     *service.Tunnel
+	socks5     *service.SOCKS5
 	dns        DNSService
 	logBuffer  *ringbuffer.RingBuffer
 
@@ -42,14 +43,15 @@ type Handler struct {
 	ctxCancel context.CancelFunc
 }
 
-func NewHandler(conf *config.Config, p2p *p2p.P2p, authStatus *service.AuthStatus,
-	tunnel *service.Tunnel, logBuffer *ringbuffer.RingBuffer, dns DNSService) *Handler {
+func NewHandler(conf *config.Config, p2p *p2p.P2p, authStatus *service.AuthStatus, tunnel *service.Tunnel, socks5 *service.SOCKS5,
+	logBuffer *ringbuffer.RingBuffer, dns DNSService) *Handler {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	return &Handler{
 		conf:       conf,
 		p2p:        p2p,
 		authStatus: authStatus,
 		tunnel:     tunnel,
+		socks5:     socks5,
 		dns:        dns,
 		logBuffer:  logBuffer,
 		logger:     log.Logger("awl/api"),
