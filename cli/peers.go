@@ -24,6 +24,7 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 		TableFormatNetworkUsage = "u"
 		TableFormatConnection   = "c"
 		TableFormatVersion      = "v"
+		TableFormatExitNode     = "e"
 	)
 
 	fHeaderMap := map[string]string{
@@ -35,6 +36,7 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 		TableFormatNetworkUsage: "network usage\n(↓in/↑out)",
 		TableFormatConnection:   "connections\naddress | protocol",
 		TableFormatVersion:      "version",
+		TableFormatExitNode:     "exit node",
 	}
 
 	if len(format) < 1 {
@@ -122,6 +124,8 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 				row = append(row, strings.Join(consStr, "\n"))
 			case TableFormatVersion:
 				row = append(row, peer.Version)
+			case TableFormatExitNode:
+				row = append(row, fmt.Sprintf("we allow:     %v\npeer allowed: %v", peer.WeAllowUsingAsExitNode, peer.AllowedUsingAsExitNode))
 			}
 		}
 		table.Append(row)

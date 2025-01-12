@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/mdp/qrterminal/v3"
 	"github.com/olekukonko/tablewriter"
+
+	"github.com/anywherelan/awl/api/apiclient"
 )
 
 func printStatus(api *apiclient.Client) error {
@@ -17,17 +18,15 @@ func printStatus(api *apiclient.Client) error {
 		return err
 	}
 
-	dnsStatus := "working"
-	if !stats.IsAwlDNSSetAsSystem {
-		dnsStatus = "not working"
-	}
-
 	table := tablewriter.NewWriter(os.Stdout)
 	table.AppendBulk([][]string{
 		{"Download rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateIn, stats.NetworkStatsInIECUnits.TotalIn)},
 		{"Upload rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateOut, stats.NetworkStatsInIECUnits.TotalOut)},
 		{"Bootstrap peers", fmt.Sprintf("%d/%d", stats.TotalBootstrapPeers, stats.ConnectedBootstrapPeers)},
-		{"DNS", dnsStatus},
+		{"DNS", formatWorkingStatus(stats.IsAwlDNSSetAsSystem)},
+		{"SOCKS5 Proxy", formatWorkingStatus(stats.SOCKS5.ListenerEnabled)},
+		{"SOCKS5 Proxy address", stats.SOCKS5.ListenAddress},
+		{"SOCKS5 Proxy exit node", stats.SOCKS5.UsingPeerName},
 		{"Reachability", strings.ToLower(stats.Reachability)},
 		{"Uptime", stats.Uptime.Round(time.Second).String()},
 		{"Server version", stats.ServerVersion},
@@ -36,6 +35,13 @@ func printStatus(api *apiclient.Client) error {
 	table.Render()
 
 	return nil
+}
+
+func formatWorkingStatus(working bool) string {
+	if working {
+		return "working"
+	}
+	return "not working"
 }
 
 func printPeerId(api *apiclient.Client) error {
@@ -57,6 +63,36 @@ func renameMe(api *apiclient.Client, newName string) error {
 	}
 
 	fmt.Println("my peer name updated successfully")
+
+	return nil
+}
+
+func listProxies(api *apiclient.Client) error {
+	proxies, err := api.ListAvailableProxies()
+	if err != nil {
+		return err
+	}
+
+	if len(proxies) == 0 {
+		fmt.Println("no available proxies")
+		return nil
+	}
+
+	fmt.Println("Proxies:")
+	for _, proxy := range proxies {
+		fmt.Printf("- peer name: %s | peer id: %s\n", proxy.PeerName, proxy.PeerID)
+	}
+
+	return nil
+}
+
+func setProxy(api *apiclient.Client, peerID string) error {
+	err := api.UpdateProxySettings(peerID)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("proxy settings updated successfully")
 
 	return nil
 }

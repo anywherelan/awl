@@ -11,12 +11,13 @@ import (
 	"strings"
 
 	"github.com/GrigoryKrasnochub/updaterini"
-	"github.com/anywherelan/awl/api/apiclient"
-	"github.com/anywherelan/awl/config"
-	"github.com/anywherelan/awl/update"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/urfave/cli/v2"
+
+	"github.com/anywherelan/awl/api/apiclient"
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/update"
 )
 
 const (
@@ -86,10 +87,9 @@ func (a *Application) init() {
 				Usage: "Group of commands to work with your status and settings",
 				Subcommands: []*cli.Command{
 					{
-						Name:    "status",
-						Aliases: []string{"stats"},
-						Usage:   "Print your server status, network stats",
-						Before:  a.initApiConnection,
+						Name:   "status",
+						Usage:  "Print your server status, network stats",
+						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printStatus(a.api)
 						},
@@ -117,6 +117,36 @@ func (a *Application) init() {
 							return renameMe(a.api, c.String("name"))
 						},
 					},
+					{
+						Name:   "list_proxies",
+						Usage:  "Prints list of available SOCKS5 proxies",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return listProxies(a.api)
+						},
+					},
+					{
+						Name:  "set_proxy",
+						Usage: "Sets SOCKS5 proxy for your peer, empty pid/name means disable proxy",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+						},
+						Before: func(c *cli.Context) error {
+							return a.initApiAndPeerId(c, false)
+						},
+						Action: func(c *cli.Context) error {
+							return setProxy(a.api, c.String("pid"))
+						},
+					},
 				},
 			},
 			{
@@ -131,10 +161,10 @@ func (a *Application) init() {
 								Name:     "format",
 								Aliases:  []string{"f"},
 								Required: false,
-								Value:    "npslucv",
+								Value:    "npslucev",
 								Usage: "control table columns list and order.Each char add column, write column chars together without gap. Use these chars to add specific columns:\n   " +
 									"n - peers number\n   p - peers name, domain and ip address\n   i - peers id\n   s - peers status\n   l - peers last seen datetime\n   v - peers awl version" +
-									"\n   u - network usage by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n  ",
+									"\n   u - network usage by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n   e - exit node status\n  ",
 							},
 						},
 						Before: a.initApiConnection,
@@ -185,7 +215,7 @@ func (a *Application) init() {
 								Required: false,
 							},
 						},
-						Before: a.initApiAndPeerId,
+						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
 							return removePeer(a.api, c.String("pid"))
 						},
@@ -210,7 +240,7 @@ func (a *Application) init() {
 								Required: true,
 							},
 						},
-						Before: a.initApiAndPeerId,
+						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
 							return changePeerAlias(a.api, c.String("pid"), c.String("new_name"))
 						},
@@ -235,7 +265,7 @@ func (a *Application) init() {
 								Required: true,
 							},
 						},
-						Before: a.initApiAndPeerId,
+						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
 							return changePeerDomain(a.api, c.String("pid"), c.String("domain"))
 						},
@@ -260,7 +290,7 @@ func (a *Application) init() {
 								Required: false,
 							},
 						},
-						Before: a.initApiAndPeerId,
+						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
 							return setAllowUsingAsExitNode(a.api, c.String("pid"), c.Bool("allow"))
 						},
@@ -408,7 +438,11 @@ func (a *Application) initApiConnection(c *cli.Context) (err error) {
 	return nil
 }
 
-func (a *Application) initApiAndPeerId(c *cli.Context) error {
+func (a *Application) initApiAndPeerIdRequired(c *cli.Context) error {
+	return a.initApiAndPeerId(c, true)
+}
+
+func (a *Application) initApiAndPeerId(c *cli.Context, isRequired bool) error {
 	err := a.initApiConnection(c)
 	if err != nil {
 		return err
@@ -419,8 +453,10 @@ func (a *Application) initApiAndPeerId(c *cli.Context) error {
 		return nil
 	}
 	alias := c.String("name")
-	if alias == "" {
+	if alias == "" && isRequired {
 		return fmt.Errorf("peerID or name should be defined")
+	} else if alias == "" && !isRequired {
+		return nil
 	}
 
 	pid, err = getPeerIdByAlias(a.api, alias)
