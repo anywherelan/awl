@@ -8,10 +8,11 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/google/go-querystring/query"
+
 	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
-	"github.com/google/go-querystring/query"
 )
 
 type Client struct {
@@ -55,6 +56,22 @@ func (c *Client) PeerInfo() (*entity.PeerInfo, error) {
 		return nil, err
 	}
 	return peerInfo, nil
+}
+
+func (c *Client) ListAvailableProxies() ([]entity.AvailableProxy, error) {
+	resp := entity.ListAvailableProxiesResponse{}
+	err := c.sendGetRequest(api.ListAvailableProxiesPath, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Proxies, nil
+}
+
+func (c *Client) UpdateProxySettings(usingPeerID string) error {
+	request := entity.UpdateProxySettingsRequest{
+		UsingPeerID: usingPeerID,
+	}
+	return c.sendPostRequest(api.UpdateProxySettingsPath, request, nil)
 }
 
 func (c *Client) SendFriendRequest(peerID, alias string) error {

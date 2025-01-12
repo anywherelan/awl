@@ -94,20 +94,7 @@ func (h *Handler) ExportServerConfiguration(c echo.Context) (err error) {
 // @Success 200 {object} entity.ListAvailableProxiesResponse
 // @Router /settings/list_proxies [GET]
 func (h *Handler) ListAvailableProxies(c echo.Context) (err error) {
-	h.conf.RLock()
-	proxies := []entity.AvailableProxy{}
-	for _, peer := range h.conf.KnownPeers {
-		if !peer.AllowedUsingAsExitNode {
-			continue
-		}
-
-		proxy := entity.AvailableProxy{
-			PeerID:   peer.PeerID,
-			PeerName: peer.DisplayName(),
-		}
-		proxies = append(proxies, proxy)
-	}
-	h.conf.RUnlock()
+	proxies := h.socks5.ListAvailableProxies()
 
 	response := entity.ListAvailableProxiesResponse{
 		Proxies: proxies,

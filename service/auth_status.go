@@ -26,6 +26,7 @@ const (
 
 type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
+	IsConnected(peerID peer.ID) bool
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn))
