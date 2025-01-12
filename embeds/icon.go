@@ -15,8 +15,8 @@ const (
 	iconDirWindows   = config.AppDataDirectory
 	iconName         = "anywherelan.png"
 
-	dirMod  = 0700
-	iconMod = 0664
+	dirMode  = 0700
+	iconMode = 0664
 )
 
 var (
@@ -24,6 +24,8 @@ var (
 	appIcon []byte
 
 	appIconPath string
+
+	isTempIcon bool
 )
 
 func GetIcon() []byte {
@@ -46,20 +48,27 @@ func EmbedIcon() (string, error) {
 		iconDir, err = getIconDirWindows()
 	default:
 		iconDir = getIconDirDefault()
+		isTempIcon = true
 	}
 
 	if err != nil {
 		return "", err
 	}
 
-	err = os.Mkdir(iconDir, dirMod)
+	err = os.Mkdir(iconDir, dirMode)
 	if err != nil && !os.IsExist(err) {
 		return "", fmt.Errorf("error: create dir: %w", err)
 	}
 	config.ChownFileIfNeeded(iconDir)
 
 	iconPath := filepath.Join(iconDir, iconName)
-	err = os.WriteFile(iconPath, appIcon, iconMod)
+	equal := checkIsFileEqual(iconPath, appIcon)
+	if equal {
+		appIconPath = iconPath
+		return iconDir, nil
+	}
+
+	err = os.WriteFile(iconPath, appIcon, iconMode)
 	if err != nil {
 		return "", fmt.Errorf("error: write file: %w", err)
 	}
@@ -67,7 +76,7 @@ func EmbedIcon() (string, error) {
 
 	appIconPath = iconPath
 
-	return iconPath, nil
+	return iconDir, nil
 }
 
 func RemoveIconIfNeeded() error {
@@ -75,14 +84,11 @@ func RemoveIconIfNeeded() error {
 		return nil
 	}
 
-	switch runtime.GOOS {
-	case "linux":
-	case "windows":
-	default:
-		return os.Remove(appIconPath)
+	if !isTempIcon {
+		return nil
 	}
 
-	return nil
+	return os.Remove(appIconPath)
 }
 
 func getIconDirLinux() (string, error) {
