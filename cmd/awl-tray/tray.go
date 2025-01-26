@@ -16,6 +16,7 @@ import (
 
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/embeds"
+	"github.com/anywherelan/awl/entity"
 	"github.com/anywherelan/awl/update"
 )
 
@@ -24,6 +25,7 @@ var (
 	peersCountMenu  *systray.MenuItem
 	openBrowserMenu *systray.MenuItem
 	peersMenu       *systray.MenuItem
+	proxyMenu       *systray.MenuItem
 	startStopMenu   *systray.MenuItem
 	restartMenu     *systray.MenuItem
 	updateMenu      *systray.MenuItem
@@ -78,7 +80,7 @@ func initTray() {
 	}()
 	systray.AddSeparator()
 
-	peersMenu = systray.AddMenuItem("Peers", "Peers")
+	peersMenu = systray.AddMenuItem("Peers", "")
 	go func() {
 		// On windows systray does not trigger clicked event on menus with submenus
 		for range peersMenu.ClickedCh {
@@ -92,8 +94,11 @@ func initTray() {
 				continue
 			}
 			refreshPeersSubmenus()
+			refreshProxySubmenus()
 		}
 	}()
+
+	proxyMenu = systray.AddMenuItem("Proxy", "")
 
 	startStopMenu = systray.AddMenuItem("", "")
 	go func() {
@@ -141,10 +146,12 @@ func refreshMenusOnStartedServer() {
 	setPeersConnectedCounter(0)
 	openBrowserMenu.Enable()
 	peersMenu.Enable()
+	proxyMenu.Enable()
 	startStopMenu.SetTitle("Stop server")
 	restartMenu.Enable()
 
 	refreshPeersSubmenus()
+	refreshProxySubmenus()
 }
 
 func refreshMenusOnStoppedServer() {
@@ -152,6 +159,7 @@ func refreshMenusOnStoppedServer() {
 	setPeersConnectedCounter(0)
 	openBrowserMenu.Disable()
 	peersMenu.Disable()
+	proxyMenu.Disable()
 	startStopMenu.SetTitle("Start server")
 	restartMenu.Disable()
 }
@@ -239,6 +247,56 @@ func refreshPeersSubmenus() {
 		submenu := peersMenu.AddSubMenuItem(peerName, "")
 		submenu.Disable()
 		peersSubmenus = append(peersSubmenus, submenu)
+	}
+}
+
+var proxySubmenus []*systray.MenuItem
+var previousProxies []entity.AvailableProxy
+var previousProxyPeerID string
+
+func refreshProxySubmenus() {
+	if app == nil || proxyMenu == nil {
+		return
+	}
+
+	app.Conf.RLock()
+	currentProxy := app.Conf.SOCKS5.UsingPeerID
+	app.Conf.RUnlock()
+
+	proxies := app.SOCKS5.ListAvailableProxies()
+
+	if slices.Equal(previousProxies, proxies) && previousProxyPeerID == currentProxy {
+		return
+	}
+
+	for _, submenu := range proxySubmenus {
+		submenu.Remove()
+	}
+	proxySubmenus = nil
+
+	previousProxies = proxies
+	previousProxyPeerID = currentProxy
+
+	for _, proxy := range proxies {
+		isChecked := proxy.PeerID == currentProxy
+		submenu := proxyMenu.AddSubMenuItemCheckbox(proxy.PeerName, "", isChecked)
+		proxySubmenus = append(proxySubmenus, submenu)
+
+		go func() {
+			for range submenu.ClickedCh {
+				app.SOCKS5.SetProxyPeerID(proxy.PeerID)
+
+				app.Conf.Lock()
+				for _, currentSubmenu := range proxySubmenus {
+					if currentSubmenu == submenu {
+						submenu.Check()
+					} else {
+						currentSubmenu.Uncheck()
+					}
+				}
+				app.Conf.Unlock()
+			}
+		}()
 	}
 }
 

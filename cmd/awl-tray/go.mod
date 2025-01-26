@@ -3,11 +3,11 @@ module awl-tray
 go 1.23.0
 
 require (
-	fyne.io/systray v1.10.1-0.20230403195833-7dc3c09283d6
+	fyne.io/systray v1.11.1-0.20240917165310-0f99d4d0758b
 	github.com/GrigoryKrasnochub/updaterini v0.1.0
 	github.com/Kodeworks/golang-image-ico v0.0.0-20141118225523-73f0f4cfade9
 	github.com/anywherelan/awl v0.0.0-00010101000000-000000000000
-	github.com/gen2brain/beeep v0.0.0-20230907135156-1a38885a97fc
+	github.com/gen2brain/beeep v0.0.0-20240516210008-9c006672e7f4
 	github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466
 	github.com/ipfs/go-log/v2 v2.5.1
 	github.com/libp2p/go-libp2p v0.36.5
@@ -16,7 +16,6 @@ require (
 )
 
 replace (
-	fyne.io/systray => github.com/anywherelan/systray v0.0.0-20230509110713-9d662d95edcb
 	github.com/anywherelan/awl => ../../
 	github.com/ipfs/go-log/v2 => github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5
 	github.com/ncruces/zenity => github.com/pymq/zenity v0.0.0-20230509161854-c117c448544d
@@ -150,7 +149,6 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
 	github.com/tadvi/systray v0.0.0-20190226123456-11a2b8fa57af // indirect
-	github.com/tevino/abool v1.2.0 // indirect
 	github.com/urfave/cli/v2 v2.27.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect

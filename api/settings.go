@@ -129,10 +129,7 @@ func (h *Handler) UpdateProxySettings(c echo.Context) (err error) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage("peer doesn't allow using as exit node"))
 	}
 
-	h.conf.Lock()
-	h.conf.SOCKS5.UsingPeerID = req.UsingPeerID
-	h.conf.Unlock()
-	h.conf.Save()
+	h.socks5.SetProxyPeerID(req.UsingPeerID)
 
 	return c.NoContent(http.StatusOK)
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,7 +82,18 @@ func (s *SOCKS5) ListAvailableProxies() []entity.AvailableProxy {
 	}
 	s.conf.RUnlock()
 
+	slices.SortFunc(proxies, func(a, b entity.AvailableProxy) int {
+		return strings.Compare(a.PeerName, b.PeerName)
+	})
+
 	return proxies
+}
+
+func (s *SOCKS5) SetProxyPeerID(peerID string) {
+	s.conf.Lock()
+	s.conf.SOCKS5.UsingPeerID = peerID
+	s.conf.Unlock()
+	s.conf.Save()
 }
 
 func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
