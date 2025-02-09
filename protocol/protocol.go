@@ -83,10 +83,10 @@ func ReadUint64(stream io.Reader) (uint64, error) {
 	return value, nil
 }
 
-func WritePacketToBuf(buf, packet []byte) []byte {
+func WritePacketToBuf(buf, packet []byte) int {
 	const lenBytesCount = 8
 	binary.BigEndian.PutUint64(buf, uint64(len(packet)))
 	n := copy(buf[lenBytesCount:], packet)
 
-	return buf[:lenBytesCount+n]
+	return lenBytesCount + n
 }

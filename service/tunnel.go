@@ -92,7 +92,7 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 		select {
 		case vpnPeer.inboundCh <- packet:
 		default:
-			// REMOVE
+			// TODO: remove log
 			t.logger.Warnf("inbound reader dropped packet, len %d", len(packet.Packet))
 			t.device.PutTempPacket(packet)
 		}
@@ -117,12 +117,7 @@ func (t *Tunnel) RefreshPeersList() {
 			return
 		}
 
-		vpnPeer := &VpnPeer{
-			peerID:     peerID,
-			localIP:    localIP,
-			inboundCh:  make(chan *vpn.Packet, packetHandlersChanCap),
-			outboundCh: make(chan *vpn.Packet, packetHandlersChanCap),
-		}
+		vpnPeer := NewVpnPeer(peerID, localIP)
 		t.peerIDToPeer[peerID] = vpnPeer
 		t.netIPToPeer[string(localIP)] = vpnPeer
 		vpnPeer.Start(t)
@@ -194,6 +189,21 @@ type VpnPeer struct {
 	localIP    net.IP
 	inboundCh  chan *vpn.Packet
 	outboundCh chan *vpn.Packet // from us to remote
+
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+}
+
+func NewVpnPeer(peerID peer.ID, localIP net.IP) *VpnPeer {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &VpnPeer{
+		peerID:     peerID,
+		localIP:    localIP,
+		inboundCh:  make(chan *vpn.Packet, packetHandlersChanCap),
+		outboundCh: make(chan *vpn.Packet, packetHandlersChanCap),
+		ctx:        ctx,
+		ctxCancel:  cancel,
+	}
 }
 
 // TODO: remove Tunnel from VpnPeer dependencies
@@ -206,6 +216,7 @@ func (vp *VpnPeer) Start(t *Tunnel) {
 }
 
 func (vp *VpnPeer) Close(t *Tunnel) {
+	vp.ctxCancel()
 	close(vp.inboundCh)
 	close(vp.outboundCh)
 	for packet := range vp.inboundCh {
@@ -220,15 +231,17 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 	const (
 		maxPacketsPerStream = 1024 * 1024 * 8 / vpn.InterfaceMTU
 		idleStreamTimeout   = 10 * time.Second
+		batchSize           = 10
 	)
 	var (
 		stream                  network.Stream
 		currentPacketsForStream int
+		buffer                  = make([]byte, (batchSize+2)*vpn.InterfaceMTU)
+		packets                 = make([]*vpn.Packet, batchSize)
 	)
-	sendPacket := func(packet *vpn.Packet) (err error) {
+	sendPacket := func(packets []*vpn.Packet) (err error) {
 		if stream == nil {
-			// TODO: increase timeout?
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(vp.ctx, 2*time.Second)
 			stream, err = t.makeTunnelStream(ctx, vp.peerID)
 			cancel()
 			if err != nil {
@@ -236,11 +249,12 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			}
 		}
 
-		tmpPacket := t.device.GetTempPacket()
-		defer t.device.PutTempPacket(tmpPacket)
-
-		protocolPacket := protocol.WritePacketToBuf(tmpPacket.Buffer[:], packet.Packet)
-		_, err = stream.Write(protocolPacket)
+		bytesN := 0
+		for _, packet := range packets {
+			n := protocol.WritePacketToBuf(buffer[bytesN:], packet.Packet)
+			bytesN += n
+		}
+		_, err = stream.Write(buffer[:bytesN])
 
 		return err
 	}
@@ -262,17 +276,24 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			if !open {
 				return
 			}
-			if currentPacketsForStream == maxPacketsPerStream {
+			if currentPacketsForStream >= maxPacketsPerStream {
 				closeStream()
 			}
-			currentPacketsForStream += 1
-			// TODO: send multiple packets at once?
-			err := sendPacket(packet)
+
+			packets[0] = packet
+			packetsBatch := readBatchFromChan(vp.outboundCh, packets, 1)
+			currentPacketsForStream += len(packetsBatch)
+
+			err := sendPacket(packetsBatch)
 			if err != nil {
+				// TODO: remove log
 				t.logger.Warnf("send packet to peerID (%s) local ip (%s): %v", vp.peerID, vp.localIP, err)
 				closeStream()
 			}
-			t.device.PutTempPacket(packet)
+			for i := 0; i < len(packetsBatch); i++ {
+				t.device.PutTempPacket(packetsBatch[i])
+				packetsBatch[i] = nil
+			}
 		case <-idleTicker.C:
 			if len(vp.outboundCh) == 0 {
 				closeStream()
@@ -300,5 +321,24 @@ func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
 		}
 
 		t.device.PutTempPacket(packet)
+	}
+}
+
+func readBatchFromChan(ch chan *vpn.Packet, buf []*vpn.Packet, offset int) []*vpn.Packet {
+	i := offset
+	for {
+		if i == len(buf) {
+			return buf[:i]
+		}
+		select {
+		case packet, ok := <-ch:
+			if !ok {
+				return buf[:i]
+			}
+			buf[i] = packet
+			i++
+		default:
+			return buf[:i]
+		}
 	}
 }
