@@ -121,7 +121,7 @@ build-android-lib() {
   # about `-checklinkname=0` https://github.com/wlynxg/anet#how-to-build-with-go-1230-or-later
   gomobile bind -trimpath -ldflags "-s -w -checklinkname=0 -X github.com/anywherelan/awl/config.Version=${VERSION}" -o anywherelan.aar -target=android .
   go mod edit -droprequire=golang.org/x/mobile
-  go mod tidy -compat=1.23
+  go mod tidy -compat=1.24
   mkdir -p "$awlflutterdir/android/app/src/main/libs"
   mv anywherelan.aar "$awlflutterdir/android/app/src/main/libs/"
 }

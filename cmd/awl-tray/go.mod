@@ -1,6 +1,6 @@
 module awl-tray
 
-go 1.23.0
+go 1.24.0
 
 require (
 	fyne.io/systray v1.11.1-0.20240917165310-0f99d4d0758b
