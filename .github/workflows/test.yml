@@ -15,7 +15,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23.x
+          go-version: 1.24.x
           cache: true
       - name: Create stub static/
         run: mkdir static && touch static/index.html
@@ -25,8 +25,8 @@ jobs:
       - name: gofmt && go mod tidy
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go mod tidy -compat=1.23
-          cd cmd/awl-tray && go mod tidy -compat=1.23 && cd ../..
+          go mod tidy -compat=1.24
+          cd cmd/awl-tray && go mod tidy -compat=1.24 && cd ../..
           test -z "$(gofmt -d .)" || (gofmt -d . && false)
           test -z "$(git status --porcelain)" || (git status; git diff && false)
       - name: Test

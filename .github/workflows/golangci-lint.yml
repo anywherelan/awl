@@ -12,10 +12,10 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23.x
+          go-version: 1.24.x
       - name: Create stub embed files
         run: mkdir static && touch static/index.html && touch embeds/wintun.dll
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.63
+          version: v1.64
