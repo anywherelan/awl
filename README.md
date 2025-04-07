@@ -7,12 +7,13 @@
 
 # About
 
-Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are.
+Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are. It also allows you to route traffic through remote peers like a SOCKS5 proxy.
 
 Some use cases:
 
-- connect to your home/work laptop with RDP/VNC/SSH, which is usually behind NAT. Much easier with awl instead of configuring port forwarding or using heavy VPNs
+- connect to your home/work laptop with RDP/VNC/SSH/etc, which is usually behind NAT. Much easier with awl instead of configuring port forwarding or using heavy centralized VPNs
 - get secure access to your selfhosted services like Nextcloud, Home Assistant or Bitwarden without exposing them to the internet
+- access websites from another country by using a remote peer as a SOCKS5 proxy
 - gaming: local multiplayer like in one LAN
 - as an alternative instead of ngrok to share your development server with someone on another device for demonstration
 - you can use your old android device remotely with [scrcpy](https://github.com/Genymobile/scrcpy) + awl to run some android-only apps instead of using an emulator on your PC
@@ -20,6 +21,7 @@ Some use cases:
 ## Features
 
 - unlike many alternatives, it works fully peer-to-peer, no need to set up or trust any third-party coordination servers. Your traffic goes directly to other devices
+- route traffic through remote peers like a SOCKS5 proxy
 - easy to use: just download the app, scan QR code of your device, and you're set up
 - built-in support for NAT traversal
 - if both devices don't have public IP addresses (thus peer-to-peer is unavailable), awl will send your encrypted data through community relays (donates for infrastructure are welcome!)
@@ -130,7 +132,7 @@ Below you can see example on how you can connect to public peer for testing purp
 
 Go to web interface (http://admin.awl) or run application in case of android. You can find your `peer_id` by clicking `SHOW ID`. To invite peer you need to press `NEW PEER`. Let's add public peer as an example. Enter `peer_id` equal to `12D3KooWJMUjt9b5T1umzgzjLv5yG2ViuuF4qjmN65tsRXZGS1p8` and name it `awl-tester`. After a few seconds you will see a new peer in your list. Now try to go to the http://awl-tester.awl/. You should see a page with network speed test.
 
-Note that awl dns is currently unsupported on Android, see [#17](https://github.com/anywherelan/awl/issues/17).
+Note that awl dns is currently unsupported on Android, see [#17](https://github.com/anywherelan/awl/issues/17). So on Android, you can only access peers by IP addresses.
 
 If someone invites you, a notification will appear, and then you can accept/block this peer in the admin interface.
 
@@ -153,6 +155,31 @@ ping 10.66.0.2
 # or by domain name
 ping awl-tester.awl
 ```
+
+## Using peers as SOCK5 proxy
+
+Now that you have connected to your first peer, you can configure it as a SOCKS5 proxy and route your traffic through it. Any peer can be used as a SOCKS5 proxy (even Android devices), but only if they allow it.
+
+To configure it on desktop with web UI go to admin page, select a peer, press Settings, then check `Allow to use my device as exit node` and press save. Now this peer can use your device as SOCKS5 proxy.
+
+How to configure using cli:
+```bash
+# list all your connected peers and their EXIT NODE status (if they or you allowed to use as a proxy)
+awl cli peers list
+
+# allow peer `peer-name` to use this device as a SOCKS5 proxy
+awl cli peers allow_exit_node --name="peer-name" --allow=true
+
+# list available exit nodes/SOCKS5 proxies
+awl cli me list_proxies
+
+# set current proxy. it will be available on SOCKS5 Proxy address (default 127.0.0.66:8080)
+awl cli me set_proxy --name="peer-name"
+```
+
+Now you can use selected peer as SOCKS5 proxy, default address is `127.0.0.66:8080`, no auth required. On desktop, you can select peer for proxy in web GUI or in system tray.
+
+When you route your traffic through a peer, there are no restrictions other than your connection between two peers. You can also connect through a relay if you do not have a direct connection. You can access a remote peer's local network through proxy, but you can't access localhost.
 
 ## Config file location
 
@@ -178,10 +205,10 @@ NAME:
    awl cli - p2p mesh vpn
 
 USAGE:
-   awl cli [global options] command [command options] [arguments...]
+   awl cli [global options] command [command options]
 
 VERSION:
-   v0.8.1
+   v0.12.0
 
 DESCRIPTION:
    Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are.
