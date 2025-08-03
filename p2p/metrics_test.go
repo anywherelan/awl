@@ -55,11 +55,11 @@ func Test_parseMultiaddrToInfo(t *testing.T) {
 		},
 		{
 			name: "relay",
-			args: args{addr: mustNewMultiaddr("/ip4/192.168.1.21/udp/6150/quic-v1/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M/p2p-circuit")},
+			args: args{addr: mustNewMultiaddr("/ip4/192.168.1.21/udp/6150/quic-v1/p2p/12D3KooWQM5JhvjggyUZBQyJu9ekmfZnw6NZw4dFVXMdebJ2vJFT/p2p-circuit")},
 			want: ConnectionInfo{
-				Multiaddr:    "/ip4/192.168.1.21/udp/6150/quic-v1/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M/p2p-circuit",
+				Multiaddr:    "/ip4/192.168.1.21/udp/6150/quic-v1/p2p/12D3KooWQM5JhvjggyUZBQyJu9ekmfZnw6NZw4dFVXMdebJ2vJFT/p2p-circuit",
 				ThroughRelay: true,
-				RelayPeerID:  "12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
+				RelayPeerID:  "12D3KooWQM5JhvjggyUZBQyJu9ekmfZnw6NZw4dFVXMdebJ2vJFT",
 				Address:      "",
 				Protocol:     "",
 			},
