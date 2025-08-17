@@ -87,7 +87,7 @@ func (p *P2p) AnnouncedAs() []multiaddr.Multiaddr {
 }
 
 func (p *P2p) Reachability() network.Reachability {
-	return p.basicHost.GetAutoNat().Status()
+	return p.basicHost.Reachability()
 }
 
 func (p *P2p) OpenConnectionsCount() int {
