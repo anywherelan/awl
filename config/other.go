@@ -29,6 +29,8 @@ var DefaultBootstrapPeers []multiaddr.Multiaddr
 
 func init() {
 	for _, s := range []string{
+		"/ip4/222.255.238.138/tcp/9500/p2p/12D3KooWPfMmyZT1GAP7cDFSurPhAfKX3QFktK9rDLxD5zDZD6HW",
+		"/ip4/222.255.238.138/udp/9500/quic-v1/p2p/12D3KooWPfMmyZT1GAP7cDFSurPhAfKX3QFktK9rDLxD5zDZD6HW",
 		"/dnsaddr/rus-1.bootstrap.anywherelan.com/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
 		"/dnsaddr/rus-2.bootstrap.anywherelan.com/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 		"/dnsaddr/ita-1.bootstrap.anywherelan.com/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
