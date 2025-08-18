@@ -29,7 +29,7 @@ var DefaultBootstrapPeers []multiaddr.Multiaddr
 
 func init() {
 	for _, s := range []string{
-        "/dnsaddr/rus-1.bootstrap.anywherelan.com/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
+		"/dnsaddr/rus-1.bootstrap.anywherelan.com/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
 		"/dnsaddr/rus-2.bootstrap.anywherelan.com/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 		"/dnsaddr/ita-1.bootstrap.anywherelan.com/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
 		"/dnsaddr/cze-1.bootstrap.anywherelan.com/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
