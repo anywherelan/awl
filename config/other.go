@@ -38,11 +38,6 @@ func init() {
 		// copy of cze-1 in case dns does not work
 		"/ip4/195.181.214.203/tcp/6150/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
 		"/ip4/195.181.214.203/udp/6150/quic-v1/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
-		
-		// bootstrap-node server hosted at Vietnam region
-		// Community Server hosted by @pftmclub . Location : Vietnam . Hosting Provider : Vietnix VPS
-		"/ip4/222.255.238.138/tcp/9500/p2p/12D3KooWPfMmyZT1GAP7cDFSurPhAfKX3QFktK9rDLxD5zDZD6HW",
-		"/ip4/222.255.238.138/udp/9500/quic-v1/p2p/12D3KooWPfMmyZT1GAP7cDFSurPhAfKX3QFktK9rDLxD5zDZD6HW",
 	} {
 		ma, err := multiaddr.NewMultiaddr(s)
 		if err != nil {
