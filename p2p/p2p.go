@@ -26,6 +26,7 @@ import (
 	basichost "github.com/libp2p/go-libp2p/p2p/host/basic"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
@@ -329,7 +330,12 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 		p.ProtectPeer(peerID)
 		go func(peerID peer.ID) {
 			defer wg.Done()
-			_ = p.ConnectPeer(ctx, peerID)
+			err := p.ConnectPeer(ctx, peerID)
+			if err != nil {
+				return
+			}
+
+			p.pingPeer(ctx, peerID)
 		}(peerID)
 	}
 
@@ -352,6 +358,12 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 				info.Error = err.Error()
 			}
 			info.Connections = p.peerAddressesString(peerAddr.ID)
+
+			if err == nil {
+				p.pingPeer(ctx, peerAddr.ID)
+			}
+			info.Latency = Duration(p.host.Peerstore().LatencyEWMA(peerAddr.ID))
+
 			mu.Lock()
 			bootstrapsInfo[peerAddr.ID.String()] = info
 			mu.Unlock()
@@ -361,6 +373,22 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 	wg.Wait()
 
 	p.bootstrapsInfo.Store(&bootstrapsInfo)
+}
+
+func (p *P2p) pingPeer(ctx context.Context, peerID peer.ID) {
+	const desiredPings = 5
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	ch := ping.Ping(ctx, p.host, peerID)
+	pingCount := 0
+	for range ch {
+		pingCount++
+		if pingCount >= desiredPings {
+			return
+		}
+	}
 }
 
 func (p *P2p) connsToPeer(peerID peer.ID) []network.Conn {
