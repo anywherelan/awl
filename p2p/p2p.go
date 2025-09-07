@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/core/routing"
+	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	basichost "github.com/libp2p/go-libp2p/p2p/host/basic"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
@@ -49,10 +51,11 @@ const (
 )
 
 type HostConfig struct {
-	PrivKeyBytes   []byte
-	ListenAddrs    []multiaddr.Multiaddr
-	UserAgent      string
-	BootstrapPeers []peer.AddrInfo
+	PrivKeyBytes    []byte
+	ListenAddrs     []multiaddr.Multiaddr
+	UserAgent       string
+	BootstrapPeers  []peer.AddrInfo
+	EnableAutoRelay bool
 
 	Libp2pOpts  []libp2p.Option
 	ConnManager struct {
@@ -127,6 +130,17 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 	listenAddrs := hostConfig.ListenAddrs
 	if len(listenAddrs) == 0 {
 		listenAddrs = findListenAddrs()
+	}
+
+	if hostConfig.EnableAutoRelay {
+		hostConfig.Libp2pOpts = append(hostConfig.Libp2pOpts,
+			libp2p.EnableAutoRelayWithPeerSource(
+				p.getAutoRelayPeerSource(),
+				autorelay.WithNumRelays(DesiredRelays),
+				autorelay.WithMinCandidates(DesiredRelays),
+				autorelay.WithMaxCandidates(DesiredRelays),
+				autorelay.WithBootDelay(RelayBootDelay),
+			))
 	}
 
 	p2pHost, err := libp2p.New(
@@ -402,6 +416,48 @@ func (p *P2p) peerAddressesString(peerID peer.ID) []string {
 		addrs = append(addrs, conn.RemoteMultiaddr().String())
 	}
 	return addrs
+}
+
+func (p *P2p) getAutoRelayPeerSource() func(_ context.Context, numPeers int) <-chan peer.AddrInfo {
+	// TODO: discover relays from non-default bootstrap peers
+
+	getAllCandidates := func() []peer.AddrInfo {
+		bootstrapPeers := slices.Clone(p.bootstrapPeers)
+		if p.host == nil {
+			return bootstrapPeers
+		}
+		ps := p.host.Peerstore()
+
+		bootstrapPeers = slices.DeleteFunc(bootstrapPeers, func(info peer.AddrInfo) bool {
+			return !p.IsConnected(info.ID) || ps.LatencyEWMA(info.ID) == 0
+		})
+
+		slices.SortFunc(bootstrapPeers, func(a, b peer.AddrInfo) int {
+			return int(ps.LatencyEWMA(a.ID) - ps.LatencyEWMA(b.ID))
+		})
+
+		return bootstrapPeers
+	}
+
+	var lastAddrInfos []peer.AddrInfo
+	return func(_ context.Context, numPeers int) <-chan peer.AddrInfo {
+		if len(lastAddrInfos) == 0 {
+			lastAddrInfos = getAllCandidates()
+		}
+
+		if len(lastAddrInfos) < numPeers {
+			numPeers = len(lastAddrInfos)
+		}
+		ch := make(chan peer.AddrInfo, numPeers)
+		defer close(ch)
+
+		for i := 0; i < numPeers; i++ {
+			ch <- lastAddrInfos[i]
+		}
+		lastAddrInfos = lastAddrInfos[numPeers:]
+
+		return ch
+	}
 }
 
 func findListenAddrs() []multiaddr.Multiaddr {
