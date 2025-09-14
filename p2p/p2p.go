@@ -86,6 +86,7 @@ type P2p struct {
 	dht              *dht.IpfsDHT
 	bandwidthCounter metrics.Reporter
 	connManager      *connmgr.BasicConnMgr
+	config           HostConfig
 	bootstrapPeers   []peer.AddrInfo
 	startedAt        time.Time
 	bootstrapsInfo   atomic.Pointer[map[string]BootstrapPeerDebugInfo]
@@ -143,12 +144,15 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 			))
 	}
 
+	p.config = hostConfig
+
 	p2pHost, err := libp2p.New(
 		libp2p.Peerstore(hostConfig.Peerstore),
 		libp2p.Identity(privKey),
 		libp2p.UserAgent(hostConfig.UserAgent),
 		libp2p.BandwidthReporter(p.bandwidthCounter),
 		libp2p.ConnectionManager(p.connManager),
+		libp2p.SwarmOpts(swarm.WithDialRanker(p.getDialRanker())),
 		libp2p.ListenAddrs(listenAddrs...),
 		libp2p.ChainOptions(
 			libp2p.Transport(libp2pquic.NewTransport),
@@ -457,6 +461,61 @@ func (p *P2p) getAutoRelayPeerSource() func(_ context.Context, numPeers int) <-c
 		lastAddrInfos = lastAddrInfos[numPeers:]
 
 		return ch
+	}
+}
+
+func (p *P2p) getDialRanker() network.DialRanker {
+	return func(addrs []multiaddr.Multiaddr) []network.AddrDelay {
+		defaultDelays := swarm.DefaultDialRanker(addrs)
+
+		hasClosestRelay := false
+		var closestRelayID peer.ID
+		var closestLatency time.Duration
+
+		// finds the closest relay and adds 500 ms delay to all other relay addresses
+		for _, addrDelay := range defaultDelays {
+			_, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_CIRCUIT)
+			if err != nil {
+				continue
+			}
+			relayPIDString, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_P2P)
+			if err != nil {
+				continue
+			}
+			relayPID, err := peer.Decode(relayPIDString)
+			if err != nil {
+				continue
+			}
+
+			latency := p.config.Peerstore.LatencyEWMA(relayPID)
+			if latency != 0 && (!hasClosestRelay || latency < closestLatency) {
+				closestRelayID = relayPID
+				closestLatency = latency
+				hasClosestRelay = true
+			}
+		}
+
+		for i, addrDelay := range defaultDelays {
+			_, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_CIRCUIT)
+			if err != nil {
+				continue
+			}
+
+			relayPIDString, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_P2P)
+			if err != nil {
+				continue
+			}
+			relayPID, err := peer.Decode(relayPIDString)
+			if err != nil {
+				continue
+			}
+
+			if hasClosestRelay && relayPID != closestRelayID {
+				defaultDelays[i].Delay += 500 * time.Millisecond
+			}
+		}
+
+		return defaultDelays
 	}
 }
 
