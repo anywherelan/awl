@@ -58,13 +58,15 @@ type (
 	}
 	P2pNodeConfig struct {
 		// Hex-encoded multihash representing a peer ID, calculated from Identity
-		PeerID                  string        `json:"peerId"`
-		Name                    string        `json:"name"`
-		Identity                string        `json:"identity"`
-		BootstrapPeers          []string      `json:"bootstrapPeers"`
-		ListenAddresses         []string      `json:"listenAddresses"`
-		ReconnectionIntervalSec time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"`
-		AutoAcceptAuthRequests  bool          `json:"autoAcceptAuthRequests"`
+		PeerID         string   `json:"peerId"`
+		Name           string   `json:"name"`
+		Identity       string   `json:"identity"`
+		BootstrapPeers []string `json:"bootstrapPeers"`
+		// With this option only BootstrapPeers from config will be used
+		IgnoreDefaultBootstrapPeers *bool         `json:"ignoreDefaultBootstrapPeers,omitempty"`
+		ListenAddresses             []string      `json:"listenAddresses"`
+		ReconnectionIntervalSec     time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"`
+		AutoAcceptAuthRequests      bool          `json:"autoAcceptAuthRequests"`
 
 		UseDedicatedConnForEachStream bool `json:"useDedicatedConnForEachStream"`
 		ParallelSendingStreamsCount   int  `json:"parallelSendingStreamsCount"`
@@ -264,9 +266,16 @@ func (c *Config) GetBootstrapPeers() []peer.AddrInfo {
 
 		allMultiaddrs = append(allMultiaddrs, newMultiaddr)
 	}
+	ignoreDefaultBootstrapPeers := false
+	if c.P2pNode.IgnoreDefaultBootstrapPeers != nil && *c.P2pNode.IgnoreDefaultBootstrapPeers {
+		ignoreDefaultBootstrapPeers = true
+	}
 	c.RUnlock()
 
-	allMultiaddrs = append(allMultiaddrs, DefaultBootstrapPeers...)
+	if !ignoreDefaultBootstrapPeers {
+		allMultiaddrs = append(allMultiaddrs, DefaultBootstrapPeers...)
+	}
+
 	addrInfos, err := peer.AddrInfosFromP2pAddrs(allMultiaddrs...)
 	if err != nil {
 		logger.Warnf("invalid one or more bootstrap addr info from config: %v", err)

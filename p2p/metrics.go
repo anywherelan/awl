@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"encoding/json"
 	"net"
 	"strings"
 	"time"
@@ -13,6 +14,25 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
+type Duration time.Duration
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
+func (d *Duration) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	duration, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	*d = Duration(duration)
+	return nil
+}
+
 type ConnectionInfo struct {
 	Multiaddr    string
 	ThroughRelay bool
@@ -22,11 +42,13 @@ type ConnectionInfo struct {
 	Direction    string
 	Opened       time.Time
 	Transient    bool
+	Latency      Duration
 }
 
 type BootstrapPeerDebugInfo struct {
 	Error       string   `json:",omitempty"`
 	Connections []string `json:",omitempty"`
+	Latency     Duration `json:",omitempty"`
 }
 
 func (p *P2p) Uptime() time.Duration {
@@ -57,6 +79,7 @@ func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
 		info.Direction = strings.ToLower(stat.Direction.String())
 		info.Opened = stat.Opened
 		info.Transient = stat.Limited
+		info.Latency = Duration(p.host.Peerstore().LatencyEWMA(peerID))
 		infos = append(infos, info)
 	}
 	return infos

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,9 +24,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/core/routing"
+	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	basichost "github.com/libp2p/go-libp2p/p2p/host/basic"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
@@ -48,10 +51,12 @@ const (
 )
 
 type HostConfig struct {
-	PrivKeyBytes   []byte
-	ListenAddrs    []multiaddr.Multiaddr
-	UserAgent      string
-	BootstrapPeers []peer.AddrInfo
+	PrivKeyBytes             []byte
+	ListenAddrs              []multiaddr.Multiaddr
+	UserAgent                string
+	BootstrapPeers           []peer.AddrInfo
+	AllowEmptyBootstrapPeers bool
+	EnableAutoRelay          bool
 
 	Libp2pOpts  []libp2p.Option
 	ConnManager struct {
@@ -82,6 +87,7 @@ type P2p struct {
 	dht              *dht.IpfsDHT
 	bandwidthCounter metrics.Reporter
 	connManager      *connmgr.BasicConnMgr
+	config           HostConfig
 	bootstrapPeers   []peer.AddrInfo
 	startedAt        time.Time
 	bootstrapsInfo   atomic.Pointer[map[string]BootstrapPeerDebugInfo]
@@ -111,6 +117,10 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		}
 	}
 
+	if !hostConfig.AllowEmptyBootstrapPeers && len(hostConfig.BootstrapPeers) == 0 {
+		return nil, fmt.Errorf("zero bootstrap peers provided")
+	}
+
 	p.bandwidthCounter = metrics.NewBandwidthCounter()
 	p.bootstrapPeers = hostConfig.BootstrapPeers
 
@@ -128,12 +138,26 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		listenAddrs = findListenAddrs()
 	}
 
+	if hostConfig.EnableAutoRelay {
+		hostConfig.Libp2pOpts = append(hostConfig.Libp2pOpts,
+			libp2p.EnableAutoRelayWithPeerSource(
+				p.getAutoRelayPeerSource(),
+				autorelay.WithNumRelays(DesiredRelays),
+				autorelay.WithMinCandidates(DesiredRelays),
+				autorelay.WithMaxCandidates(DesiredRelays),
+				autorelay.WithBootDelay(RelayBootDelay),
+			))
+	}
+
+	p.config = hostConfig
+
 	p2pHost, err := libp2p.New(
 		libp2p.Peerstore(hostConfig.Peerstore),
 		libp2p.Identity(privKey),
 		libp2p.UserAgent(hostConfig.UserAgent),
 		libp2p.BandwidthReporter(p.bandwidthCounter),
 		libp2p.ConnectionManager(p.connManager),
+		libp2p.SwarmOpts(swarm.WithDialRanker(p.getDialRanker())),
 		libp2p.ListenAddrs(listenAddrs...),
 		libp2p.ChainOptions(
 			libp2p.Transport(libp2pquic.NewTransport),
@@ -329,7 +353,12 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 		p.ProtectPeer(peerID)
 		go func(peerID peer.ID) {
 			defer wg.Done()
-			_ = p.ConnectPeer(ctx, peerID)
+			err := p.ConnectPeer(ctx, peerID)
+			if err != nil {
+				return
+			}
+
+			p.pingPeer(ctx, peerID)
 		}(peerID)
 	}
 
@@ -352,6 +381,12 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 				info.Error = err.Error()
 			}
 			info.Connections = p.peerAddressesString(peerAddr.ID)
+
+			if err == nil {
+				p.pingPeer(ctx, peerAddr.ID)
+			}
+			info.Latency = Duration(p.host.Peerstore().LatencyEWMA(peerAddr.ID))
+
 			mu.Lock()
 			bootstrapsInfo[peerAddr.ID.String()] = info
 			mu.Unlock()
@@ -361,6 +396,22 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 	wg.Wait()
 
 	p.bootstrapsInfo.Store(&bootstrapsInfo)
+}
+
+func (p *P2p) pingPeer(ctx context.Context, peerID peer.ID) {
+	const desiredPings = 5
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	ch := ping.Ping(ctx, p.host, peerID)
+	pingCount := 0
+	for range ch {
+		pingCount++
+		if pingCount >= desiredPings {
+			return
+		}
+	}
 }
 
 func (p *P2p) connsToPeer(peerID peer.ID) []network.Conn {
@@ -374,6 +425,103 @@ func (p *P2p) peerAddressesString(peerID peer.ID) []string {
 		addrs = append(addrs, conn.RemoteMultiaddr().String())
 	}
 	return addrs
+}
+
+func (p *P2p) getAutoRelayPeerSource() func(_ context.Context, numPeers int) <-chan peer.AddrInfo {
+	// TODO: discover relays from non-default bootstrap peers
+
+	getAllCandidates := func() []peer.AddrInfo {
+		bootstrapPeers := slices.Clone(p.bootstrapPeers)
+		if p.host == nil {
+			return bootstrapPeers
+		}
+		ps := p.host.Peerstore()
+
+		bootstrapPeers = slices.DeleteFunc(bootstrapPeers, func(info peer.AddrInfo) bool {
+			return !p.IsConnected(info.ID) || ps.LatencyEWMA(info.ID) == 0
+		})
+
+		slices.SortFunc(bootstrapPeers, func(a, b peer.AddrInfo) int {
+			return int(ps.LatencyEWMA(a.ID) - ps.LatencyEWMA(b.ID))
+		})
+
+		return bootstrapPeers
+	}
+
+	var lastAddrInfos []peer.AddrInfo
+	return func(_ context.Context, numPeers int) <-chan peer.AddrInfo {
+		if len(lastAddrInfos) == 0 {
+			lastAddrInfos = getAllCandidates()
+		}
+
+		if len(lastAddrInfos) < numPeers {
+			numPeers = len(lastAddrInfos)
+		}
+		ch := make(chan peer.AddrInfo, numPeers)
+		defer close(ch)
+
+		for i := 0; i < numPeers; i++ {
+			ch <- lastAddrInfos[i]
+		}
+		lastAddrInfos = lastAddrInfos[numPeers:]
+
+		return ch
+	}
+}
+
+func (p *P2p) getDialRanker() network.DialRanker {
+	return func(addrs []multiaddr.Multiaddr) []network.AddrDelay {
+		defaultDelays := swarm.DefaultDialRanker(addrs)
+
+		hasClosestRelay := false
+		var closestRelayID peer.ID
+		var closestLatency time.Duration
+
+		// finds the closest relay and adds 500 ms delay to all other relay addresses
+		for _, addrDelay := range defaultDelays {
+			_, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_CIRCUIT)
+			if err != nil {
+				continue
+			}
+			relayPIDString, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_P2P)
+			if err != nil {
+				continue
+			}
+			relayPID, err := peer.Decode(relayPIDString)
+			if err != nil {
+				continue
+			}
+
+			latency := p.config.Peerstore.LatencyEWMA(relayPID)
+			if latency != 0 && (!hasClosestRelay || latency < closestLatency) {
+				closestRelayID = relayPID
+				closestLatency = latency
+				hasClosestRelay = true
+			}
+		}
+
+		for i, addrDelay := range defaultDelays {
+			_, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_CIRCUIT)
+			if err != nil {
+				continue
+			}
+
+			relayPIDString, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_P2P)
+			if err != nil {
+				continue
+			}
+			relayPID, err := peer.Decode(relayPIDString)
+			if err != nil {
+				continue
+			}
+
+			if hasClosestRelay && relayPID != closestRelayID {
+				defaultDelays[i].Delay += 500 * time.Millisecond
+			}
+		}
+
+		return defaultDelays
+	}
 }
 
 func findListenAddrs() []multiaddr.Multiaddr {

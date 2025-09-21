@@ -563,8 +563,9 @@ func (ts *TestSuite) initBootstrapNode() {
 			multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
 			multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
 		},
-		UserAgent:      config.UserAgent,
-		BootstrapPeers: ts.bootstrapAddrs,
+		UserAgent:                config.UserAgent,
+		BootstrapPeers:           ts.bootstrapAddrs,
+		AllowEmptyBootstrapPeers: true,
 		Libp2pOpts: []libp2p.Option{
 			libp2p.DisableRelay(),
 			libp2p.ForceReachabilityPublic(),
