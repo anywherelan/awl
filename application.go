@@ -19,7 +19,6 @@ import (
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
@@ -266,17 +265,13 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 	}
 
 	return p2p.HostConfig{
-		PrivKeyBytes:   a.Conf.PrivKey(),
-		ListenAddrs:    a.Conf.GetListenAddresses(),
-		UserAgent:      config.UserAgent,
-		BootstrapPeers: a.Conf.GetBootstrapPeers(),
+		PrivKeyBytes:    a.Conf.PrivKey(),
+		ListenAddrs:     a.Conf.GetListenAddresses(),
+		UserAgent:       config.UserAgent,
+		BootstrapPeers:  a.Conf.GetBootstrapPeers(),
+		EnableAutoRelay: true,
 		Libp2pOpts: []libp2p.Option{
 			libp2p.EnableRelay(),
-			libp2p.EnableAutoRelayWithStaticRelays(
-				a.Conf.GetBootstrapPeers(),
-				autorelay.WithNumRelays(p2p.DesiredRelays),
-				autorelay.WithBootDelay(p2p.RelayBootDelay),
-			),
 			libp2p.EnableAutoNATv2(),
 			libp2p.ResourceManager(mgr),
 			libp2p.EnableHolePunching(),
