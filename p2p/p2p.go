@@ -51,11 +51,12 @@ const (
 )
 
 type HostConfig struct {
-	PrivKeyBytes    []byte
-	ListenAddrs     []multiaddr.Multiaddr
-	UserAgent       string
-	BootstrapPeers  []peer.AddrInfo
-	EnableAutoRelay bool
+	PrivKeyBytes             []byte
+	ListenAddrs              []multiaddr.Multiaddr
+	UserAgent                string
+	BootstrapPeers           []peer.AddrInfo
+	AllowEmptyBootstrapPeers bool
+	EnableAutoRelay          bool
 
 	Libp2pOpts  []libp2p.Option
 	ConnManager struct {
@@ -114,6 +115,10 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if !hostConfig.AllowEmptyBootstrapPeers && len(hostConfig.BootstrapPeers) == 0 {
+		return nil, fmt.Errorf("zero bootstrap peers provided")
 	}
 
 	p.bandwidthCounter = metrics.NewBandwidthCounter()
