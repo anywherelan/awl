@@ -151,8 +151,38 @@ func (t *Tunnel) Close() {
 }
 
 func (t *Tunnel) backgroundReadPackets() {
+	localIP, netMask := t.conf.VPNLocalIPMask()
+	broadcastAddr := vpn.GetIPv4BroadcastAddress(&net.IPNet{IP: localIP, Mask: netMask})
+
 	// TODO: batch read
 	for packet := range t.device.OutboundChan() {
+		// TODO: ipv6 support
+		if packet.Dst.Equal(broadcastAddr) || packet.Dst.Equal(net.IPv4bcast) {
+			// udp broadcast
+
+			t.peersLock.RLock()
+			for _, vpnPeer := range t.netIPToPeer {
+				// TODO: replace with event-based check OnConnected/OnDisconnected to improve performance
+				if !t.p2p.IsConnected(vpnPeer.peerID) {
+					continue
+				}
+
+				copyPacket := t.device.GetTempPacket()
+				packet.CopyTo(copyPacket)
+
+				select {
+				case vpnPeer.outboundCh <- copyPacket:
+				default:
+					t.device.PutTempPacket(copyPacket)
+				}
+			}
+
+			t.device.PutTempPacket(packet)
+			t.peersLock.RUnlock()
+
+			continue
+		}
+
 		t.peersLock.RLock()
 		vpnPeer, ok := t.netIPToPeer[string(packet.Dst)]
 		if !ok {
