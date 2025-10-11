@@ -28,8 +28,8 @@ require (
 	go.uber.org/goleak v1.3.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/net v0.44.0
-	golang.org/x/sys v0.36.0
+	golang.org/x/net v0.46.0
+	golang.org/x/sys v0.37.0
 	golang.zx2c4.com/wireguard v0.0.0-20230325221338-052af4a8072b
 	golang.zx2c4.com/wireguard/windows v0.5.3
 )
@@ -142,15 +142,15 @@ require (
 	go.uber.org/mock v0.5.2 // indirect
 	go4.org/mem v0.0.0-20220726221520-4f986261bf13 // indirect
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
-	golang.org/x/crypto v0.42.0 // indirect
+	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/exp v0.0.0-20250811191247-51f88131bc50 // indirect
-	golang.org/x/mod v0.28.0 // indirect
+	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
-	golang.org/x/telemetry v0.0.0-20250908211612-aef8a434d053 // indirect
-	golang.org/x/term v0.35.0 // indirect
-	golang.org/x/text v0.29.0 // indirect
+	golang.org/x/telemetry v0.0.0-20251008203120-078029d740a8 // indirect
+	golang.org/x/term v0.36.0 // indirect
+	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.37.0 // indirect
+	golang.org/x/tools v0.38.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	gonum.org/v1/gonum v0.16.0 // indirect
 	google.golang.org/protobuf v1.36.7 // indirect
