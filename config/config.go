@@ -314,6 +314,9 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 }
 
 func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {
+	c.RLock()
+	defer c.RUnlock()
+
 	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNet)
 	if err != nil {
 		logger.Errorf("parse CIDR %s: %v", c.VPNConfig.IPNet, err)
