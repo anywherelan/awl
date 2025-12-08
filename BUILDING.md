@@ -5,7 +5,7 @@
 * Go (1.24)
 * Git
 * gomobile and Android Studio for Android ([see more](https://pkg.go.dev/golang.org/x/mobile/cmd/gomobile))
-* Flutter (3.27)
+* Flutter (3.38)
 
 ## Build
 
