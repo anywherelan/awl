@@ -27,27 +27,27 @@ jobs:
           haskell: true
           large-packages: true
       - name: Checkout awl code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref }}
           path: 'awl'
       - name: Checkout awl-flutter code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: 'anywherelan/awl-flutter'
           ref: ${{ github.event.inputs.awl_flutter_ref }}
           path: 'awl-flutter'
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 1.24.x
           cache: true
           cache-dependency-path: |
             awl/go.sum
             awl/cmd/awl-tray/go.sum
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
           java-version: '17.x'
@@ -104,13 +104,13 @@ jobs:
         run: |
           df -h
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: awl-release-build
           path: awl/build/*
           if-no-files-found: error
       - name: Upload flutter web artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: awl-release-static
           path: awl/static/
@@ -132,19 +132,19 @@ jobs:
         shell: bash
     steps:
       - name: Checkout awl code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref }}
           path: 'awl'
       - name: Retrieve saved static/ build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: awl-release-static
           path: awl/static
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 1.24.x
           cache: true
@@ -160,7 +160,7 @@ jobs:
           echo "ls build"
           ls -lah build
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: awl-release-build-macos
           path: awl/build/*
