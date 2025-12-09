@@ -11,8 +11,9 @@ import (
 	"unicode"
 
 	"github.com/GrigoryKrasnochub/updaterini"
-	"github.com/anywherelan/awl/config"
 	"github.com/ipfs/go-log/v2"
+
+	"github.com/anywherelan/awl/config"
 )
 
 // updChannels oder is priority, release chan is always in chan-s list and has max priority
@@ -65,12 +66,14 @@ func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType Appl
 		channels = append(channels, updaterini.NewChannel(c.Update.LowestPriorityChan, true))
 	}
 
-	filenamesRegex := make([]*regexp.Regexp, 1)
+	filenamesRegex := make([]*regexp.Regexp, 0, 1)
 	switch appType {
 	case AppTypeAwl:
-		filenamesRegex[0] = awlFilenamesRegex
+		filenamesRegex = append(filenamesRegex, awlFilenamesRegex)
 	case AppTypeAwlTray:
-		filenamesRegex[0] = awlTrayFilenamesRegex
+		filenamesRegex = append(filenamesRegex, awlTrayFilenamesRegex)
+	default:
+		return UpdateService{}, fmt.Errorf("unknown application type: %v", appType)
 	}
 
 	// TODO update when issue will be fixed https://github.com/GrigoryKrasnochub/updaterini/issues/6

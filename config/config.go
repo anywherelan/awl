@@ -65,7 +65,7 @@ type (
 		// With this option only BootstrapPeers from config will be used
 		IgnoreDefaultBootstrapPeers *bool         `json:"ignoreDefaultBootstrapPeers,omitempty"`
 		ListenAddresses             []string      `json:"listenAddresses"`
-		ReconnectionIntervalSec     time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"`
+		ReconnectionIntervalSec     time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"` //nolint:staticcheck
 		AutoAcceptAuthRequests      bool          `json:"autoAcceptAuthRequests"`
 
 		UseDedicatedConnForEachStream bool `json:"useDedicatedConnForEachStream"`
@@ -266,10 +266,7 @@ func (c *Config) GetBootstrapPeers() []peer.AddrInfo {
 
 		allMultiaddrs = append(allMultiaddrs, newMultiaddr)
 	}
-	ignoreDefaultBootstrapPeers := false
-	if c.P2pNode.IgnoreDefaultBootstrapPeers != nil && *c.P2pNode.IgnoreDefaultBootstrapPeers {
-		ignoreDefaultBootstrapPeers = true
-	}
+	ignoreDefaultBootstrapPeers := c.P2pNode.IgnoreDefaultBootstrapPeers != nil && *c.P2pNode.IgnoreDefaultBootstrapPeers
 	c.RUnlock()
 
 	if !ignoreDefaultBootstrapPeers {
