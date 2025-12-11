@@ -31,6 +31,7 @@ type P2p interface {
 	NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn))
 	ProtectPeer(id peer.ID)
+	RecordPeerLatency(id peer.ID, rtt time.Duration)
 }
 
 type AuthStatus struct {
@@ -125,6 +126,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 
 	_, isBlocked := s.conf.GetBlockedPeer(remotePeerID.String())
 	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isBlocked)
+	timeStarted := time.Now()
 	err = protocol.SendStatus(stream, myPeerInfo)
 	if err != nil {
 		return fmt.Errorf("sending status info: %v", err)
@@ -134,6 +136,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 	if err != nil {
 		return fmt.Errorf("receiving status info: %v", err)
 	}
+	s.p2p.RecordPeerLatency(remotePeerID, time.Since(timeStarted))
 
 	s.logger.Infof("successfully exchanged status info (outbound) with %s (%s)", knownPeer.DisplayName(), remotePeerID.String())
 	if isBlocked {
@@ -270,6 +273,7 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 		_ = stream.Close()
 	}()
 
+	timeStarted := time.Now()
 	err = protocol.SendAuth(stream, req)
 	if err != nil {
 		return fmt.Errorf("sending auth: %v", err)
@@ -279,6 +283,7 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	if err != nil {
 		return fmt.Errorf("receiving auth response from %s: %v", peerID, err)
 	}
+	s.p2p.RecordPeerLatency(peerID, time.Since(timeStarted))
 
 	if authResponse.Confirmed || authResponse.Declined {
 		s.authsLock.Lock()

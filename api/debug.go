@@ -52,6 +52,7 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 			Total:      makeBandwidthInfo(h.p2p.NetworkStats()),
 			ByProtocol: bandwidthByProtocol,
 		},
+		KnownPeers: h.getKnownPeers(),
 	}
 
 	return c.JSONPretty(http.StatusOK, debugInfo, "    ")

@@ -62,6 +62,7 @@ type (
 		Connections            []p2p.ConnectionInfo
 		NetworkStats           metrics.Stats
 		NetworkStatsInIECUnits StatsInUnits
+		Ping                   time.Duration `swaggertype:"primitive,integer"`
 	}
 
 	PeerInfo struct {
@@ -114,6 +115,7 @@ type (
 		DHT         DhtDebugInfo
 		Connections ConnectionsDebugInfo
 		Bandwidth   BandwidthDebugInfo
+		KnownPeers  []KnownPeersResponse
 	}
 
 	GeneralDebugInfo struct {

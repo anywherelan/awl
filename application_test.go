@@ -56,6 +56,11 @@ func TestMakeFriends(t *testing.T) {
 	peer2 := ts.newTestPeer(false)
 
 	ts.makeFriends(peer2, peer1)
+
+	p1Ping := peer1.app.P2p.GetPeerLatency(peer2.app.P2p.PeerID())
+	ts.NotEmpty(p1Ping)
+	p2Ping := peer2.app.P2p.GetPeerLatency(peer1.app.P2p.PeerID())
+	ts.NotEmpty(p2Ping)
 }
 
 func TestRemovePeer(t *testing.T) {

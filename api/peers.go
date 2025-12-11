@@ -5,11 +5,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/labstack/echo/v4"
+	"github.com/libp2p/go-libp2p/core/peer"
+
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
-	"github.com/labstack/echo/v4"
-	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 const ErrorPeerAliasIsNotUniq = "peer name is not unique"
@@ -21,6 +22,11 @@ const ErrorPeerAliasIsNotUniq = "peer name is not unique"
 // @Success 200 {array} entity.KnownPeersResponse
 // @Router /peers/get_known [GET]
 func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
+	result := h.getKnownPeers()
+	return c.JSON(http.StatusOK, result)
+}
+
+func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 	h.conf.RLock()
 	result := make([]entity.KnownPeersResponse, 0, len(h.conf.KnownPeers))
 	peers := make([]string, 0, len(h.conf.KnownPeers))
@@ -52,6 +58,7 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 			Connections:            h.p2p.PeerConnectionsInfo(id),
 			NetworkStats:           netStats,
 			NetworkStatsInIECUnits: getStatsInIECUnits(netStats),
+			Ping:                   h.p2p.GetPeerLatency(id),
 		}
 		result = append(result, kpr)
 	}
@@ -61,7 +68,7 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 		return result[i].Connected && !result[j].Connected
 	})
 
-	return c.JSON(http.StatusOK, result)
+	return result
 }
 
 // @Tags Peers
