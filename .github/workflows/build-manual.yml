@@ -42,7 +42,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.24.x
+          go-version: 1.25.x
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -92,8 +92,8 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@latest
           go get golang.org/x/mobile/cmd/gomobile
           gomobile init
-          go mod tidy -compat=1.24
-          cd cmd/awl-tray && go mod tidy -compat=1.24 && cd ../..
+          go mod tidy -compat=1.25
+          cd cmd/awl-tray && go mod tidy -compat=1.25 && cd ../..
           echo "check go mod tidy and git dirty"
           test -z "$(git status --porcelain)" || (git status; git diff && false)
           echo "start building"          
@@ -146,7 +146,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.24.x
+          go-version: 1.25.x
           cache: true
           cache-dependency-path: |
             awl/go.sum
