@@ -45,6 +45,7 @@ import (
 )
 
 func init() {
+	// TODO: move to config
 	useAwldns = false
 	config.DefaultBootstrapPeers = nil
 }
@@ -56,11 +57,6 @@ func TestMakeFriends(t *testing.T) {
 	peer2 := ts.newTestPeer(false)
 
 	ts.makeFriends(peer2, peer1)
-
-	p1Ping := peer1.app.P2p.GetPeerLatency(peer2.app.P2p.PeerID())
-	ts.NotEmpty(p1Ping)
-	p2Ping := peer2.app.P2p.GetPeerLatency(peer1.app.P2p.PeerID())
-	ts.NotEmpty(p2Ping)
 }
 
 func TestRemovePeer(t *testing.T) {
@@ -112,6 +108,12 @@ func TestRemovePeer(t *testing.T) {
 
 	ts.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
 	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
+
+	// test ping
+	p1Ping := peer1.app.P2p.GetPeerLatency(peer2.app.P2p.PeerID())
+	ts.NotEmpty(p1Ping)
+	p2Ping := peer2.app.P2p.GetPeerLatency(peer1.app.P2p.PeerID())
+	ts.NotEmpty(p2Ping)
 }
 
 func TestDeclinePeerFriendRequest(t *testing.T) {

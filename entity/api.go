@@ -128,7 +128,9 @@ type (
 		Reachability        string `enums:"Unknown,Public,Private"`
 		ListenAddress       []string
 		PeersWithAddrsCount int
-		ObservedAddrs       []string
+		ReachableAddrs      []string
+		UnreachableAddrs    []string
+		UnknownAddrs        []string
 		BootstrapPeers      map[string]p2p.BootstrapPeerDebugInfo
 	}
 	ConnectionsDebugInfo struct {

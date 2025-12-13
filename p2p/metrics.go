@@ -152,8 +152,8 @@ func (p *P2p) ConnectionsLastTrimAgo() time.Duration {
 	return time.Since(lastTrim)
 }
 
-func (p *P2p) OwnObservedAddrs() []multiaddr.Multiaddr {
-	return p.basicHost.IDService().OwnObservedAddrs()
+func (p *P2p) ConfirmedAddrs() (reachable []multiaddr.Multiaddr, unreachable []multiaddr.Multiaddr, unknown []multiaddr.Multiaddr) {
+	return p.basicHost.ConfirmedAddrs()
 }
 
 func (p *P2p) NetworkStats() metrics.Stats {
