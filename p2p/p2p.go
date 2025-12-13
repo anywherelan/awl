@@ -70,11 +70,15 @@ type HostConfig struct {
 }
 
 type IDService interface {
-	Close() error
-	OwnObservedAddrs() []multiaddr.Multiaddr
-	ObservedAddrsFor(local multiaddr.Multiaddr) []multiaddr.Multiaddr
-	IdentifyConn(c network.Conn)
-	IdentifyWait(c network.Conn) <-chan struct{}
+	// IdentifyConn synchronously triggers an identify request on the connection and
+	// waits for it to complete. If the connection is being identified by another
+	// caller, this call will wait. If the connection has already been identified,
+	// it will return immediately.
+	IdentifyConn(network.Conn)
+	// IdentifyWait triggers an identify (if the connection has not already been
+	// identified) and returns a channel that is closed when the identify protocol
+	// completes.
+	IdentifyWait(network.Conn) <-chan struct{}
 }
 
 type P2p struct {

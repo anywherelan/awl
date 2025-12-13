@@ -28,6 +28,8 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 		bandwidthByProtocol[string(key)] = makeBandwidthInfo(val)
 	}
 
+	reachableAddrs, unreachableAddrs, unknownAddrs := h.p2p.ConfirmedAddrs()
+
 	debugInfo := entity.P2pDebugInfo{
 		General: entity.GeneralDebugInfo{
 			Version: config.Version,
@@ -39,7 +41,9 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 			Reachability:        h.p2p.Reachability().String(),
 			ListenAddress:       maToStrings(h.p2p.AnnouncedAs()),
 			PeersWithAddrsCount: h.p2p.PeersWithAddrsCount(),
-			ObservedAddrs:       maToStrings(h.p2p.OwnObservedAddrs()),
+			ReachableAddrs:      maToStrings(reachableAddrs),
+			UnreachableAddrs:    maToStrings(unreachableAddrs),
+			UnknownAddrs:        maToStrings(unknownAddrs),
 			BootstrapPeers:      h.p2p.BootstrapPeersStatsDetailed(),
 		},
 		Connections: entity.ConnectionsDebugInfo{
