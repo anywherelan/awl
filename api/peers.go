@@ -128,11 +128,21 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	if !h.conf.IsUniqPeerAlias(req.PeerID, req.Alias) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
 	}
+
+	h.conf.Lock()
+	defer h.conf.Unlock()
+
+	checkIPErr := h.conf.CheckIPUnique(req.IPAddr, knownPeer.PeerID)
+	if checkIPErr != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(checkIPErr.Error()))
+	}
+
 	knownPeer.Alias = req.Alias
 	knownPeer.DomainName = req.DomainName
 	knownPeer.WeAllowUsingAsExitNode = req.AllowUsingAsExitNode
+	knownPeer.IPAddr = req.IPAddr
 
-	h.conf.UpsertPeer(knownPeer)
+	h.conf.UpsertPeerUnlocked(knownPeer)
 
 	go func() {
 		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerID, knownPeer)

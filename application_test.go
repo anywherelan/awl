@@ -224,6 +224,7 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		PeerID:               peer1.PeerID(),
 		Alias:                peer1Config.Alias,
 		DomainName:           peer1Config.DomainName,
+		IPAddr:               peer1Config.IPAddr,
 		AllowUsingAsExitNode: true,
 	})
 	ts.NoError(err)
@@ -249,6 +250,7 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		PeerID:               peer2.PeerID(),
 		Alias:                peer2Config.Alias,
 		DomainName:           peer2Config.DomainName,
+		IPAddr:               peer2Config.IPAddr,
 		AllowUsingAsExitNode: true,
 	})
 	ts.NoError(err)
@@ -267,6 +269,7 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		PeerID:               peer1.PeerID(),
 		Alias:                peer1Config.Alias,
 		DomainName:           peer1Config.DomainName,
+		IPAddr:               peer1Config.IPAddr,
 		AllowUsingAsExitNode: false,
 	})
 	ts.NoError(err)
@@ -309,6 +312,268 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	info, err = peer2.api.PeerInfo()
 	ts.NoError(err)
 	ts.Equal("", info.SOCKS5.UsingPeerID)
+}
+
+func TestUpdatePeerSettingsIPAddr(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.newTestPeer(false)
+	peer2 := ts.newTestPeer(false)
+	peer3 := ts.newTestPeer(false)
+
+	// Make peer2 and peer1 friends using the helper
+	ts.makeFriends(peer2, peer1)
+
+	// Make peer3 and peer1 friends (manual to use unique alias "peer_3")
+	// TODO: refactor makeFriends helper to accept alias arg
+	ts.ensurePeersAvailableInDHT(peer3, peer1)
+	err := peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1")
+	ts.NoError(err)
+
+	var authRequests []entity.AuthRequest
+	ts.Eventually(func() bool {
+		authRequests, err = peer1.api.AuthRequests()
+		ts.NoError(err)
+		return len(authRequests) == 1
+	}, 15*time.Second, 50*time.Millisecond)
+	err = peer1.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_3", false)
+	ts.NoError(err)
+
+	time.Sleep(500 * time.Millisecond)
+
+	// Get initial peer configurations
+	peer2Config, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+	ts.NoError(err)
+	peer3Config, err := peer1.api.KnownPeerConfig(peer3.PeerID())
+	ts.NoError(err)
+
+	initialPeer2IP := peer2Config.IPAddr
+	initialPeer3IP := peer3Config.IPAddr
+
+	t.Run("ValidIPUpdate", func(t *testing.T) {
+		newIP := "10.66.0.100"
+		err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               newIP,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		// Verify the IP was updated
+		updatedConfig, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		ts.Equal(newIP, updatedConfig.IPAddr)
+
+		// Restore original IP for other tests
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               initialPeer2IP,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+	})
+
+	t.Run("InvalidIPFormat", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			ip       string
+			errorMsg string
+		}{
+			{"empty string", "", "Field validation for 'IPAddr' failed"},
+			{"invalid format", "invalid", "Field validation for 'IPAddr' failed on the 'ipv4' tag"},
+			{"out of range octets", "256.1.1.1", "Field validation for 'IPAddr' failed on the 'ipv4' tag"},
+			{"incomplete IP", "10.66.0", "Field validation for 'IPAddr' failed on the 'ipv4' tag"},
+			{"too many octets", "10.66.0.1.1", "Field validation for 'IPAddr' failed on the 'ipv4' tag"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+					PeerID:               peer2.PeerID(),
+					Alias:                peer2Config.Alias,
+					DomainName:           peer2Config.DomainName,
+					IPAddr:               tc.ip,
+					AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+				})
+				ts.Error(err)
+				ts.ErrorContains(err, tc.errorMsg)
+			})
+		}
+	})
+
+	t.Run("IPOutsideVPNRange", func(t *testing.T) {
+		testCases := []struct {
+			name string
+			ip   string
+		}{
+			{"different network", "192.168.1.1"},
+			{"next network up", "10.67.0.5"},
+			{"next network down", "10.65.255.255"},
+			{"same class B different C", "10.66.1.1"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+					PeerID:               peer2.PeerID(),
+					Alias:                peer2Config.Alias,
+					DomainName:           peer2Config.DomainName,
+					IPAddr:               tc.ip,
+					AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+				})
+				ts.Error(err)
+				ts.ErrorContains(err, "IP "+tc.ip+" not found in")
+			})
+		}
+	})
+
+	t.Run("DuplicateIPAcrossPeers", func(t *testing.T) {
+		// Try to set peer2's IP to peer3's IP
+		err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               initialPeer3IP,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.Error(err)
+		ts.ErrorContains(err, "ip "+initialPeer3IP+" is already used by peer")
+
+		// Verify peer2's IP wasn't changed
+		unchangedConfig, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		ts.Equal(initialPeer2IP, unchangedConfig.IPAddr)
+	})
+
+	t.Run("SamePeerKeepsSameIP", func(t *testing.T) {
+		// Update other settings while keeping the same IP
+		newAlias := "updated_peer2"
+		err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                newAlias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               initialPeer2IP, // Same IP
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		// Verify the alias was updated but IP stayed the same
+		updatedConfig, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		ts.Equal(newAlias, updatedConfig.Alias)
+		ts.Equal(initialPeer2IP, updatedConfig.IPAddr)
+
+		// Restore original alias
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               initialPeer2IP,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+	})
+
+	t.Run("SequentialIPUpdates", func(t *testing.T) {
+		// Use a completely different free IP to avoid any conflicts
+		freeIP := "10.66.0.200"
+
+		// Update peer2: A → free IP
+		err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               freeIP,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		// Verify peer2 has new IP
+		updatedPeer2Config, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		ts.Equal(freeIP, updatedPeer2Config.IPAddr)
+
+		// Now update peer3 to a different free IP
+		anotherFreeIP := "10.66.0.201"
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer3.PeerID(),
+			Alias:                peer3Config.Alias,
+			DomainName:           peer3Config.DomainName,
+			IPAddr:               anotherFreeIP,
+			AllowUsingAsExitNode: peer3Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		// Verify peer3 has the new IP
+		updatedPeer3Config, err := peer1.api.KnownPeerConfig(peer3.PeerID())
+		ts.NoError(err)
+		ts.Equal(anotherFreeIP, updatedPeer3Config.IPAddr)
+
+		// Now verify we can reuse the original IPs by updating back
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               initialPeer2IP,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer3.PeerID(),
+			Alias:                peer3Config.Alias,
+			DomainName:           peer3Config.DomainName,
+			IPAddr:               initialPeer3IP,
+			AllowUsingAsExitNode: peer3Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+	})
+
+	t.Run("EdgeCaseIPs", func(t *testing.T) {
+		// Test network address (.0) - currently allowed in implementation
+		err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               "10.66.0.0",
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		// Test broadcast address (.255) - currently allowed in implementation
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               "10.66.0.255",
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		// Test valid IP at the high edge of range
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               "10.66.0.254",
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		// Restore original IP
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               initialPeer2IP,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+	})
 }
 
 func testSOCKS5Proxy(ts *TestSuite, proxyAddr string, expectSocksErr string) {

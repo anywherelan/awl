@@ -218,6 +218,7 @@ func changePeerAlias(api *apiclient.Client, peerID, newAlias string) error {
 		PeerID:               peerID,
 		Alias:                newAlias,
 		DomainName:           pcfg.DomainName,
+		IPAddr:               pcfg.IPAddr,
 		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
 	})
 	if err != nil {
@@ -238,6 +239,7 @@ func changePeerDomain(api *apiclient.Client, peerID, newDomain string) error {
 		PeerID:               peerID,
 		Alias:                pcfg.Alias,
 		DomainName:           newDomain,
+		IPAddr:               pcfg.IPAddr,
 		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
 	})
 	if err != nil {
@@ -258,6 +260,7 @@ func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool) e
 		PeerID:               peerID,
 		Alias:                pcfg.Alias,
 		DomainName:           pcfg.DomainName,
+		IPAddr:               pcfg.IPAddr,
 		AllowUsingAsExitNode: allow,
 	})
 	if err != nil {

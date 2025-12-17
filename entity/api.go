@@ -29,9 +29,11 @@ type (
 		PeerID string `validate:"required"`
 	}
 	UpdatePeerSettingsRequest struct {
-		PeerID               string `validate:"required"`
-		Alias                string `validate:"required,trimmed_str_not_empty"`
-		DomainName           string `validate:"required,trimmed_str_not_empty"`
+		PeerID     string `validate:"required"`
+		Alias      string `validate:"required,trimmed_str_not_empty"`
+		DomainName string `validate:"required,trimmed_str_not_empty"`
+		// TODO: support ipv6
+		IPAddr               string `validate:"required,ipv4"`
 		AllowUsingAsExitNode bool
 	}
 	UpdateMySettingsRequest struct {
