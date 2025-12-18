@@ -534,6 +534,8 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 	})
 
 	t.Run("EdgeCaseIPs", func(t *testing.T) {
+		// TODO: revise .0 and .255 cases implementation
+
 		// Test network address (.0) - currently allowed in implementation
 		err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
 			PeerID:               peer2.PeerID(),
@@ -565,6 +567,59 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 		ts.NoError(err)
 
 		// Restore original IP
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               initialPeer2IP,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+	})
+
+	t.Run("IPChangeWithTunnelPackets", func(t *testing.T) {
+		const packetSize = 1500
+		const packetsCount = 10
+		newIP := "10.66.0.150"
+
+		// Update peer2's IP address
+		err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			IPAddr:               newIP,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		// Verify the IP was updated
+		updatedConfig, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		ts.Equal(newIP, updatedConfig.IPAddr)
+
+		// Configure tunnel for packet testing
+		peer1.tun.ReferenceInboundPacketLen = packetSize
+		peer2.tun.ReferenceInboundPacketLen = packetSize
+		peer1.tun.ClearInboundCount()
+		peer2.tun.ClearInboundCount()
+
+		// Wait for IP change to propagate
+		time.Sleep(100 * time.Millisecond)
+
+		// Send packets from peer1 to peer2
+		packet := testPacketWithDest(packetSize, newIP)
+		for i := 0; i < packetsCount; i++ {
+			peer1.tun.Outbound <- packet
+		}
+
+		// Wait for packet processing
+		time.Sleep(500 * time.Millisecond)
+
+		// Verify packet reception
+		received := peer2.tun.InboundCount()
+		ts.EqualValues(packetsCount, received)
+
+		// Restore original IP for other tests
 		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
 			PeerID:               peer2.PeerID(),
 			Alias:                peer2Config.Alias,
@@ -713,6 +768,10 @@ func BenchmarkTunnelPackets(b *testing.B) {
 }
 
 func testPacket(length int) []byte {
+	return testPacketWithDest(length, "10.66.0.2")
+}
+
+func testPacketWithDest(length int, destIP string) []byte {
 	data, err := hex.DecodeString("4500002828f540004011fd490a4200010a420002a9d0238200148bfd68656c6c6f20776f726c6421")
 	if err != nil {
 		panic(err)
@@ -734,6 +793,13 @@ func testPacket(length int) []byte {
 		panic(err)
 	}
 	vpnPacket.Parse()
+
+	destIPParsed := net.ParseIP(destIP).To4()
+	if destIPParsed == nil {
+		panic(fmt.Sprintf("invalid destination IP: %s", destIP))
+	}
+	copy(vpnPacket.Dst, destIPParsed)
+
 	vpnPacket.RecalculateChecksum()
 
 	return vpnPacket.Packet
