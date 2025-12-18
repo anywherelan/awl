@@ -32,7 +32,7 @@ func (c *Config) VPNLocalIPMaskUnlocked() (net.IP, net.IPMask) {
 // GenerateNextIpAddr is not thread safe.
 func (c *Config) GenerateNextIpAddr() string {
 	localIP, netMask := c.VPNLocalIPMaskUnlocked()
-	ipNet := net.IPNet{
+	ipNet := &net.IPNet{
 		IP:   localIP.Mask(netMask),
 		Mask: netMask,
 	}
@@ -59,7 +59,7 @@ func (c *Config) GenerateNextIpAddr() string {
 // Checks IP for: valid ip, unique across peers, in vpn net mask
 func (c *Config) CheckIPUnique(checkIP string, exceptPeerID string) error {
 	localIP, netMask := c.VPNLocalIPMaskUnlocked()
-	ipNet := net.IPNet{
+	ipNet := &net.IPNet{
 		IP:   localIP.Mask(netMask),
 		Mask: netMask,
 	}
@@ -74,7 +74,7 @@ func (c *Config) CheckIPUnique(checkIP string, exceptPeerID string) error {
 
 	contains := ipNet.Contains(ip)
 	if !contains {
-		return fmt.Errorf("IP %s not found in %s", checkIP, ipNet)
+		return fmt.Errorf("IP %s does not belong to subnet %s", checkIP, ipNet)
 	}
 
 	for _, peer := range c.KnownPeers {

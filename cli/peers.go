@@ -250,6 +250,27 @@ func changePeerDomain(api *apiclient.Client, peerID, newDomain string) error {
 	return nil
 }
 
+func changePeerIP(api *apiclient.Client, peerID, newIP string) error {
+	pcfg, err := api.KnownPeerConfig(peerID)
+	if err != nil {
+		return err
+	}
+
+	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peerID,
+		Alias:                pcfg.Alias,
+		DomainName:           pcfg.DomainName,
+		IPAddr:               newIP,
+		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("peer IP address updated successfully")
+	return nil
+}
+
 func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool) error {
 	pcfg, err := api.KnownPeerConfig(peerID)
 	if err != nil {

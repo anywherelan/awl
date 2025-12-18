@@ -426,7 +426,7 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 					AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
 				})
 				ts.Error(err)
-				ts.ErrorContains(err, "IP "+tc.ip+" not found in")
+				ts.ErrorContains(err, "IP "+tc.ip+" does not belong to subnet 10.66.0.0/24")
 			})
 		}
 	})
