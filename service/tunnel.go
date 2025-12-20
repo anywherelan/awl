@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ipfs/go-log/v2"
@@ -108,34 +109,50 @@ func (t *Tunnel) RefreshPeersList() {
 	defer t.conf.RUnlock()
 	for _, knownPeer := range t.conf.KnownPeers {
 		peerID := knownPeer.PeerId()
-		if _, ok := t.peerIDToPeer[peerID]; ok {
+		newLocalIP := net.ParseIP(knownPeer.IPAddr).To4()
+		if newLocalIP == nil {
+			t.logger.Errorf("Known peer %q has invalid IP %s in conf", knownPeer.DisplayName(), knownPeer.IPAddr)
 			continue
 		}
-		localIP := net.ParseIP(knownPeer.IPAddr).To4()
-		if localIP == nil {
-			t.logger.Errorf("Known peer %q has invalid IP %s in conf", knownPeer.DisplayName(), knownPeer.IPAddr)
-			return
+
+		prevPeer, exists := t.peerIDToPeer[peerID]
+		if exists {
+			oldLocalIP := *prevPeer.localIP.Load()
+			if oldLocalIP.Equal(newLocalIP) {
+				// no changes
+				continue
+			}
+
+			if !oldLocalIP.Equal(newLocalIP) {
+				// changed IP
+				delete(t.netIPToPeer, string(oldLocalIP))
+				prevPeer.localIP.Store(&newLocalIP)
+				t.netIPToPeer[string(newLocalIP)] = prevPeer
+
+				continue
+			}
+
+			// impossible case
+			continue
 		}
 
-		vpnPeer := &VpnPeer{
-			peerID:     peerID,
-			localIP:    localIP,
-			inboundCh:  make(chan *vpn.Packet, packetHandlersChanCap),
-			outboundCh: make(chan *vpn.Packet, packetHandlersChanCap),
-		}
+		// add new peer
+		vpnPeer := NewVpnPeer(peerID, newLocalIP)
 		t.peerIDToPeer[peerID] = vpnPeer
-		t.netIPToPeer[string(localIP)] = vpnPeer
+		t.netIPToPeer[string(newLocalIP)] = vpnPeer
 		vpnPeer.Start(t)
 	}
 
+	// delete unknown peers
 	for _, vpnPeer := range t.peerIDToPeer {
 		_, exists := t.conf.KnownPeers[vpnPeer.peerID.String()]
 		if exists {
 			continue
 		}
+		localIP := *vpnPeer.localIP.Load()
 		vpnPeer.Close(t)
 		delete(t.peerIDToPeer, vpnPeer.peerID)
-		delete(t.netIPToPeer, string(vpnPeer.localIP))
+		delete(t.netIPToPeer, string(localIP))
 	}
 }
 
@@ -144,9 +161,10 @@ func (t *Tunnel) Close() {
 	defer t.peersLock.Unlock()
 
 	for _, vpnPeer := range t.peerIDToPeer {
+		localIP := *vpnPeer.localIP.Load()
 		vpnPeer.Close(t)
 		delete(t.peerIDToPeer, vpnPeer.peerID)
-		delete(t.netIPToPeer, string(vpnPeer.localIP))
+		delete(t.netIPToPeer, string(localIP))
 	}
 }
 
@@ -221,9 +239,21 @@ func (t *Tunnel) makeTunnelStream(ctx context.Context, peerID peer.ID) (network.
 
 type VpnPeer struct {
 	peerID     peer.ID
-	localIP    net.IP
-	inboundCh  chan *vpn.Packet
+	localIP    atomic.Pointer[net.IP]
+	inboundCh  chan *vpn.Packet // from remote peer to us
 	outboundCh chan *vpn.Packet // from us to remote
+}
+
+func NewVpnPeer(peerID peer.ID, localIP net.IP) *VpnPeer {
+	p := &VpnPeer{
+		peerID:     peerID,
+		inboundCh:  make(chan *vpn.Packet, packetHandlersChanCap),
+		outboundCh: make(chan *vpn.Packet, packetHandlersChanCap),
+	}
+
+	p.localIP.Store(&localIP)
+
+	return p
 }
 
 // TODO: remove Tunnel from VpnPeer dependencies
@@ -299,7 +329,8 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			// TODO: send multiple packets at once?
 			err := sendPacket(packet)
 			if err != nil {
-				t.logger.Warnf("send packet to peerID (%s) local ip (%s): %v", vp.peerID, vp.localIP, err)
+				localIP := *vp.localIP.Load()
+				t.logger.Warnf("send packet to peerID (%s) local ip (%s): %v", vp.peerID, localIP, err)
 				closeStream()
 			}
 			t.device.PutTempPacket(packet)
@@ -317,14 +348,15 @@ func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
 		if !open {
 			return
 		}
+		localIP := *vp.localIP.Load()
 		ok := packet.Parse()
 		if !ok {
-			t.logger.Warnf("got invalid packet from peerID (%s) local ip (%s)", vp.peerID, vp.localIP)
+			t.logger.Warnf("got invalid packet from peerID (%s) local ip (%s)", vp.peerID, localIP)
 			t.device.PutTempPacket(packet)
 			continue
 		}
 		// TODO: add batching
-		err := t.device.WritePacket(packet, vp.localIP)
+		err := t.device.WritePacket(packet, localIP)
 		if err != nil {
 			t.logger.Warnf("write packet to vpn: %v", err)
 		}

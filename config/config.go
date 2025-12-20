@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -189,6 +188,13 @@ func (c *Config) UpsertPeer(peer KnownPeer) {
 	_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
 }
 
+func (c *Config) UpsertPeerUnlocked(peer KnownPeer) {
+	c.KnownPeers[peer.PeerID] = peer
+	c.save()
+
+	_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
+}
+
 func (c *Config) UpdatePeerLastSeen(peerID string) {
 	c.Lock()
 	knownPeer, ok := c.KnownPeers[peerID]
@@ -308,18 +314,6 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 	}
 	c.RUnlock()
 	return result
-}
-
-func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {
-	c.RLock()
-	defer c.RUnlock()
-
-	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNet)
-	if err != nil {
-		logger.Errorf("parse CIDR %s: %v", c.VPNConfig.IPNet, err)
-		return nil, nil
-	}
-	return localIP.To4(), ipNet.Mask
 }
 
 func (c *Config) DNSNamesMapping() map[string]string {
