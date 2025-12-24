@@ -15,6 +15,7 @@ require (
 	github.com/libp2p/go-libp2p v0.46.0
 	github.com/libp2p/go-libp2p-kad-dht v0.36.0
 	github.com/libp2p/go-libp2p-kbucket v0.8.0
+	github.com/marcopolo/simnet v0.0.4
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/miekg/dns v1.1.69
 	github.com/milosgajdos/tenus v0.0.3

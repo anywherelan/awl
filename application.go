@@ -71,6 +71,10 @@ type Application struct {
 	Conf      *config.Config
 	Eventbus  awlevent.Bus
 
+	// For tests only:
+	ExtraLibp2pOpts          []libp2p.Option
+	AllowEmptyBootstrapPeers bool
+
 	ctx        context.Context
 	ctxCancel  context.CancelFunc
 	vpnDevice  *vpn.Device
@@ -265,18 +269,19 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 	}
 
 	return p2p.HostConfig{
-		PrivKeyBytes:    a.Conf.PrivKey(),
-		ListenAddrs:     a.Conf.GetListenAddresses(),
-		UserAgent:       config.UserAgent,
-		BootstrapPeers:  a.Conf.GetBootstrapPeers(),
-		EnableAutoRelay: true,
-		Libp2pOpts: []libp2p.Option{
+		PrivKeyBytes:             a.Conf.PrivKey(),
+		ListenAddrs:              a.Conf.GetListenAddresses(),
+		UserAgent:                config.UserAgent,
+		BootstrapPeers:           a.Conf.GetBootstrapPeers(),
+		AllowEmptyBootstrapPeers: a.AllowEmptyBootstrapPeers,
+		EnableAutoRelay:          true,
+		Libp2pOpts: append([]libp2p.Option{
 			libp2p.EnableRelay(),
 			libp2p.EnableAutoNATv2(),
 			libp2p.ResourceManager(mgr),
 			libp2p.EnableHolePunching(),
 			libp2p.NATPortMap(),
-		},
+		}, a.ExtraLibp2pOpts...),
 		ConnManager: struct {
 			LowWater    int
 			HighWater   int
