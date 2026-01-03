@@ -24,26 +24,32 @@ const (
 )
 
 type Tunnel struct {
-	p2p          P2p
-	conf         *config.Config
-	device       *vpn.Device
-	logger       *log.ZapEventLogger
-	peersLock    sync.RWMutex
-	peerIDToPeer map[peer.ID]*VpnPeer
-	netIPToPeer  map[string]*VpnPeer
+	p2p    P2p
+	conf   *config.Config
+	device *vpn.Device
+	logger *log.ZapEventLogger
+
+	isClosed         atomic.Bool
+	peersLock        sync.RWMutex
+	peerIDToPeer     map[peer.ID]*VpnPeer
+	netIPToPeer      map[string]*VpnPeer
+	udpBroadcastAddr net.IP
 }
 
 func NewTunnel(p2pService P2p, device *vpn.Device, conf *config.Config) *Tunnel {
+	localIP, netMask := conf.VPNLocalIPMask()
+	udpBroadcastAddr := vpn.GetIPv4BroadcastAddress(&net.IPNet{IP: localIP, Mask: netMask})
+
 	tunnel := &Tunnel{
-		p2p:          p2pService,
-		conf:         conf,
-		device:       device,
-		logger:       log.Logger("awl/service/tunnel"),
-		peerIDToPeer: make(map[peer.ID]*VpnPeer),
-		netIPToPeer:  make(map[string]*VpnPeer),
+		p2p:              p2pService,
+		conf:             conf,
+		device:           device,
+		logger:           log.Logger("awl/service/tunnel"),
+		peerIDToPeer:     make(map[peer.ID]*VpnPeer),
+		netIPToPeer:      make(map[string]*VpnPeer),
+		udpBroadcastAddr: udpBroadcastAddr,
 	}
 	tunnel.RefreshPeersList()
-	go tunnel.backgroundReadPackets()
 
 	return tunnel
 }
@@ -160,6 +166,8 @@ func (t *Tunnel) Close() {
 	t.peersLock.Lock()
 	defer t.peersLock.Unlock()
 
+	t.isClosed.Store(true)
+
 	for _, vpnPeer := range t.peerIDToPeer {
 		localIP := *vpnPeer.localIP.Load()
 		vpnPeer.Close(t)
@@ -168,17 +176,24 @@ func (t *Tunnel) Close() {
 	}
 }
 
-func (t *Tunnel) backgroundReadPackets() {
-	localIP, netMask := t.conf.VPNLocalIPMask()
-	broadcastAddr := vpn.GetIPv4BroadcastAddress(&net.IPNet{IP: localIP, Mask: netMask})
+// HandleReadPackets for successfully handled packets it sets packet in slice as nil
+func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
+	t.peersLock.RLock()
+	defer t.peersLock.RUnlock()
 
-	// TODO: batch read
-	for packet := range t.device.OutboundChan() {
+	if t.isClosed.Load() {
+		return
+	}
+
+	for i, packet := range packets {
+		if packet == nil {
+			continue
+		}
+
 		// TODO: ipv6 support
-		if packet.Dst.Equal(broadcastAddr) || packet.Dst.Equal(net.IPv4bcast) {
+		if packet.Dst.Equal(t.udpBroadcastAddr) || packet.Dst.Equal(net.IPv4bcast) {
 			// udp broadcast
 
-			t.peersLock.RLock()
 			for _, vpnPeer := range t.netIPToPeer {
 				// TODO: replace with event-based check OnConnected/OnDisconnected to improve performance
 				if !t.p2p.IsConnected(vpnPeer.peerID) {
@@ -195,26 +210,19 @@ func (t *Tunnel) backgroundReadPackets() {
 				}
 			}
 
-			t.device.PutTempPacket(packet)
-			t.peersLock.RUnlock()
-
 			continue
 		}
 
-		t.peersLock.RLock()
 		vpnPeer, ok := t.netIPToPeer[string(packet.Dst)]
 		if !ok {
-			t.device.PutTempPacket(packet)
-			t.peersLock.RUnlock()
 			continue
 		}
 
 		select {
 		case vpnPeer.outboundCh <- packet:
+			packets[i] = nil
 		default:
-			t.device.PutTempPacket(packet)
 		}
-		t.peersLock.RUnlock()
 	}
 }
 
