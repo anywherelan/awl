@@ -35,6 +35,8 @@ import (
 	"github.com/anywherelan/awl/vpn"
 )
 
+const TestTUNBatchSize = 100
+
 func init() {
 	// TODO: move to config
 	useAwldns = false
@@ -116,6 +118,8 @@ func (ts *TestSuite) newTestPeer(disableLogging bool, listenAddrs []multiaddr.Mu
 	app.Conf.HttpListenOnAdminHost = false
 	app.Conf.SetListenAddresses(listenAddrs)
 	app.Conf.P2pNode.BootstrapPeers = ts.bootstrapAddrsStr
+	app.Conf.P2pNode.ParallelSendingStreamsCount = 1
+	app.Conf.P2pNode.UseDedicatedConnForEachStream = false
 	if ts.isSimnet {
 		app.Conf.SOCKS5 = config.SOCKS5Config{
 			ListenerEnabled: false,
@@ -256,28 +260,36 @@ func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer) {
 }
 
 type TestTUN struct {
-	Outbound                  chan []byte
+	Outbound                  chan [][]byte
+	outboundBuf               [][]byte
 	ReferenceInboundPacketLen int
 
-	inboundCount int64
-	closed       chan struct{}
-	events       chan tun.Event
-	tun          testTun
+	inboundCount  int64
+	outboundCount int64
+	isClosed      atomic.Bool
+	events        chan tun.Event
+	tun           *testTun
 }
 
 func NewTestTUN() *TestTUN {
 	c := &TestTUN{
-		Outbound: make(chan []byte),
-		closed:   make(chan struct{}),
+		Outbound: make(chan [][]byte),
 		events:   make(chan tun.Event, 1),
+		tun:      &testTun{},
 	}
-	c.tun.t = c
 	c.events <- tun.EventUp
+
+	c.tun.t = c
+
 	return c
 }
 
 func (c *TestTUN) TUN() tun.Device {
-	return &c.tun
+	return c.tun
+}
+
+func (c *TestTUN) OutboundCount() int64 {
+	return atomic.LoadInt64(&c.outboundCount)
 }
 
 func (c *TestTUN) InboundCount() int64 {
@@ -295,31 +307,37 @@ type testTun struct {
 func (t *testTun) File() *os.File { return nil }
 
 func (t *testTun) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
-	for i, buf := range bufs {
-		select {
-		case <-t.t.closed:
-			return n, os.ErrClosed
-		case msg := <-t.t.Outbound:
-			copyN := copy(buf[offset:], msg)
-			sizes[i] = copyN
-			n++
-		}
+	if t.t.isClosed.Load() {
+		return 0, os.ErrClosed
 	}
+	if len(t.t.outboundBuf) == 0 {
+		t.t.outboundBuf = <-t.t.Outbound
+	}
+
+	for i := range min(len(bufs), len(t.t.outboundBuf)) {
+		outboundMsg := t.t.outboundBuf[i]
+		copyN := copy(bufs[i][offset:], outboundMsg)
+		sizes[i] = copyN
+		n++
+	}
+
+	t.t.outboundBuf = t.t.outboundBuf[n:]
+	atomic.AddInt64(&t.t.outboundCount, int64(n))
 
 	return n, nil
 }
 
 func (t *testTun) Write(bufs [][]byte, offset int) (n int, err error) {
+	if t.t.isClosed.Load() {
+		return 0, os.ErrClosed
+	}
+
 	for _, buf := range bufs {
 		msg := buf[offset:]
 		if len(msg) != t.t.ReferenceInboundPacketLen {
 			return n, errors.New("packets length mismatch")
 		}
-		select {
-		case <-t.t.closed:
-			return n, os.ErrClosed
-		default:
-		}
+
 		atomic.AddInt64(&t.t.inboundCount, 1)
 		n++
 	}
@@ -328,7 +346,7 @@ func (t *testTun) Write(bufs [][]byte, offset int) (n int, err error) {
 }
 
 func (t *testTun) BatchSize() int {
-	return 1
+	return TestTUNBatchSize
 }
 
 func (t *testTun) Flush() error             { return nil }
@@ -336,7 +354,7 @@ func (t *testTun) MTU() (int, error)        { return vpn.InterfaceMTU, nil }
 func (t *testTun) Name() (string, error)    { return "testTun", nil }
 func (t *testTun) Events() <-chan tun.Event { return t.t.events }
 func (t *testTun) Close() error {
-	close(t.t.closed)
+	t.t.isClosed.Store(true)
 	close(t.t.events)
 	return nil
 }

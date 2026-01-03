@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -583,7 +582,7 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 		// Send packets from peer1 to peer2
 		packet := testPacketWithDest(packetSize, newIP)
 		for i := 0; i < packetsCount; i++ {
-			peer1.tun.Outbound <- packet
+			peer1.tun.Outbound <- [][]byte{packet}
 		}
 
 		// Wait for packet processing
@@ -678,26 +677,27 @@ func TestTunnelPackets(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
-	sendPackets := func(peer, peerWithInbound TestPeer) {
+	sendPackets := func(peer TestPeer) {
 		defer wg.Done()
 		packet := testPacket(packetSize)
+		packetsBatch := make([][]byte, TestTUNBatchSize)
+		for i := range packetsBatch {
+			packetsBatch[i] = packet
+		}
 
-		for i := 0; i < packetsCount; i++ {
-			peer.tun.Outbound <- packet
-			// to don't have packets loss
-			inbound := peerWithInbound.tun.InboundCount()
-			if (int64(i) - inbound) >= 50 {
-				time.Sleep(50 * time.Millisecond)
-			}
+		for i := 0; i < packetsCount/TestTUNBatchSize; i++ {
+			peer.tun.Outbound <- packetsBatch
+			// to avoid packet loss
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
 	wg.Add(2)
-	go sendPackets(peer1, peer2)
-	go sendPackets(peer2, peer1)
+	go sendPackets(peer1)
+	go sendPackets(peer2)
 	wg.Wait()
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 	received1 := peer1.tun.InboundCount()
 	received2 := peer2.tun.InboundCount()
 	ts.EqualValues(packetsCount, received1)
@@ -717,13 +717,16 @@ func BenchmarkTunnelPackets(b *testing.B) {
 			b.ResetTimer()
 
 			b.SetBytes(int64(packetSize))
-			var packetsSent int64
 			packet := testPacket(packetSize)
 			peer2.tun.ReferenceInboundPacketLen = len(packet)
 			peer2.tun.ClearInboundCount()
+			packetsBatch := make([][]byte, TestTUNBatchSize*10)
+			for i := range packetsBatch {
+				packetsBatch[i] = packet
+			}
+
 			for i := 0; i < b.N; i++ {
-				peer1.tun.Outbound <- packet
-				atomic.AddInt64(&packetsSent, 1)
+				peer1.tun.Outbound <- packetsBatch
 				// to have packet_loss at reasonable level (but more than 0)
 				const sleepEvery = 100
 				if i != 0 && i%sleepEvery == 0 {
@@ -731,7 +734,7 @@ func BenchmarkTunnelPackets(b *testing.B) {
 				}
 			}
 			received := peer2.tun.InboundCount()
-			sent := atomic.LoadInt64(&packetsSent)
+			sent := peer1.tun.OutboundCount()
 			packetLoss := (float64(1) - float64(received)/float64(sent)) * 100
 			bandwidth := float64(received) * float64(packetSize) / 1024 / 1024
 			b.ReportMetric(bandwidth, "MB/s")
