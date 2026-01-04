@@ -351,24 +351,66 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 }
 
 func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
+	batchSize := t.device.BatchSize()
+	bytesBufs := make([][]byte, 0, batchSize)
+	packetsBufs := make([]*vpn.Packet, batchSize)
+
 	for {
-		packet, open := <-vp.inboundCh
+		firstPacket, open := <-vp.inboundCh
 		if !open {
 			return
 		}
 		localIP := *vp.localIP.Load()
-		ok := packet.Parse()
-		if !ok {
-			t.logger.Warnf("got invalid packet from peerID (%s) local ip (%s)", vp.peerID, localIP)
-			t.device.PutTempPacket(packet)
-			continue
+
+		packetsBufs[0] = firstPacket
+		packetsBatch := readBatchFromChan(vp.inboundCh, packetsBufs, 1)
+
+		newLen := 0
+		for i, packet := range packetsBatch {
+			ok := packet.Parse()
+			if !ok {
+				t.logger.Warnf("got invalid packet from peerID (%s) local ip (%s)", vp.peerID, localIP)
+				t.device.PutTempPacket(packet)
+				packetsBatch[i] = nil
+				continue
+			}
+			packetsBatch[newLen] = packet
+			newLen++
 		}
-		// TODO: add batching
-		err := t.device.WritePacket(packet, localIP)
-		if err != nil {
-			t.logger.Warnf("write packet to vpn: %v", err)
+		filteredPackets := packetsBatch[:newLen]
+
+		if len(filteredPackets) > 0 {
+			err := t.device.WritePacketsBatch(filteredPackets, bytesBufs, localIP)
+			if err != nil {
+				t.logger.Warnf("write packets batch to vpn for local ip %s: %v", localIP, err)
+			}
 		}
 
-		t.device.PutTempPacket(packet)
+		for i, packet := range packetsBatch {
+			if packet == nil {
+				continue
+			}
+			t.device.PutTempPacket(packet)
+			packetsBatch[i] = nil
+		}
+	}
+}
+
+func readBatchFromChan(ch chan *vpn.Packet, buf []*vpn.Packet, offset int) []*vpn.Packet {
+	i := offset
+	for {
+		if i == len(buf) {
+			return buf[:i]
+		}
+		select {
+		case packet, ok := <-ch:
+			if !ok {
+				return buf[:i]
+			}
+			buf[i] = packet
+			i++
+		default:
+			return buf[:i]
+		}
 	}
 }

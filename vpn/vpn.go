@@ -70,7 +70,6 @@ func (d *Device) PutTempPacket(data *Packet) {
 	d.packetsPool.Put(data)
 }
 
-// TODO: batch write
 func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
 	if data.IsIPv6 {
 		// TODO: implement. We need to set Device.localIP ipv6 instead of ipv4
@@ -90,6 +89,41 @@ func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
 	}
 
 	return nil
+}
+
+// bufs should be len(bufs) == 0, cap(bufs) == len(packets)
+func (d *Device) WritePacketsBatch(packets []*Packet, bufs [][]byte, senderIP net.IP) error {
+	for _, packet := range packets {
+		if packet.IsIPv6 {
+			// TODO: implement. We need to set Device.localIP ipv6 instead of ipv4
+			continue
+		} else {
+			copy(packet.Src, senderIP)
+			copy(packet.Dst, d.localIP)
+		}
+		packet.RecalculateChecksum()
+
+		bufs = append(bufs, packet.Buffer[:tunPacketOffset+len(packet.Packet)])
+	}
+
+	defer func() {
+		for i := range bufs {
+			bufs[i] = nil
+		}
+	}()
+
+	packetsCount, err := d.tun.Write(bufs, tunPacketOffset)
+	if err != nil {
+		return fmt.Errorf("write packet to tun: %v", err)
+	} else if packetsCount < len(bufs) {
+		d.logger.Warnf("wrote %d packets, but expected %d", packetsCount, len(bufs))
+	}
+
+	return nil
+}
+
+func (d *Device) BatchSize() int {
+	return d.tun.BatchSize()
 }
 
 func (d *Device) Close() error {
