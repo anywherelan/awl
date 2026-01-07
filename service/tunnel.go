@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	packetHandlersChanCap = 200
+	// approx 6.6 MiB
+	packetHandlersChanCap = 2000
 )
 
 type Tunnel struct {
@@ -99,8 +100,7 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 		select {
 		case vpnPeer.inboundCh <- packet:
 		default:
-			// REMOVE
-			t.logger.Warnf("inbound reader dropped packet, len %d", len(packet.Packet))
+			t.logger.Warnf("inbound reader dropped packet for peer %s", peerID)
 			t.device.PutTempPacket(packet)
 		}
 		t.peersLock.RUnlock()
@@ -250,13 +250,19 @@ type VpnPeer struct {
 	localIP    atomic.Pointer[net.IP]
 	inboundCh  chan *vpn.Packet // from remote peer to us
 	outboundCh chan *vpn.Packet // from us to remote
+
+	ctx       context.Context
+	ctxCancel context.CancelFunc
 }
 
 func NewVpnPeer(peerID peer.ID, localIP net.IP) *VpnPeer {
+	ctx, cancel := context.WithCancel(context.Background())
 	p := &VpnPeer{
 		peerID:     peerID,
 		inboundCh:  make(chan *vpn.Packet, packetHandlersChanCap),
 		outboundCh: make(chan *vpn.Packet, packetHandlersChanCap),
+		ctx:        ctx,
+		ctxCancel:  cancel,
 	}
 
 	p.localIP.Store(&localIP)
@@ -274,6 +280,7 @@ func (vp *VpnPeer) Start(t *Tunnel) {
 }
 
 func (vp *VpnPeer) Close(t *Tunnel) {
+	vp.ctxCancel()
 	close(vp.inboundCh)
 	close(vp.outboundCh)
 	for packet := range vp.inboundCh {
@@ -286,29 +293,45 @@ func (vp *VpnPeer) Close(t *Tunnel) {
 
 func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 	const (
-		maxPacketsPerStream = 1024 * 1024 * 8 / vpn.InterfaceMTU
-		idleStreamTimeout   = 10 * time.Second
+		// 5 GiB. Idk why, just in case
+		maxPacketsPerUnlimitedStream = 5 << 30 / vpn.InterfaceMTU
+		// 20 MiB. The same limit is set in awl-bootstrap-node
+		maxPacketsPerLimitedStream = 20 << 20 / vpn.InterfaceMTU
+		idleStreamTimeout          = 30 * time.Second
+		// approx 340 KiB
+		packetsBatchSize = 100
 	)
 	var (
 		stream                  network.Stream
+		maxPacketsPerStream     int
 		currentPacketsForStream int
+		bytesBuf                []byte
+		packetsBuf              = make([]*vpn.Packet, packetsBatchSize)
 	)
-	sendPacket := func(packet *vpn.Packet) (err error) {
+
+	sendPacket := func(packets []*vpn.Packet) (err error) {
 		if stream == nil {
-			// TODO: increase timeout?
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(vp.ctx, 2*time.Second)
 			stream, err = t.makeTunnelStream(ctx, vp.peerID)
 			cancel()
 			if err != nil {
 				return fmt.Errorf("make tunnel stream: %v", err)
 			}
+			if stream.Stat().Limited {
+				maxPacketsPerStream = maxPacketsPerLimitedStream
+			} else {
+				maxPacketsPerStream = maxPacketsPerUnlimitedStream
+			}
+
+			bytesBuf = make([]byte, 0, packetsBatchSize*(vpn.InterfaceMTU+8))
 		}
 
-		tmpPacket := t.device.GetTempPacket()
-		defer t.device.PutTempPacket(tmpPacket)
-
-		protocolPacket := protocol.WritePacketToBuf(tmpPacket.Buffer[:], packet.Packet)
-		_, err = stream.Write(protocolPacket)
+		data := bytesBuf[:0]
+		for _, packet := range packets {
+			data = protocol.AppendPacketToBuf(data, packet.Packet)
+		}
+		_, err = stream.Write(data)
+		bytesBuf = data[:0]
 
 		return err
 	}
@@ -319,6 +342,15 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			stream = nil
 		}
 		currentPacketsForStream = 0
+		// free buffer when idle
+		bytesBuf = nil
+	}
+
+	clearTempPackets := func(packets []*vpn.Packet) {
+		for i := 0; i < len(packets); i++ {
+			t.device.PutTempPacket(packets[i])
+			packets[i] = nil
+		}
 	}
 
 	defer closeStream()
@@ -330,18 +362,29 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			if !open {
 				return
 			}
-			if currentPacketsForStream == maxPacketsPerStream {
+
+			packetsBuf[0] = packet
+			packetsBatch := readBatchFromChan(vp.outboundCh, packetsBuf, 1)
+
+			if !t.p2p.IsConnected(vp.peerID) {
+				// we should be connected beforehand, e.g. in p2p.MaintainBackgroundConnections
+				clearTempPackets(packetsBatch)
+				continue
+			}
+
+			if currentPacketsForStream+len(packetsBatch) >= maxPacketsPerStream {
 				closeStream()
 			}
-			currentPacketsForStream += 1
-			// TODO: send multiple packets at once?
-			err := sendPacket(packet)
+
+			currentPacketsForStream += len(packetsBatch)
+			err := sendPacket(packetsBatch)
 			if err != nil {
 				localIP := *vp.localIP.Load()
-				t.logger.Warnf("send packet to peerID (%s) local ip (%s): %v", vp.peerID, localIP, err)
+				t.logger.Warnf("failed to send %d packets to peerID (%s) local ip (%s): %v", len(packetsBatch), vp.peerID, localIP, err)
 				closeStream()
 			}
-			t.device.PutTempPacket(packet)
+
+			clearTempPackets(packetsBatch)
 		case <-idleTicker.C:
 			if len(vp.outboundCh) == 0 {
 				closeStream()
