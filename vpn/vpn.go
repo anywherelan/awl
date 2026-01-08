@@ -9,24 +9,22 @@ import (
 	"sync/atomic"
 
 	"github.com/ipfs/go-log/v2"
+	"go.uber.org/zap"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
 const (
 	InterfaceMTU   = 3500
-	maxContentSize = InterfaceMTU * 2 // TODO: determine real size
-	outboundChCap  = 50
+	maxContentSize = InterfaceMTU + 100
 	// internal tun header. see offset in tun_darwin (4) and tun_linux (virtioNetHdrLen, currently 10)
 	tunPacketOffset = 14
 )
 
 type Device struct {
-	tun        tun.Device
-	mtu        int64
-	localIP    net.IP
-	outboundCh chan *Packet
+	tun     tun.Device
+	mtu     int64
+	localIP net.IP
 
-	closeCh     chan struct{}
 	packetsPool sync.Pool
 	logger      *log.ZapEventLogger
 }
@@ -49,19 +47,16 @@ func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipM
 	}
 
 	dev := &Device{
-		tun:        tunDevice,
-		mtu:        int64(realMtu),
-		localIP:    localIP,
-		outboundCh: make(chan *Packet, outboundChCap),
+		tun:     tunDevice,
+		mtu:     int64(realMtu),
+		localIP: localIP,
 		packetsPool: sync.Pool{
 			New: func() interface{} {
 				return new(Packet)
 			}},
-		logger:  log.Logger("awl/vpn"),
-		closeCh: make(chan struct{}),
+		logger: log.Logger("awl/vpn"),
 	}
 	go dev.tunEventsReader()
-	go dev.tunPacketsReader()
 
 	return dev, nil
 }
@@ -75,7 +70,6 @@ func (d *Device) PutTempPacket(data *Packet) {
 	d.packetsPool.Put(data)
 }
 
-// TODO: batch write
 func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
 	if data.IsIPv6 {
 		// TODO: implement. We need to set Device.localIP ipv6 instead of ipv4
@@ -97,12 +91,42 @@ func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
 	return nil
 }
 
-func (d *Device) OutboundChan() <-chan *Packet {
-	return d.outboundCh
+// bufs should be len(bufs) == 0, cap(bufs) == len(packets)
+func (d *Device) WritePacketsBatch(packets []*Packet, bufs [][]byte, senderIP net.IP) error {
+	for _, packet := range packets {
+		if packet.IsIPv6 {
+			// TODO: implement. We need to set Device.localIP ipv6 instead of ipv4
+			continue
+		} else {
+			copy(packet.Src, senderIP)
+			copy(packet.Dst, d.localIP)
+		}
+		packet.RecalculateChecksum()
+
+		bufs = append(bufs, packet.Buffer[:tunPacketOffset+len(packet.Packet)])
+	}
+
+	defer func() {
+		for i := range bufs {
+			bufs[i] = nil
+		}
+	}()
+
+	packetsCount, err := d.tun.Write(bufs, tunPacketOffset)
+	if err != nil {
+		return fmt.Errorf("write packet to tun: %v", err)
+	} else if packetsCount < len(bufs) {
+		d.logger.Warnf("wrote %d packets, but expected %d", packetsCount, len(bufs))
+	}
+
+	return nil
+}
+
+func (d *Device) BatchSize() int {
+	return d.tun.BatchSize()
 }
 
 func (d *Device) Close() error {
-	close(d.closeCh)
 	return d.tun.Close()
 }
 
@@ -137,9 +161,7 @@ func (d *Device) tunEventsReader() {
 	}
 }
 
-func (d *Device) tunPacketsReader() {
-	defer close(d.outboundCh)
-
+func (d *Device) ReadTUNPackets(packetsHandler func([]*Packet)) {
 	batchSize := d.tun.BatchSize()
 	packets := make([]*Packet, batchSize)
 	bufs := make([][]byte, batchSize)
@@ -167,16 +189,19 @@ func (d *Device) tunPacketsReader() {
 			data.Packet = data.Buffer[tunPacketOffset : size+tunPacketOffset]
 			okay := data.Parse()
 			if !okay {
+				d.logger.Error("Failed to parse packet",
+					zap.ByteString("packet", data.Packet[:min(10, len(data.Packet))]),
+				)
+
+				packets[i] = nil
+				d.PutTempPacket(data)
 				continue
 			}
+		}
 
-			select {
-			case <-d.closeCh:
-				return
-			case d.outboundCh <- data:
-				// ok
-			}
-			packets[i] = nil
+		if packetsCount > 0 {
+			// packetsHandler skips nil packets in slice and sets packet to nil after successful processing
+			packetsHandler(packets[:packetsCount])
 		}
 
 		if errors.Is(err, tun.ErrTooManySegments) {

@@ -3,7 +3,6 @@ package awl
 import (
 	"fmt"
 	"os"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,15 +39,26 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 		bandwidthMbps int
 	}{
 		{
-			name:          "Fiber_300Mbps_1ms",
+			name:          "Fiber_200Mbps_1ms",
 			latency:       1 * time.Millisecond,
-			bandwidthMbps: 300 * Mbps,
+			bandwidthMbps: 200 * Mbps,
 		},
 		{
-			name:          "LongDistFiber_300Mbps_200ms",
+			name:          "LongDistFiber_200Mbps_200ms",
 			latency:       200 * time.Millisecond,
-			bandwidthMbps: 300 * Mbps,
+			bandwidthMbps: 200 * Mbps,
 		},
+		{
+			name:          "Fiber_100Mbps_1ms",
+			latency:       1 * time.Millisecond,
+			bandwidthMbps: 100 * Mbps,
+		},
+		{
+			name:          "LongDistFiber_100Mbps_200ms",
+			latency:       200 * time.Millisecond,
+			bandwidthMbps: 100 * Mbps,
+		},
+
 		{
 			name:          "Cable_10Mbps_1ms",
 			latency:       1 * time.Millisecond,
@@ -74,6 +84,7 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 			latency:       300 * time.Millisecond,
 			bandwidthMbps: 10 * Mbps,
 		},
+
 		{
 			name:          "Cable_50Mbps_1ms",
 			latency:       1 * time.Millisecond,
@@ -99,6 +110,7 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 			latency:       300 * time.Millisecond,
 			bandwidthMbps: 50 * Mbps,
 		},
+
 		{
 			name:          "DSL_20Mbps_25ms",
 			latency:       25 * time.Millisecond,
@@ -126,7 +138,7 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 			// TODO: try with different packet sizes
 			//  we probably should aim for one packet per UDP datagram
 			const packetSize = 3500 // Typical VPN packet size
-			const testDuration = 10 * time.Second
+			const testDuration = 30 * time.Second
 
 			// Setup link properties for the simulation
 			// We simulate a symmetric link between the two peers
@@ -136,6 +148,8 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 			}
 
 			// Create two peers
+			// uncomment to debug QUIC events
+			// t.Setenv("QLOGDIR", "./test-simnet")
 			ctx := t.Context()
 			extraLibp2pOpts := []libp2p.Option{
 				simlibp2p.QUICSimnet(net, linkSettings),
@@ -156,9 +170,13 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 			peer2.tun.ClearInboundCount()
 
 			// Send packets
-			var packetsSent int64
 			done := make(chan struct{})
 			startTime := time.Now()
+
+			packetsBatch := make([][]byte, TestTUNBatchSize*10)
+			for i := range packetsBatch {
+				packetsBatch[i] = packet
+			}
 
 			go func() {
 				defer close(done)
@@ -171,22 +189,11 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 						return
 					case <-ctx.Done():
 						return
-					default:
+					case peer1.tun.Outbound <- packetsBatch:
 						// ok
 					}
 
-					// Send with "batches" to minimize runtime overhead for select
-					for range 10 {
-						peer1.tun.Outbound <- packet
-						atomic.AddInt64(&packetsSent, 1)
-					}
-
-					// TODO:
-					// Slight throttle to keep drops lower
-					// const sleepEvery = 200
-					// if newCount != 0 && newCount%sleepEvery == 0 {
-					//	time.Sleep(1 * time.Millisecond)
-					// }
+					// TODO: add ratelimit for TestTUN to remove busyloop
 				}
 			}()
 
@@ -199,7 +206,7 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 
 			// Collect metrics
 			received := peer2.tun.InboundCount()
-			sent := atomic.LoadInt64(&packetsSent)
+			sent := peer1.tun.OutboundCount()
 
 			packetLoss := (float64(1) - float64(received)/float64(sent)) * 100
 
@@ -219,6 +226,9 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 				// TODO: calculate p50/p95/p99 latency, jitter
 			})
 		})
+
+		// cool down a bit
+		time.Sleep(time.Second)
 	}
 
 	table.Render()
