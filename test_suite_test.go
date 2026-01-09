@@ -23,6 +23,8 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
+	simlibp2p "github.com/libp2p/go-libp2p/x/simlibp2p"
+	"github.com/marcopolo/simnet"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
@@ -94,7 +96,17 @@ func (ts *TestSuite) NewTestPeer(disableLogging bool) TestPeer {
 	return ts.newTestPeer(disableLogging, listenAddrs, nil)
 }
 
+// SOCKS5PeerConfig configures SOCKS5 settings for test peers
+type SOCKS5PeerConfig struct {
+	ListenerEnabled bool
+	ProxyingEnabled bool
+}
+
 func (ts *TestSuite) newTestPeer(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option) TestPeer {
+	return ts.newTestPeerWithSOCKS5(disableLogging, listenAddrs, extraLibp2pOpts, nil)
+}
+
+func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, socks5Conf *SOCKS5PeerConfig) TestPeer {
 	tempDir := ts.t.TempDir()
 	ts.t.Setenv(config.AppDataDirEnvKey, tempDir)
 	tempConf := config.NewConfig(eventbus.NewBus())
@@ -120,7 +132,16 @@ func (ts *TestSuite) newTestPeer(disableLogging bool, listenAddrs []multiaddr.Mu
 	app.Conf.P2pNode.BootstrapPeers = ts.bootstrapAddrsStr
 	app.Conf.P2pNode.ParallelSendingStreamsCount = 1
 	app.Conf.P2pNode.UseDedicatedConnForEachStream = false
-	if ts.isSimnet {
+
+	// Configure SOCKS5 based on provided config or defaults
+	if socks5Conf != nil {
+		app.Conf.SOCKS5 = config.SOCKS5Config{
+			ListenerEnabled: socks5Conf.ListenerEnabled,
+			ProxyingEnabled: socks5Conf.ProxyingEnabled,
+			ListenAddress:   pickFreeAddr(ts.t),
+			UsingPeerID:     "",
+		}
+	} else if ts.isSimnet {
 		app.Conf.SOCKS5 = config.SOCKS5Config{
 			ListenerEnabled: false,
 			ProxyingEnabled: false,
@@ -233,6 +254,39 @@ func (ts *TestSuite) makeFriendsSimnet(peer1, peer2 TestPeer) {
 	ts.NoError(err)
 
 	ts.sendAndAcceptFriendRequest(peer1, peer2)
+}
+
+// NewSimnetPeerPair creates two peers connected over a simulated network with configurable
+// latency and bandwidth. Both peers are made friends automatically.
+func (ts *TestSuite) NewSimnetPeerPair(latency time.Duration, bandwidthBps int, socks5Conf1, socks5Conf2 *SOCKS5PeerConfig) (TestPeer, TestPeer) {
+	simNet := &simnet.Simnet{}
+	simNet.LatencyFunc = simnet.StaticLatency(latency)
+	simNet.Start()
+
+	ts.t.Cleanup(simNet.Close)
+
+	linkSettings := simnet.NodeBiDiLinkSettings{
+		Downlink: simnet.LinkSettings{BitsPerSecond: bandwidthBps},
+		Uplink:   simnet.LinkSettings{BitsPerSecond: bandwidthBps},
+	}
+
+	extraLibp2pOpts := []libp2p.Option{
+		simlibp2p.QUICSimnet(simNet, linkSettings),
+	}
+
+	listenAddrs1 := []multiaddr.Multiaddr{
+		multiaddr.StringCast("/ip4/1.2.3.1/udp/1234/quic-v1"),
+	}
+	peer1 := ts.newTestPeerWithSOCKS5(true, listenAddrs1, extraLibp2pOpts, socks5Conf1)
+
+	listenAddrs2 := []multiaddr.Multiaddr{
+		multiaddr.StringCast("/ip4/1.2.3.2/udp/1234/quic-v1"),
+	}
+	peer2 := ts.newTestPeerWithSOCKS5(true, listenAddrs2, extraLibp2pOpts, socks5Conf2)
+
+	ts.makeFriendsSimnet(peer1, peer2)
+
+	return peer1, peer2
 }
 
 func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer) {
