@@ -3,6 +3,8 @@ github.com/GrigoryKrasnochub/updaterini v0.1.0 h1:csl3bqQIShuI8RnXzKprTgEhqi3I59
 github.com/GrigoryKrasnochub/updaterini v0.1.0/go.mod h1:w+8blQZCZzGmJGXqmXbeSOsUOF6LqyeqckxSiZah7RI=
 github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5 h1:uQsw+HnQo6Ru5eFgUdEQYKMwkiYkoNZDQmY2ob1E58Y=
 github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5/go.mod h1:r8UEDyeHO6bYVcP9R2/HnK2ZSZ5CJp89gubcHLKfRv0=
+github.com/anywherelan/socks5 v0.0.0-20260112065346-bea9abfe9bdc h1:BxUih+wVbxEfAAC4+vzXSoDXHNFLgnLR9AmeXRtJbuk=
+github.com/anywherelan/socks5 v0.0.0-20260112065346-bea9abfe9bdc/go.mod h1:KpbKhNH2RqojJGPVT9faDXnYWkqzfgpKeehC8xTKaeY=
 github.com/anywherelan/ts-dns v0.0.0-20240721135326-6d6b7b811853 h1:RVKWGnppAfxgD2wphkq+OYDOqqI8zgbymBLl2pxYKzY=
 github.com/anywherelan/ts-dns v0.0.0-20240721135326-6d6b7b811853/go.mod h1:ly7HpPle1G3D0jwrr12uolTGWKN3DPgxzBYNR086BLo=
 github.com/benbjohnson/clock v1.3.5 h1:VvXlSJBzZpA/zum6Sj74hxwYI2DIxRWuNIoXAzHZz5o=
@@ -71,8 +73,6 @@ github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aN
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/hashicorp/golang-lru v1.0.2 h1:dV3g9Z/unq5DpblPpw+Oqcv4dU/1omnb4Ok8iPY6p1c=
 github.com/hashicorp/golang-lru v1.0.2/go.mod h1:iADmTwqILo4mZ8BN3D2Q6+9jd8WM5uGBxy+E8yxSoD4=
-github.com/haxii/socks5 v1.0.0 h1:78BIzd4lHibdRNOKdMwKCnnsgYLW9SeotqU+nMhWSSo=
-github.com/haxii/socks5 v1.0.0/go.mod h1:6O9Ba2yrLlvuSe/L1e84eZI8cPw6H+q1Ilr4hjgm4uY=
 github.com/huin/goupnp v1.3.0 h1:UvLUlWDNpoUdYzb2TCn+MuTWtcjXKSza2n6CBdQ0xXc=
 github.com/huin/goupnp v1.3.0/go.mod h1:gnGPsThkYa7bFi/KWmEysQRf48l2dvR5bxr2OFckNX8=
 github.com/illarion/gonotify v1.0.1 h1:F1d+0Fgbq/sDWjj/r66ekjDG+IDeecQKUFH4wNwsoio=
