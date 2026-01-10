@@ -4,15 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
+	socks5Proxy "github.com/haxii/socks5"
 	"github.com/ipfs/go-log/v2"
-	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/libp2p/go-libp2p/core/network"
 
 	"github.com/anywherelan/awl/config"
@@ -129,7 +127,7 @@ func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
 	// e.g reader on the other side may not read everything we sent because of stream.Reset()
 	// in case of socks5 errors (small payload), receiver could get EOF
 	// TODO: make better workaround for this. stream.CloseWrite(), etc doesn't help
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 }
 
 func (s *SOCKS5) ServeConns(ctx context.Context) {
@@ -143,6 +141,8 @@ func (s *SOCKS5) ServeConns(ctx context.Context) {
 			defer func() {
 				_ = conn.Close()
 			}()
+
+			s.logger.Debug("got new SOCKS5 proxy client connection")
 
 			err := s.proxyConn(ctx, conn)
 			if err != nil {
@@ -191,50 +191,25 @@ func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 
 	s.handleStream(conn, stream)
 
+	// stream.Write() + stream.Reset() are not guaranteed to run sequentially
+	// e.g reader on the other side may not read everything we sent because of stream.Reset()
+	// in case of socks5 errors (small payload), receiver could get EOF
+	// TODO: make better workaround for this. stream.CloseWrite(), etc doesn't help
+	time.Sleep(50 * time.Millisecond)
+
 	return nil
 }
 
 func (s *SOCKS5) handleStream(conn net.Conn, stream network.Stream) {
-	// TODO: SetDeadline on conn for ~5 min just in case?
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
+	doneCh := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(doneCh)
 		// Copy from conn to stream
-		_ = s.copyStream(conn, stream)
+		_ = socks5Proxy.ProxyStream(conn, stream)
 	}()
 
-	go func() {
-		defer wg.Done()
-		// Copy from stream to conn
-		_ = s.copyStream(stream, conn)
-	}()
+	// Copy from stream to conn
+	_ = socks5Proxy.ProxyStream(stream, conn)
 
-	wg.Wait()
-}
-
-func (s *SOCKS5) copyStream(from io.ReadCloser, to io.WriteCloser) error {
-	const bufSize = 32 * 1024
-	buf := pool.Get(bufSize)
-
-	defer func() {
-		pool.Put(buf)
-	}()
-	_, err := io.CopyBuffer(to, from, buf)
-
-	type closeWriter interface {
-		CloseWrite() error
-	}
-	if conn, ok := to.(closeWriter); ok {
-		_ = conn.CloseWrite()
-	}
-
-	type closeReader interface {
-		CloseRead() error
-	}
-	if conn, ok := from.(closeReader); ok {
-		_ = conn.CloseRead()
-	}
-
-	return err
+	<-doneCh
 }
