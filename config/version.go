@@ -8,10 +8,13 @@ import (
 const DevVersion = "dev"
 
 var (
+	// set via ldflags
 	Version         = DevVersion
 	UserAgent       = UserAgentPrefix + SystemInfo + "/" + Version
 	UserAgentPrefix = "awl/"
 	SystemInfo      = runtime.GOOS + "-" + runtime.GOARCH
+	// set via ldflags
+	IsWindows7 = ""
 )
 
 // IsDevVersion
