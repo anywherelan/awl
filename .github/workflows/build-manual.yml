@@ -187,9 +187,10 @@ jobs:
 
       - name: Download and setup go-legacy-win7
         run: |
-          wget -P /tmp https://github.com/thongtech/go-legacy-win7/releases/download/v1.25.5-1/go-legacy-win7-1.25.5-1.linux_amd64.tar.gz
-          tar -xzf /tmp/go-legacy-win7-1.25.5-1.linux_amd64.tar.gz -C /tmp
-          export GOROOT=/tmp/go-legacy-win7
+          mkdir -p /tmp/go-legacy-setup
+          wget -P /tmp/go-legacy-setup https://github.com/thongtech/go-legacy-win7/releases/download/v1.25.5-1/go-legacy-win7-1.25.5-1.linux_amd64.tar.gz
+          tar -xzf /tmp/go-legacy-setup/go-legacy-win7-1.25.5-1.linux_amd64.tar.gz -C /tmp/go-legacy-setup
+          export GOROOT=/tmp/go-legacy-setup/go-legacy-win7
           export PATH=$GOROOT/bin:$PATH
           go version
 
@@ -197,7 +198,7 @@ jobs:
         run: |
           cd awl
           mkdir build
-          export GOROOT=/tmp/go-legacy-win7
+          export GOROOT=/tmp/go-legacy-setup/go-legacy-win7
           export PATH=$GOROOT/bin:$PATH
           ./build.sh release-windows7
           echo "ls build"
