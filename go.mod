@@ -2,6 +2,11 @@ module github.com/anywherelan/awl
 
 go 1.25.0
 
+replace (
+	github.com/haxii/socks5 => github.com/anywherelan/socks5 v0.0.0-20260112065346-bea9abfe9bdc
+	github.com/ipfs/go-log/v2 => github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5
+)
+
 require (
 	github.com/GrigoryKrasnochub/updaterini v0.1.0
 	github.com/anywherelan/ts-dns v0.0.0-20240721135326-6d6b7b811853
@@ -11,7 +16,6 @@ require (
 	github.com/ipfs/go-datastore v0.9.0
 	github.com/ipfs/go-log/v2 v2.9.0
 	github.com/labstack/echo/v4 v4.14.0
-	github.com/libp2p/go-buffer-pool v0.1.0
 	github.com/libp2p/go-libp2p v0.46.0
 	github.com/libp2p/go-libp2p-kad-dht v0.36.0
 	github.com/libp2p/go-libp2p-kbucket v0.8.0
@@ -34,8 +38,6 @@ require (
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	golang.zx2c4.com/wireguard/windows v0.5.3
 )
-
-replace github.com/ipfs/go-log/v2 => github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5
 
 require (
 	github.com/benbjohnson/clock v1.3.5 // indirect
@@ -72,6 +74,7 @@ require (
 	github.com/koron/go-ssdp v0.0.6 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
+	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-cidranger v1.1.0 // indirect
 	github.com/libp2p/go-flow-metrics v0.3.0 // indirect
 	github.com/libp2p/go-libp2p-asn-util v0.4.1 // indirect

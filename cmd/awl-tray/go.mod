@@ -2,6 +2,13 @@ module awl-tray
 
 go 1.25.0
 
+replace (
+	github.com/anywherelan/awl => ../../
+	github.com/haxii/socks5 => github.com/anywherelan/socks5 v0.0.0-20260112065346-bea9abfe9bdc
+	github.com/ipfs/go-log/v2 => github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5
+	github.com/ncruces/zenity => github.com/pymq/zenity v0.0.0-20230509161854-c117c448544d
+)
+
 require (
 	fyne.io/systray v1.11.1-0.20250812065214-4856ac3adc3c
 	github.com/GrigoryKrasnochub/updaterini v0.1.0
@@ -13,12 +20,6 @@ require (
 	github.com/libp2p/go-libp2p v0.46.0
 	github.com/ncruces/zenity v0.10.8
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
-)
-
-replace (
-	github.com/anywherelan/awl => ../../
-	github.com/ipfs/go-log/v2 => github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5
-	github.com/ncruces/zenity => github.com/pymq/zenity v0.0.0-20230509161854-c117c448544d
 )
 
 require (
