@@ -25,8 +25,10 @@ func main() {
 	var awlAndroid string
 	var awlLinux []string
 	var awlWindows []string
+	var awlWindows7 []string
 	var awlTrayLinux []string
 	var awlTrayWindows []string
+	var awlTrayWindows7 []string
 	var awlTrayMacos []string
 
 	for _, file := range files {
@@ -40,10 +42,14 @@ func main() {
 			awlAndroid = filename
 		case strings.HasPrefix(filename, "awl-linux"):
 			awlLinux = append(awlLinux, filename)
+		case strings.HasPrefix(filename, "awl-windows7"):
+			awlWindows7 = append(awlWindows7, filename)
 		case strings.HasPrefix(filename, "awl-windows"):
 			awlWindows = append(awlWindows, filename)
 		case strings.HasPrefix(filename, "awl-tray-linux"):
 			awlTrayLinux = append(awlTrayLinux, filename)
+		case strings.HasPrefix(filename, "awl-tray-windows7"):
+			awlTrayWindows7 = append(awlTrayWindows7, filename)
 		case strings.HasPrefix(filename, "awl-tray-windows"):
 			awlTrayWindows = append(awlTrayWindows, filename)
 		case strings.HasPrefix(filename, "awl-tray-macos"):
@@ -53,8 +59,10 @@ func main() {
 
 	sort.Strings(awlLinux)
 	sort.Strings(awlWindows)
+	sort.Strings(awlWindows7)
 	sort.Strings(awlTrayLinux)
 	sort.Strings(awlTrayWindows)
+	sort.Strings(awlTrayWindows7)
 	sort.Strings(awlTrayMacos)
 
 	releaseTag := strings.TrimPrefix(awlAndroid, "awl-android-")
@@ -66,13 +74,15 @@ func main() {
 	}
 
 	data := map[string]interface{}{
-		"ReleaseTag":     releaseTag,
-		"AwlAndroid":     awlAndroid,
-		"AwlLinux":       awlLinux,
-		"AwlWindows":     awlWindows,
-		"AwlTrayLinux":   awlTrayLinux,
-		"AwlTrayWindows": awlTrayWindows,
-		"AwlTrayMacos":   awlTrayMacos,
+		"ReleaseTag":      releaseTag,
+		"AwlAndroid":      awlAndroid,
+		"AwlLinux":        awlLinux,
+		"AwlWindows":      awlWindows,
+		"AwlWindows7":     awlWindows7,
+		"AwlTrayLinux":    awlTrayLinux,
+		"AwlTrayWindows":  awlTrayWindows,
+		"AwlTrayWindows7": awlTrayWindows7,
+		"AwlTrayMacos":    awlTrayMacos,
 	}
 
 	err = temp.Execute(os.Stdout, data)
