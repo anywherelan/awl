@@ -59,6 +59,13 @@ As a transport awl uses QUIC or TCP with TLS on top. Awl uses [DHT](https://en.w
 
 At first, awl connects to community [bootstrap nodes](https://github.com/anywherelan/awl-bootstrap-node), register itself (send peer id (with public key) and public ip addresses) and later asks for addresses of peers you want to connect (all known peers). If peer does not have public addresses, peer could be reached out through bootstrap nodes.
 
+## Security
+
+For transport and security, awl fully relies on the [libp2p](https://docs.libp2p.io/) library.
+
+- **Encryption**: Traffic between peers is encrypted using TLS 1.3 (or higher). This applies to both QUIC (which uses TLS natively) and TCP transports.
+- **Authentication**: `ed25519` keys are used for peer authentication. A `peer_id` is essentially a public key, ensuring secure identification of devices.
+
 # Installation
 
 For desktop there are two versions: `awl` and `awl-tray`. `awl` is mainly used for servers and other headless purposes and `awl-tray` is for desktop usage: it has nice system tray service (app indicator) to quickly get status of the vpn server, start/stop/restart it or to see which peers are online. Both versions have web-based ui for configuration and monitoring, and terminal interface [cli](#terminal-based-client).
@@ -165,7 +172,7 @@ To configure it on desktop with web UI go to admin page, select a peer, press Se
 How to configure using cli:
 ```bash
 # list all your connected peers and their EXIT NODE status (if they or you allowed to use as a proxy)
-awl cli peers list
+awl cli peers status
 
 # allow peer `peer-name` to use this device as a SOCKS5 proxy
 awl cli peers allow_exit_node --name="peer-name" --allow=true
