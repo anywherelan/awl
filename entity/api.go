@@ -19,11 +19,15 @@ type (
 	FriendRequest struct {
 		PeerID string `validate:"required"`
 		Alias  string `validate:"required,trimmed_str_not_empty"`
+		// optional: specific IP address for the peer
+		IPAddr string `validate:"omitempty,ipv4"`
 	}
 	FriendRequestReply struct {
 		PeerID  string `validate:"required"`
 		Alias   string `validate:"required,trimmed_str_not_empty"`
 		Decline bool
+		// optional: specific IP address for the peer
+		IPAddr string `validate:"omitempty,ipv4"`
 	}
 	PeerIDRequest struct {
 		PeerID string `validate:"required"`
@@ -100,6 +104,8 @@ type (
 	AuthRequest struct {
 		PeerID string
 		protocol.AuthPeer
+		// SuggestedIP is a free IP address generated for this peer
+		SuggestedIP string
 	}
 
 	ListAvailableProxiesResponse struct {

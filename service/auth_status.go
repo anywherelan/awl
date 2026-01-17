@@ -241,7 +241,7 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	}
 	if !confirmed && !isBlocked && autoAccept {
 		defer func() {
-			s.AddPeer(context.Background(), remotePeer, authPeer.Name, s.conf.GenUniqPeerAlias(authPeer.Name, ""), true)
+			_ = s.AddPeer(context.Background(), remotePeer, authPeer.Name, s.conf.GenUniqPeerAlias(authPeer.Name, ""), true, "")
 		}()
 	}
 
@@ -302,20 +302,41 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	return nil
 }
 
-func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, uniqAlias string, confirmed bool) {
-	s.conf.RLock()
-	ipAddr := s.conf.GenerateNextIpAddr()
-	s.conf.RUnlock()
+func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias string, confirmed bool, ipAddr string) error {
+	peerIDStr := peerID.String()
+	_, exist := s.conf.GetPeer(peerIDStr)
+	if exist {
+		return fmt.Errorf("peer has already been added")
+	}
+
+	alias = strings.TrimSpace(alias)
+	if !s.conf.IsUniqPeerAlias("", alias) {
+		return fmt.Errorf("peer name is not unique")
+	}
+
+	if ipAddr != "" {
+		s.conf.RLock()
+		err := s.conf.CheckIPUnique(ipAddr, peerIDStr)
+		s.conf.RUnlock()
+		if err != nil {
+			return err
+		}
+	} else {
+		s.conf.RLock()
+		ipAddr = s.conf.GenerateNextIpAddr()
+		s.conf.RUnlock()
+	}
+
 	newPeerConfig := config.KnownPeer{
-		PeerID:    peerID.String(),
+		PeerID:    peerIDStr,
 		Name:      name,
-		Alias:     uniqAlias,
+		Alias:     alias,
 		IPAddr:    ipAddr,
 		Confirmed: confirmed,
 		CreatedAt: time.Now(),
 	}
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
-	s.conf.RemoveBlockedPeer(peerID.String())
+	s.conf.RemoveBlockedPeer(peerIDStr)
 	s.conf.UpsertPeer(newPeerConfig)
 	s.p2p.ProtectPeer(peerID)
 
@@ -329,9 +350,11 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, uniqAlia
 			_ = s.SendAuthRequest(ctx, peerID, authPeer)
 		}
 
-		knownPeer, _ := s.conf.GetPeer(peerID.String())
+		knownPeer, _ := s.conf.GetPeer(peerIDStr)
 		_ = s.ExchangeNewStatusInfo(ctx, peerID, knownPeer)
 	}()
+
+	return nil
 }
 
 func (s *AuthStatus) ExchangeStatusInfoWithAllKnownPeers(ctx context.Context) {

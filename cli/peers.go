@@ -144,7 +144,7 @@ func printFriendRequests(api *apiclient.Client) error {
 		return nil
 	}
 	for _, req := range authRequests {
-		fmt.Printf("Name: '%s' peerID: %s\n", req.Name, req.PeerID)
+		fmt.Printf("Name: '%s' peerID: %s suggestedIP: %s\n", req.Name, req.PeerID, req.SuggestedIP)
 	}
 
 	return nil
@@ -168,7 +168,7 @@ func getPeerIdByAlias(api *apiclient.Client, alias string) (string, error) {
 	return "", fmt.Errorf("can't find peer with name \"%s\"", alias)
 }
 
-func addPeer(api *apiclient.Client, peerID, alias string) error {
+func addPeer(api *apiclient.Client, peerID, alias, ipAddr string) error {
 	authRequests, err := api.AuthRequests()
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func addPeer(api *apiclient.Client, peerID, alias string) error {
 		}
 	}
 	if hasRequest {
-		err := api.ReplyFriendRequest(peerID, alias, false)
+		err := api.ReplyFriendRequest(peerID, alias, false, ipAddr)
 		if err != nil {
 			return err
 		}
@@ -190,7 +190,7 @@ func addPeer(api *apiclient.Client, peerID, alias string) error {
 		return nil
 	}
 
-	err = api.SendFriendRequest(peerID, alias)
+	err = api.SendFriendRequest(peerID, alias, ipAddr)
 	if err != nil {
 		return err
 	}
