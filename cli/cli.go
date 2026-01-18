@@ -194,10 +194,15 @@ func (a *Application) init() {
 								Usage:    "peer name",
 								Required: true,
 							},
+							&cli.StringFlag{
+								Name:     "ip",
+								Usage:    "override peer IP address",
+								Required: false,
+							},
 						},
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return addPeer(a.api, c.String("pid"), c.String("name"))
+							return addPeer(a.api, c.String("pid"), c.String("name"), c.String("ip"))
 						},
 					},
 					{

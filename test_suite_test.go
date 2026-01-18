@@ -290,7 +290,7 @@ func (ts *TestSuite) NewSimnetPeerPair(latency time.Duration, bandwidthBps int, 
 }
 
 func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer) {
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
 	ts.NoError(err)
 
 	var authRequests []entity.AuthRequest
@@ -299,7 +299,7 @@ func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer) {
 		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", false)
+	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", false, "")
 	ts.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)

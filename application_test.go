@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -60,7 +61,7 @@ func TestRemovePeer(t *testing.T) {
 	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 
 	// Add peer2 from peer1 - should succeed
-	err = peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
+	err = peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
 	ts.NoError(err)
 	time.Sleep(500 * time.Millisecond)
 
@@ -93,7 +94,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
 	ts.NoError(err)
 
 	var authRequests []entity.AuthRequest
@@ -102,7 +103,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", true)
+	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", true, "")
 	ts.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)
@@ -127,7 +128,7 @@ func TestAutoAcceptFriendRequest(t *testing.T) {
 	peer2.app.Conf.P2pNode.AutoAcceptAuthRequests = true
 	peer2.app.Conf.Unlock()
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2")
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
 	ts.NoError(err)
 
 	ts.Eventually(func() bool {
@@ -148,6 +149,104 @@ func TestAutoAcceptFriendRequest(t *testing.T) {
 	ts.False(knownPeer.Declined)
 }
 
+func TestFriendRequestWithCustomIP(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	peer3 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	ts.ensurePeersAvailableInDHT(peer1, peer3)
+
+	t.Run("InviteWithCustomIP", func(t *testing.T) {
+		customIP := "10.66.0.222"
+		err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", customIP)
+		ts.NoError(err)
+
+		// Check immediate state on peer1
+		p2, exists := peer1.app.Conf.GetPeer(peer2.PeerID())
+		ts.True(exists)
+		ts.Equal(customIP, p2.IPAddr)
+	})
+
+	t.Run("RespondWithCustomIP", func(t *testing.T) {
+		err := peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+		ts.NoError(err)
+
+		var authRequests []entity.AuthRequest
+		ts.Eventually(func() bool {
+			authRequests, err = peer1.api.AuthRequests()
+			ts.NoError(err)
+			return len(authRequests) == 1
+		}, 15*time.Second, 50*time.Millisecond)
+
+		customIP := "10.66.0.223"
+		err = peer1.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_3", false, customIP)
+		ts.NoError(err)
+
+		p3, exists := peer1.app.Conf.GetPeer(peer3.PeerID())
+		ts.True(exists)
+		ts.Equal(customIP, p3.IPAddr)
+	})
+
+	t.Run("InviteWithInvalidIP", func(t *testing.T) {
+		peer4 := ts.NewTestPeer(false)
+		ts.ensurePeersAvailableInDHT(peer1, peer4)
+
+		err := peer1.api.SendFriendRequest(peer4.PeerID(), "peer_4", "invalid-ip")
+		ts.Error(err)
+		ts.ErrorContains(err, "Field validation for 'IPAddr' failed")
+	})
+
+	t.Run("InviteWithDuplicateIP", func(t *testing.T) {
+		peer5 := ts.NewTestPeer(false)
+		ts.ensurePeersAvailableInDHT(peer1, peer5)
+
+		// Try to use peer2's IP which is 10.66.0.222
+		err := peer1.api.SendFriendRequest(peer5.PeerID(), "peer_5", "10.66.0.222")
+		ts.Error(err)
+		ts.ErrorContains(err, "ip 10.66.0.222 is already used by peer")
+	})
+}
+
+func TestGetAuthRequestsSuggestedIP(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	peer3 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	ts.ensurePeersAvailableInDHT(peer1, peer3)
+
+	err := peer2.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+	ts.NoError(err)
+	time.Sleep(200 * time.Millisecond)
+
+	err = peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		reqs, err := peer1.api.AuthRequests()
+		ts.NoError(err)
+		return len(reqs) == 2
+	}, 15*time.Second, 50*time.Millisecond)
+
+	reqs, err := peer1.api.AuthRequests()
+	ts.NoError(err)
+	ts.Len(reqs, 2)
+
+	// Verify they are valid and unused
+	ips := []string{reqs[0].SuggestedIP, reqs[1].SuggestedIP}
+	sort.Strings(ips)
+	ts.Equal("10.66.0.2", ips[0])
+	ts.Equal("10.66.0.3", ips[1])
+
+	err = peer1.app.Conf.CheckIPUnique(ips[0], "")
+	ts.NoError(err)
+	err = peer1.app.Conf.CheckIPUnique(ips[1], "")
+	ts.NoError(err)
+}
+
 func TestUniquePeerAlias(t *testing.T) {
 	ts := NewTestSuite(t)
 
@@ -157,12 +256,12 @@ func TestUniquePeerAlias(t *testing.T) {
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 	ts.ensurePeersAvailableInDHT(peer2, peer3)
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer")
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer", "")
 	ts.NoError(err)
 
 	time.Sleep(200 * time.Millisecond)
 
-	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer")
+	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer", "")
 	ts.EqualError(err, api.ErrorPeerAliasIsNotUniq)
 }
 
@@ -300,7 +399,7 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 	// Make peer3 and peer1 friends (manual to use unique alias "peer_3")
 	// TODO: refactor makeFriends helper to accept alias arg
 	ts.ensurePeersAvailableInDHT(peer3, peer1)
-	err := peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1")
+	err := peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
 	ts.NoError(err)
 
 	var authRequests []entity.AuthRequest
@@ -309,7 +408,7 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer1.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_3", false)
+	err = peer1.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_3", false, "")
 	ts.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)

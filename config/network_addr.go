@@ -31,11 +31,17 @@ func (c *Config) VPNLocalIPMaskUnlocked() (net.IP, net.IPMask) {
 
 // GenerateNextIpAddr is not thread safe.
 func (c *Config) GenerateNextIpAddr() string {
+	return c.GenerateNextIpAddrExcept(nil)
+}
+
+// GenerateNextIpAddrExcept is not thread safe.
+func (c *Config) GenerateNextIpAddrExcept(except []string) string {
 	localIP, netMask := c.VPNLocalIPMaskUnlocked()
 	ipNet := &net.IPNet{
 		IP:   localIP.Mask(netMask),
 		Mask: netMask,
 	}
+
 	maxIp := localIP
 	for _, known := range c.KnownPeers {
 		ip := net.ParseIP(known.IPAddr)
@@ -50,9 +56,22 @@ func (c *Config) GenerateNextIpAddr() string {
 		}
 	}
 
-	newIp := incrementIPAddr(maxIp)
+	exceptMap := make(map[string]struct{}, len(except))
+	for _, ip := range except {
+		exceptMap[ip] = struct{}{}
+	}
 
-	return newIp.String()
+	// Find next available IP that is not in exceptMap
+	for {
+		newIp := incrementIPAddr(maxIp)
+		newIpStr := newIp.String()
+
+		if _, excluded := exceptMap[newIpStr]; !excluded {
+			return newIpStr
+		}
+
+		maxIp = newIp
+	}
 }
 
 // CheckIPUnique is not thread safe.
