@@ -42,13 +42,12 @@ type ConnectionInfo struct {
 	Direction    string
 	Opened       time.Time
 	Transient    bool
-	Latency      Duration
 }
 
 type BootstrapPeerDebugInfo struct {
 	Error       string   `json:",omitempty"`
 	Connections []string `json:",omitempty"`
-	Latency     Duration `json:",omitempty"`
+	Ping        Duration `json:",omitempty"`
 }
 
 func (p *P2p) Uptime() time.Duration {
@@ -79,7 +78,6 @@ func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
 		info.Direction = strings.ToLower(stat.Direction.String())
 		info.Opened = stat.Opened
 		info.Transient = stat.Limited
-		info.Latency = Duration(p.host.Peerstore().LatencyEWMA(peerID))
 		infos = append(infos, info)
 	}
 	return infos
@@ -154,8 +152,8 @@ func (p *P2p) ConnectionsLastTrimAgo() time.Duration {
 	return time.Since(lastTrim)
 }
 
-func (p *P2p) OwnObservedAddrs() []multiaddr.Multiaddr {
-	return p.basicHost.IDService().OwnObservedAddrs()
+func (p *P2p) ConfirmedAddrs() (reachable []multiaddr.Multiaddr, unreachable []multiaddr.Multiaddr, unknown []multiaddr.Multiaddr) {
+	return p.basicHost.ConfirmedAddrs()
 }
 
 func (p *P2p) NetworkStats() metrics.Stats {

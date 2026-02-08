@@ -31,6 +31,7 @@ type P2p interface {
 	NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn))
 	ProtectPeer(id peer.ID)
+	RecordPeerLatency(id peer.ID, rtt time.Duration)
 }
 
 type AuthStatus struct {
@@ -125,6 +126,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 
 	_, isBlocked := s.conf.GetBlockedPeer(remotePeerID.String())
 	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isBlocked)
+	timeStarted := time.Now()
 	err = protocol.SendStatus(stream, myPeerInfo)
 	if err != nil {
 		return fmt.Errorf("sending status info: %v", err)
@@ -134,6 +136,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 	if err != nil {
 		return fmt.Errorf("receiving status info: %v", err)
 	}
+	s.p2p.RecordPeerLatency(remotePeerID, time.Since(timeStarted))
 
 	s.logger.Infof("successfully exchanged status info (outbound) with %s (%s)", knownPeer.DisplayName(), remotePeerID.String())
 	if isBlocked {
@@ -238,7 +241,7 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	}
 	if !confirmed && !isBlocked && autoAccept {
 		defer func() {
-			s.AddPeer(context.Background(), remotePeer, authPeer.Name, s.conf.GenUniqPeerAlias(authPeer.Name, ""), true)
+			_ = s.AddPeer(context.Background(), remotePeer, authPeer.Name, s.conf.GenUniqPeerAlias(authPeer.Name, ""), true, "")
 		}()
 	}
 
@@ -270,6 +273,7 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 		_ = stream.Close()
 	}()
 
+	timeStarted := time.Now()
 	err = protocol.SendAuth(stream, req)
 	if err != nil {
 		return fmt.Errorf("sending auth: %v", err)
@@ -279,6 +283,7 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	if err != nil {
 		return fmt.Errorf("receiving auth response from %s: %v", peerID, err)
 	}
+	s.p2p.RecordPeerLatency(peerID, time.Since(timeStarted))
 
 	if authResponse.Confirmed || authResponse.Declined {
 		s.authsLock.Lock()
@@ -297,20 +302,41 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	return nil
 }
 
-func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, uniqAlias string, confirmed bool) {
-	s.conf.RLock()
-	ipAddr := s.conf.GenerateNextIpAddr()
-	s.conf.RUnlock()
+func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias string, confirmed bool, ipAddr string) error {
+	peerIDStr := peerID.String()
+	_, exist := s.conf.GetPeer(peerIDStr)
+	if exist {
+		return fmt.Errorf("peer has already been added")
+	}
+
+	alias = strings.TrimSpace(alias)
+	if !s.conf.IsUniqPeerAlias("", alias) {
+		return fmt.Errorf("peer name is not unique")
+	}
+
+	if ipAddr != "" {
+		s.conf.RLock()
+		err := s.conf.CheckIPUnique(ipAddr, peerIDStr)
+		s.conf.RUnlock()
+		if err != nil {
+			return err
+		}
+	} else {
+		s.conf.RLock()
+		ipAddr = s.conf.GenerateNextIpAddr()
+		s.conf.RUnlock()
+	}
+
 	newPeerConfig := config.KnownPeer{
-		PeerID:    peerID.String(),
+		PeerID:    peerIDStr,
 		Name:      name,
-		Alias:     uniqAlias,
+		Alias:     alias,
 		IPAddr:    ipAddr,
 		Confirmed: confirmed,
 		CreatedAt: time.Now(),
 	}
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
-	s.conf.RemoveBlockedPeer(peerID.String())
+	s.conf.RemoveBlockedPeer(peerIDStr)
 	s.conf.UpsertPeer(newPeerConfig)
 	s.p2p.ProtectPeer(peerID)
 
@@ -324,9 +350,11 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, uniqAlia
 			_ = s.SendAuthRequest(ctx, peerID, authPeer)
 		}
 
-		knownPeer, _ := s.conf.GetPeer(peerID.String())
+		knownPeer, _ := s.conf.GetPeer(peerIDStr)
 		_ = s.ExchangeNewStatusInfo(ctx, peerID, knownPeer)
 	}()
+
+	return nil
 }
 
 func (s *AuthStatus) ExchangeStatusInfoWithAllKnownPeers(ctx context.Context) {

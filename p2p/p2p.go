@@ -70,11 +70,15 @@ type HostConfig struct {
 }
 
 type IDService interface {
-	Close() error
-	OwnObservedAddrs() []multiaddr.Multiaddr
-	ObservedAddrsFor(local multiaddr.Multiaddr) []multiaddr.Multiaddr
-	IdentifyConn(c network.Conn)
-	IdentifyWait(c network.Conn) <-chan struct{}
+	// IdentifyConn synchronously triggers an identify request on the connection and
+	// waits for it to complete. If the connection is being identified by another
+	// caller, this call will wait. If the connection has already been identified,
+	// it will return immediately.
+	IdentifyConn(network.Conn)
+	// IdentifyWait triggers an identify (if the connection has not already been
+	// identified) and returns a channel that is closed when the identify protocol
+	// completes.
+	IdentifyWait(network.Conn) <-chan struct{}
 }
 
 type P2p struct {
@@ -280,6 +284,14 @@ func (p *P2p) UnprotectPeer(id peer.ID) {
 	p.host.ConnManager().Unprotect(id, protectedPeerTag)
 }
 
+func (p *P2p) RecordPeerLatency(id peer.ID, rtt time.Duration) {
+	p.host.Peerstore().RecordLatency(id, rtt)
+}
+
+func (p *P2p) GetPeerLatency(id peer.ID) time.Duration {
+	return p.host.Peerstore().LatencyEWMA(id)
+}
+
 func (p *P2p) SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn)) {
 	notifyBundle := &network.NotifyBundle{
 		ConnectedF:    onConnected,
@@ -385,7 +397,7 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 			if err == nil {
 				p.pingPeer(ctx, peerAddr.ID)
 			}
-			info.Latency = Duration(p.host.Peerstore().LatencyEWMA(peerAddr.ID))
+			info.Ping = Duration(p.host.Peerstore().LatencyEWMA(peerAddr.ID))
 
 			mu.Lock()
 			bootstrapsInfo[peerAddr.ID.String()] = info
@@ -404,6 +416,7 @@ func (p *P2p) pingPeer(ctx context.Context, peerID peer.ID) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// TODO: also calc jitter
 	ch := ping.Ping(ctx, p.host, peerID)
 	pingCount := 0
 	for range ch {

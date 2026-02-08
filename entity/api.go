@@ -19,19 +19,25 @@ type (
 	FriendRequest struct {
 		PeerID string `validate:"required"`
 		Alias  string `validate:"required,trimmed_str_not_empty"`
+		// optional: specific IP address for the peer
+		IPAddr string `validate:"omitempty,ipv4"`
 	}
 	FriendRequestReply struct {
 		PeerID  string `validate:"required"`
 		Alias   string `validate:"required,trimmed_str_not_empty"`
 		Decline bool
+		// optional: specific IP address for the peer
+		IPAddr string `validate:"omitempty,ipv4"`
 	}
 	PeerIDRequest struct {
 		PeerID string `validate:"required"`
 	}
 	UpdatePeerSettingsRequest struct {
-		PeerID               string `validate:"required"`
-		Alias                string `validate:"required,trimmed_str_not_empty"`
-		DomainName           string `validate:"required,trimmed_str_not_empty"`
+		PeerID     string `validate:"required"`
+		Alias      string `validate:"required,trimmed_str_not_empty"`
+		DomainName string `validate:"required,trimmed_str_not_empty"`
+		// TODO: support ipv6
+		IPAddr               string `validate:"required,ipv4"`
 		AllowUsingAsExitNode bool
 	}
 	UpdateMySettingsRequest struct {
@@ -62,6 +68,7 @@ type (
 		Connections            []p2p.ConnectionInfo
 		NetworkStats           metrics.Stats
 		NetworkStatsInIECUnits StatsInUnits
+		Ping                   time.Duration `swaggertype:"primitive,integer"`
 	}
 
 	PeerInfo struct {
@@ -97,6 +104,8 @@ type (
 	AuthRequest struct {
 		PeerID string
 		protocol.AuthPeer
+		// SuggestedIP is a free IP address generated for this peer
+		SuggestedIP string
 	}
 
 	ListAvailableProxiesResponse struct {
@@ -114,6 +123,7 @@ type (
 		DHT         DhtDebugInfo
 		Connections ConnectionsDebugInfo
 		Bandwidth   BandwidthDebugInfo
+		KnownPeers  []KnownPeersResponse
 	}
 
 	GeneralDebugInfo struct {
@@ -126,7 +136,9 @@ type (
 		Reachability        string `enums:"Unknown,Public,Private"`
 		ListenAddress       []string
 		PeersWithAddrsCount int
-		ObservedAddrs       []string
+		ReachableAddrs      []string
+		UnreachableAddrs    []string
+		UnknownAddrs        []string
 		BootstrapPeers      map[string]p2p.BootstrapPeerDebugInfo
 	}
 	ConnectionsDebugInfo struct {

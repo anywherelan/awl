@@ -194,10 +194,15 @@ func (a *Application) init() {
 								Usage:    "peer name",
 								Required: true,
 							},
+							&cli.StringFlag{
+								Name:     "ip",
+								Usage:    "override peer IP address",
+								Required: false,
+							},
 						},
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return addPeer(a.api, c.String("pid"), c.String("name"))
+							return addPeer(a.api, c.String("pid"), c.String("name"), c.String("ip"))
 						},
 					},
 					{
@@ -268,6 +273,31 @@ func (a *Application) init() {
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
 							return changePeerDomain(a.api, c.String("pid"), c.String("domain"))
+						},
+					},
+					{
+						Name:  "update_ip",
+						Usage: "Change known peer IP address",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "ip",
+								Usage:    "peer IP address",
+								Required: true,
+							},
+						},
+						Before: a.initApiAndPeerIdRequired,
+						Action: func(c *cli.Context) error {
+							return changePeerIP(a.api, c.String("pid"), c.String("ip"))
 						},
 					},
 					{

@@ -16,34 +16,44 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: false
+          swap-storage: false
+          docker-images: true
+          dotnet: true
+          haskell: true
+          large-packages: true
       - name: Checkout awl code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref }}
           path: 'awl'
       - name: Checkout awl-flutter code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: 'anywherelan/awl-flutter'
           ref: ${{ github.event.inputs.awl_flutter_ref }}
           path: 'awl-flutter'
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: 1.24.x
+          go-version: 1.25.x
           cache: true
           cache-dependency-path: |
             awl/go.sum
             awl/cmd/awl-tray/go.sum
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
           java-version: '17.x'
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.x'
+          flutter-version: '3.38.x'
           channel: 'stable'
       - run: flutter --version
       - name: Install ndk-bundle
@@ -56,6 +66,9 @@ jobs:
           ls -lah $ANDROID_HOME/cmdline-tools/latest/bin/ || true
           echo "install ndk-bundle"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk-bundle"
+      - name: List available space
+        run: |
+          df -h
 
       - name: Configure Keystore for Android
         run: |
@@ -79,22 +92,25 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@latest
           go get golang.org/x/mobile/cmd/gomobile
           gomobile init
-          go mod tidy -compat=1.24
-          cd cmd/awl-tray && go mod tidy -compat=1.24 && cd ../..
+          go mod tidy -compat=1.25
+          cd cmd/awl-tray && go mod tidy -compat=1.25 && cd ../..
           echo "check go mod tidy and git dirty"
           test -z "$(git status --porcelain)" || (git status; git diff && false)
           echo "start building"          
           ./build.sh release
           echo "ls build"
           ls -lah build
+      - name: List available space
+        run: |
+          df -h
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: awl-release-build
           path: awl/build/*
           if-no-files-found: error
       - name: Upload flutter web artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: awl-release-static
           path: awl/static/
@@ -116,21 +132,21 @@ jobs:
         shell: bash
     steps:
       - name: Checkout awl code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref }}
           path: 'awl'
       - name: Retrieve saved static/ build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: awl-release-static
           path: awl/static
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: 1.24.x
+          go-version: 1.25.x
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -144,7 +160,7 @@ jobs:
           echo "ls build"
           ls -lah build
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: awl-release-build-macos
           path: awl/build/*

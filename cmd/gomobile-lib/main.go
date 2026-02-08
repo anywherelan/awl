@@ -5,6 +5,7 @@ package anywherelan
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 
@@ -20,14 +21,21 @@ var (
 
 // All public functions are part of the library
 
-func InitServer(dataDir string, tunFD int32) error {
+func InitServer(dataDir string, tunFD int32) (err error) {
+	defer func() {
+		recovered := recover()
+		if recovered != nil {
+			err = fmt.Errorf("recovered panic from InitServer: %v", recovered)
+		}
+	}()
+
 	globalDataDir = dataDir
 	_ = os.Setenv(config.AppDataDirEnvKey, dataDir)
 	_ = os.Setenv(vpn.TunFDEnvKey, strconv.Itoa(int(tunFD)))
 
 	globalApp = awl.New()
 	globalApp.SetupLoggerAndConfig()
-	err := globalApp.Init(context.Background(), nil)
+	err = globalApp.Init(context.Background(), nil)
 	if err != nil {
 		globalApp.Close()
 		globalApp = nil

@@ -5,11 +5,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/labstack/echo/v4"
+	"github.com/libp2p/go-libp2p/core/peer"
+
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
-	"github.com/labstack/echo/v4"
-	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 const ErrorPeerAliasIsNotUniq = "peer name is not unique"
@@ -21,6 +22,11 @@ const ErrorPeerAliasIsNotUniq = "peer name is not unique"
 // @Success 200 {array} entity.KnownPeersResponse
 // @Router /peers/get_known [GET]
 func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
+	result := h.getKnownPeers()
+	return c.JSON(http.StatusOK, result)
+}
+
+func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 	h.conf.RLock()
 	result := make([]entity.KnownPeersResponse, 0, len(h.conf.KnownPeers))
 	peers := make([]string, 0, len(h.conf.KnownPeers))
@@ -52,6 +58,7 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 			Connections:            h.p2p.PeerConnectionsInfo(id),
 			NetworkStats:           netStats,
 			NetworkStatsInIECUnits: getStatsInIECUnits(netStats),
+			Ping:                   h.p2p.GetPeerLatency(id),
 		}
 		result = append(result, kpr)
 	}
@@ -61,7 +68,7 @@ func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 		return result[i].Connected && !result[j].Connected
 	})
 
-	return c.JSON(http.StatusOK, result)
+	return result
 }
 
 // @Tags Peers
@@ -121,11 +128,21 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	if !h.conf.IsUniqPeerAlias(req.PeerID, req.Alias) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
 	}
+
+	h.conf.Lock()
+	defer h.conf.Unlock()
+
+	checkIPErr := h.conf.CheckIPUnique(req.IPAddr, knownPeer.PeerID)
+	if checkIPErr != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(checkIPErr.Error()))
+	}
+
 	knownPeer.Alias = req.Alias
 	knownPeer.DomainName = req.DomainName
 	knownPeer.WeAllowUsingAsExitNode = req.AllowUsingAsExitNode
+	knownPeer.IPAddr = req.IPAddr
 
-	h.conf.UpsertPeer(knownPeer)
+	h.conf.UpsertPeerUnlocked(knownPeer)
 
 	go func() {
 		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerID, knownPeer)
@@ -163,17 +180,10 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 			ErrorMessage("You can't add yourself"))
 	}
 
-	_, exist := h.conf.GetPeer(req.PeerID)
-	if exist {
-		return c.JSON(http.StatusBadRequest, ErrorMessage("Peer has already been added"))
+	err = h.authStatus.AddPeer(h.ctx, peerId, "", req.Alias, false, req.IPAddr)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
 	}
-
-	req.Alias = strings.TrimSpace(req.Alias)
-	if !h.conf.IsUniqPeerAlias("", req.Alias) {
-		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
-	}
-
-	h.authStatus.AddPeer(h.ctx, peerId, "", req.Alias, false)
 
 	return c.NoContent(http.StatusOK)
 }
@@ -207,11 +217,6 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 			ErrorMessage("You can't add yourself"))
 	}
 
-	_, exist := h.conf.GetPeer(req.PeerID)
-	if exist {
-		return c.JSON(http.StatusBadRequest, ErrorMessage("Peer has been already added"))
-	}
-
 	authRequestsMap := h.authStatus.GetIngoingAuthRequests()
 	auth, exist := authRequestsMap[req.PeerID]
 	if !exist {
@@ -223,12 +228,10 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 		return c.NoContent(http.StatusOK)
 	}
 
-	req.Alias = strings.TrimSpace(req.Alias)
-	if !h.conf.IsUniqPeerAlias("", req.Alias) {
-		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
+	err = h.authStatus.AddPeer(h.ctx, peerId, auth.Name, req.Alias, true, req.IPAddr)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
 	}
-
-	h.authStatus.AddPeer(h.ctx, peerId, auth.Name, req.Alias, true)
 
 	return c.NoContent(http.StatusOK)
 }
@@ -242,10 +245,27 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 func (h *Handler) GetAuthRequests(c echo.Context) (err error) {
 	authRequestsMap := h.authStatus.GetIngoingAuthRequests()
 	authRequests := make([]entity.AuthRequest, 0, len(authRequestsMap))
-	for peerID, req := range authRequestsMap {
+
+	// Maintain peer IDs order
+	peerIDs := make([]string, 0, len(authRequestsMap))
+	for peerID := range authRequestsMap {
+		peerIDs = append(peerIDs, peerID)
+	}
+	sort.Strings(peerIDs)
+	generatedIPs := make([]string, 0, len(authRequestsMap))
+
+	h.conf.RLock()
+	defer h.conf.RUnlock()
+
+	for _, peerID := range peerIDs {
+		req := authRequestsMap[peerID]
+		suggestedIP := h.conf.GenerateNextIpAddrExcept(generatedIPs)
+		generatedIPs = append(generatedIPs, suggestedIP)
+
 		authRequests = append(authRequests, entity.AuthRequest{
-			AuthPeer: req,
-			PeerID:   peerID,
+			AuthPeer:    req,
+			PeerID:      peerID,
+			SuggestedIP: suggestedIP,
 		})
 	}
 	return c.JSON(http.StatusOK, authRequests)

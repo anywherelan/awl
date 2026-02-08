@@ -5,8 +5,9 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/anywherelan/awl/entity"
 	"github.com/libp2p/go-libp2p/core/metrics"
+
+	"github.com/anywherelan/awl/entity"
 )
 
 func getStatsInIECUnits(stats metrics.Stats) entity.StatsInUnits {
@@ -32,14 +33,15 @@ func convertBytesToIECUnits(bytesSize float64) string {
 		"Yi",
 	}
 
-	label := 0
-	for label < len(IECUnits) && bytesSize >= unit {
+	idx := 0
+	for idx < len(IECUnits)-1 && bytesSize >= unit {
 		bytesSize /= unit
-		label++
+		idx++
 	}
+	label := IECUnits[idx] //nolint:gosec
 
 	bytesSize = math.Round(bytesSize*100) / 100
 	bFormatted := strconv.FormatFloat(bytesSize, 'f', -1, 64)
 
-	return fmt.Sprintf("%s %sB", bFormatted, IECUnits[label])
+	return fmt.Sprintf("%s %sB", bFormatted, label)
 }

@@ -74,19 +74,21 @@ func (c *Client) UpdateProxySettings(usingPeerID string) error {
 	return c.sendPostRequest(api.UpdateProxySettingsPath, request, nil)
 }
 
-func (c *Client) SendFriendRequest(peerID, alias string) error {
+func (c *Client) SendFriendRequest(peerID, alias string, ipAddr string) error {
 	request := entity.FriendRequest{
 		PeerID: peerID,
 		Alias:  alias,
+		IPAddr: ipAddr,
 	}
 	return c.sendPostRequest(api.SendFriendRequestPath, request, nil)
 }
 
-func (c *Client) ReplyFriendRequest(peerID, alias string, decline bool) error {
+func (c *Client) ReplyFriendRequest(peerID, alias string, decline bool, ipAddr string) error {
 	request := entity.FriendRequestReply{
 		PeerID:  peerID,
 		Alias:   alias,
 		Decline: decline,
+		IPAddr:  ipAddr,
 	}
 	return c.sendPostRequest(api.AcceptPeerInvitationPath, request, nil)
 }

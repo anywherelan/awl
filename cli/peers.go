@@ -144,7 +144,7 @@ func printFriendRequests(api *apiclient.Client) error {
 		return nil
 	}
 	for _, req := range authRequests {
-		fmt.Printf("Name: '%s' peerID: %s\n", req.Name, req.PeerID)
+		fmt.Printf("Name: '%s' peerID: %s suggestedIP: %s\n", req.Name, req.PeerID, req.SuggestedIP)
 	}
 
 	return nil
@@ -168,7 +168,7 @@ func getPeerIdByAlias(api *apiclient.Client, alias string) (string, error) {
 	return "", fmt.Errorf("can't find peer with name \"%s\"", alias)
 }
 
-func addPeer(api *apiclient.Client, peerID, alias string) error {
+func addPeer(api *apiclient.Client, peerID, alias, ipAddr string) error {
 	authRequests, err := api.AuthRequests()
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func addPeer(api *apiclient.Client, peerID, alias string) error {
 		}
 	}
 	if hasRequest {
-		err := api.ReplyFriendRequest(peerID, alias, false)
+		err := api.ReplyFriendRequest(peerID, alias, false, ipAddr)
 		if err != nil {
 			return err
 		}
@@ -190,7 +190,7 @@ func addPeer(api *apiclient.Client, peerID, alias string) error {
 		return nil
 	}
 
-	err = api.SendFriendRequest(peerID, alias)
+	err = api.SendFriendRequest(peerID, alias, ipAddr)
 	if err != nil {
 		return err
 	}
@@ -218,6 +218,7 @@ func changePeerAlias(api *apiclient.Client, peerID, newAlias string) error {
 		PeerID:               peerID,
 		Alias:                newAlias,
 		DomainName:           pcfg.DomainName,
+		IPAddr:               pcfg.IPAddr,
 		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
 	})
 	if err != nil {
@@ -238,6 +239,7 @@ func changePeerDomain(api *apiclient.Client, peerID, newDomain string) error {
 		PeerID:               peerID,
 		Alias:                pcfg.Alias,
 		DomainName:           newDomain,
+		IPAddr:               pcfg.IPAddr,
 		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
 	})
 	if err != nil {
@@ -245,6 +247,27 @@ func changePeerDomain(api *apiclient.Client, peerID, newDomain string) error {
 	}
 
 	fmt.Println("peer domain name updated successfully")
+	return nil
+}
+
+func changePeerIP(api *apiclient.Client, peerID, newIP string) error {
+	pcfg, err := api.KnownPeerConfig(peerID)
+	if err != nil {
+		return err
+	}
+
+	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peerID,
+		Alias:                pcfg.Alias,
+		DomainName:           pcfg.DomainName,
+		IPAddr:               newIP,
+		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("peer IP address updated successfully")
 	return nil
 }
 
@@ -258,6 +281,7 @@ func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool) e
 		PeerID:               peerID,
 		Alias:                pcfg.Alias,
 		DomainName:           pcfg.DomainName,
+		IPAddr:               pcfg.IPAddr,
 		AllowUsingAsExitNode: allow,
 	})
 	if err != nil {
