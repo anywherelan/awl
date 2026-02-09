@@ -204,8 +204,7 @@ func (ts *TestSuite) initBootstrapNode() {
 	p2pSrv := p2p.NewP2p(context.Background())
 	p2pHost, err := p2pSrv.InitHost(hostConfig)
 	ts.NoError(err)
-	err = p2pSrv.Bootstrap()
-	ts.NoError(err)
+	p2pSrv.Bootstrap()
 
 	peerInfo := peer.AddrInfo{ID: p2pHost.ID(), Addrs: p2pHost.Addrs()}
 	ts.bootstrapAddrs = append(ts.bootstrapAddrs, peerInfo)
@@ -222,14 +221,8 @@ func (ts *TestSuite) initBootstrapNode() {
 
 func (ts *TestSuite) ensurePeersAvailableInDHT(peer1, peer2 TestPeer) {
 	ts.Eventually(func() bool {
-		err1 := peer1.app.P2p.Bootstrap()
-		err2 := peer2.app.P2p.Bootstrap()
-		if err1 != nil || err2 != nil {
-			return false
-		}
-
-		_, err1 = peer1.app.P2p.FindPeer(context.Background(), peer2.app.P2p.PeerID())
-		_, err2 = peer2.app.P2p.FindPeer(context.Background(), peer1.app.P2p.PeerID())
+		_, err1 := peer1.app.P2p.FindPeer(context.Background(), peer2.app.P2p.PeerID())
+		_, err2 := peer2.app.P2p.FindPeer(context.Background(), peer1.app.P2p.PeerID())
 
 		return err1 == nil && err2 == nil
 	}, 20*time.Second, 100*time.Millisecond)
