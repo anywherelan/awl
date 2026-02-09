@@ -91,6 +91,8 @@ func New() *Application {
 }
 
 func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
+	a.logger.Info("Application initialization started")
+
 	a.ctx, a.ctxCancel = context.WithCancel(ctx)
 	a.P2p = p2p.NewP2p(a.ctx)
 	p2pHost, err := a.P2p.InitHost(a.makeP2pHostConfig())
@@ -100,8 +102,8 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 
 	privKey := p2pHost.Peerstore().PrivKey(p2pHost.ID())
 	a.Conf.SetIdentity(privKey, p2pHost.ID())
-	a.logger.Infof("Host created. We are: %s", p2pHost.ID().String())
-	a.logger.Infof("Listen interfaces: %v", p2pHost.Addrs())
+	a.logger.Infof("P2P host initialized. My peer_id: %s", p2pHost.ID().String())
+	a.logger.Infof("P2P listening on addresses: %v", p2pHost.Addrs())
 
 	localIP, netMask := a.Conf.VPNLocalIPMask()
 	interfaceName := a.Conf.VPNConfig.InterfaceName
@@ -110,12 +112,9 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		return fmt.Errorf("failed to init vpn: %v", err)
 	}
 	a.vpnDevice = vpnDevice
-	a.logger.Infof("Created vpn interface %s: %s", interfaceName, &net.IPNet{IP: localIP, Mask: netMask})
+	a.logger.Infof("VPN interface created. Name: %s CIDR: %s", interfaceName, &net.IPNet{IP: localIP, Mask: netMask})
 
-	err = a.P2p.Bootstrap()
-	if err != nil {
-		return err
-	}
+	a.P2p.Bootstrap()
 
 	a.Dns = NewDNSService(a.Conf, a.Eventbus, a.ctx, a.logger)
 	a.AuthStatus = service.NewAuthStatus(a.P2p, a.Conf, a.Eventbus)
@@ -151,10 +150,12 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		interfaceName, err := a.vpnDevice.InterfaceName()
 		if err != nil {
 			a.logger.Errorf("failed to get TUN interface name: %v", err)
-			return nil
+		} else {
+			a.Dns.initDNS(interfaceName)
 		}
-		a.Dns.initDNS(interfaceName)
 	}
+
+	a.logger.Info("Application initialized successfully")
 
 	return nil
 }
@@ -176,7 +177,7 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 
 	encoderConfig := zap.NewDevelopmentEncoderConfig()
 	encoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-		enc.AppendString(t.Format("2006-01-02 15:04:05"))
+		enc.AppendString(t.Format("2006-01-02 15:04:05.99"))
 	}
 	consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
 	zapCore := zapcore.NewCore(consoleEncoder, syncer, zapcore.InfoLevel)

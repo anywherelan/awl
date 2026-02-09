@@ -30,7 +30,6 @@ type P2p interface {
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn))
-	ProtectPeer(id peer.ID)
 	RecordPeerLatency(id peer.ID, rtt time.Duration)
 }
 
@@ -338,7 +337,6 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias st
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
 	s.conf.RemoveBlockedPeer(peerIDStr)
 	s.conf.UpsertPeer(newPeerConfig)
-	s.p2p.ProtectPeer(peerID)
 
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
