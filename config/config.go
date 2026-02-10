@@ -71,8 +71,9 @@ type (
 		ParallelSendingStreamsCount   int  `json:"parallelSendingStreamsCount"`
 	}
 	VPNConfig struct {
-		InterfaceName string `json:"interfaceName"`
-		IPNet         string `json:"ipNet"`
+		DisableVPNInterface bool   `json:"disableVPNInterface"`
+		InterfaceName       string `json:"interfaceName"`
+		IPNet               string `json:"ipNet"`
 	}
 	SOCKS5Config struct {
 		ListenerEnabled bool `json:"listenerEnabled"`

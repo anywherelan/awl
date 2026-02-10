@@ -11,7 +11,7 @@ func TestGenerateNextIpAddrExcept(t *testing.T) {
 	// Setup base config with a VPN network
 	conf := &Config{
 		VPNConfig: VPNConfig{
-			IPNet: defaultNetworkSubnet,
+			IPNet: DefaultVPNNetworkSubnet,
 		},
 		KnownPeers: map[string]KnownPeer{},
 	}

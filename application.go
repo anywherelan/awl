@@ -105,21 +105,25 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.logger.Infof("P2P host initialized. My peer_id: %s", p2pHost.ID().String())
 	a.logger.Infof("P2P listening on addresses: %v", p2pHost.Addrs())
 
-	localIP, netMask := a.Conf.VPNLocalIPMask()
-	interfaceName := a.Conf.VPNConfig.InterfaceName
-	vpnDevice, err := vpn.NewDevice(tunDevice, interfaceName, localIP, netMask)
-	if err != nil {
-		return fmt.Errorf("failed to init vpn: %v", err)
+	if a.Conf.VPNConfig.DisableVPNInterface {
+		a.logger.Info("VPN interface is disabled from config")
+	} else {
+		localIP, netMask := a.Conf.VPNLocalIPMask()
+		interfaceName := a.Conf.VPNConfig.InterfaceName
+		a.vpnDevice, err = vpn.NewDevice(tunDevice, interfaceName, localIP, netMask)
+		if err != nil {
+			return fmt.Errorf("failed to init vpn: %v", err)
+		}
+		a.logger.Infof("VPN interface created. Name: %s CIDR: %s", interfaceName, &net.IPNet{IP: localIP, Mask: netMask})
+
+		a.Tunnel = service.NewTunnel(a.P2p, a.vpnDevice, a.Conf)
+		go a.vpnDevice.ReadTUNPackets(a.Tunnel.HandleReadPackets)
 	}
-	a.vpnDevice = vpnDevice
-	a.logger.Infof("VPN interface created. Name: %s CIDR: %s", interfaceName, &net.IPNet{IP: localIP, Mask: netMask})
 
 	a.P2p.Bootstrap()
 
 	a.Dns = NewDNSService(a.Conf, a.Eventbus, a.ctx, a.logger)
 	a.AuthStatus = service.NewAuthStatus(a.P2p, a.Conf, a.Eventbus)
-	a.Tunnel = service.NewTunnel(a.P2p, vpnDevice, a.Conf)
-	go vpnDevice.ReadTUNPackets(a.Tunnel.HandleReadPackets)
 	a.SOCKS5, err = service.NewSOCKS5(a.P2p, a.Conf)
 	if err != nil {
 		return fmt.Errorf("failed to init socks5: %v", err)
@@ -127,12 +131,16 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 
 	p2pHost.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
 	p2pHost.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
-	p2pHost.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
+	if a.Tunnel != nil {
+		p2pHost.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
+	}
 	p2pHost.SetStreamHandler(protocol.Socks5PacketMethod, a.SOCKS5.ProxyStreamHandler)
 
-	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
-		a.Tunnel.RefreshPeersList()
-	}, a.Eventbus, new(awlevent.KnownPeerChanged))
+	if a.Tunnel != nil {
+		awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
+			a.Tunnel.RefreshPeersList()
+		}, a.Eventbus, new(awlevent.KnownPeerChanged))
+	}
 
 	handler := api.NewHandler(a.Conf, a.P2p, a.AuthStatus, a.Tunnel, a.SOCKS5, a.LogBuffer, a.Dns)
 	a.Api = handler
@@ -146,7 +154,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	go a.AuthStatus.BackgroundExchangeStatusInfo(a.ctx)
 	go a.SOCKS5.ServeConns(a.ctx)
 
-	if useAwldns {
+	if useAwldns && !a.Conf.VPNConfig.DisableVPNInterface {
 		interfaceName, err := a.vpnDevice.InterfaceName()
 		if err != nil {
 			a.logger.Errorf("failed to get TUN interface name: %v", err)

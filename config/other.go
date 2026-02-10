@@ -164,16 +164,16 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	}
 
 	if conf.VPNConfig.IPNet == "" {
-		conf.VPNConfig.IPNet = defaultNetworkSubnet
+		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 	}
 	if ip, _ := conf.VPNLocalIPMask(); ip == nil {
-		conf.VPNConfig.IPNet = defaultNetworkSubnet
+		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 	}
 	if conf.VPNConfig.InterfaceName == "" {
 		if runtime.GOOS == "darwin" {
 			conf.VPNConfig.InterfaceName = "utun"
 		} else {
-			conf.VPNConfig.InterfaceName = defaultInterfaceName
+			conf.VPNConfig.InterfaceName = DefaultVPNInterfaceName
 		}
 	}
 
