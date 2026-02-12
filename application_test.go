@@ -703,6 +703,45 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 	})
 }
 
+func TestDisableVPNInterface(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+
+	// Create peer2 with disabled VPN
+	peer2 := ts.NewTestPeerWithConfig(func(c *config.Config) {
+		c.VPNConfig.DisableVPNInterface = true
+	})
+
+	// Verify peer2 has no VPN/Tunnel
+	ts.Nil(peer2.app.vpnDevice)
+	ts.Nil(peer2.app.Tunnel)
+	peer2Status, err := peer2.api.PeerInfo()
+	ts.NoError(err)
+	ts.False(peer2Status.VPN.VPNInterfaceEnabled)
+	ts.NotEmpty(peer2Status.VPN.InterfaceName)
+	ts.Equal(config.DefaultVPNNetworkSubnet, peer2Status.VPN.IPNet)
+
+	ts.makeFriends(peer2, peer1)
+
+	// Try to send traffic from peer1 (enabled) to peer2 (disabled)
+	const packetSize = 100
+	peer1.tun.ReferenceInboundPacketLen = packetSize
+	peer2.tun.ClearInboundCount()
+
+	// Send packet
+	p2Conf, err := peer1.api.KnownPeerConfig(peer2.app.P2p.PeerID().String())
+	ts.NoError(err)
+	peer2IP := p2Conf.IPAddr
+
+	packet := testPacketWithDest(packetSize, peer2IP)
+	peer1.tun.Outbound <- [][]byte{packet}
+
+	// Wait and verify nothing received on peer2's TUN
+	time.Sleep(1 * time.Second)
+	ts.EqualValues(0, peer2.tun.InboundCount())
+}
+
 func testSOCKS5Proxy(ts *TestSuite, proxyAddr string, expectSocksErr string) {
 	// setup mock server
 	expectedBody := strings.Repeat("test text", 10_000)

@@ -96,6 +96,16 @@ func (ts *TestSuite) NewTestPeer(disableLogging bool) TestPeer {
 	return ts.newTestPeer(disableLogging, listenAddrs, nil)
 }
 
+type ConfigModifier func(*config.Config)
+
+func (ts *TestSuite) NewTestPeerWithConfig(configModifier ConfigModifier) TestPeer {
+	listenAddrs := []multiaddr.Multiaddr{
+		multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
+		multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
+	}
+	return ts.newTestPeerWithConfig(true, listenAddrs, nil, configModifier)
+}
+
 // SOCKS5PeerConfig configures SOCKS5 settings for test peers
 type SOCKS5PeerConfig struct {
 	ListenerEnabled bool
@@ -103,10 +113,23 @@ type SOCKS5PeerConfig struct {
 }
 
 func (ts *TestSuite) newTestPeer(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option) TestPeer {
-	return ts.newTestPeerWithSOCKS5(disableLogging, listenAddrs, extraLibp2pOpts, nil)
+	return ts.newTestPeerWithConfig(disableLogging, listenAddrs, extraLibp2pOpts, nil)
 }
 
 func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, socks5Conf *SOCKS5PeerConfig) TestPeer {
+	return ts.newTestPeerWithConfig(disableLogging, listenAddrs, extraLibp2pOpts, func(c *config.Config) {
+		if socks5Conf != nil {
+			c.SOCKS5 = config.SOCKS5Config{
+				ListenerEnabled: socks5Conf.ListenerEnabled,
+				ProxyingEnabled: socks5Conf.ProxyingEnabled,
+				ListenAddress:   pickFreeAddr(ts.t),
+				UsingPeerID:     "",
+			}
+		}
+	})
+}
+
+func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, configModifier ConfigModifier) TestPeer {
 	tempDir := ts.t.TempDir()
 	ts.t.Setenv(config.AppDataDirEnvKey, tempDir)
 	tempConf := config.NewConfig(eventbus.NewBus())
@@ -133,15 +156,7 @@ func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []mu
 	app.Conf.P2pNode.ParallelSendingStreamsCount = 1
 	app.Conf.P2pNode.UseDedicatedConnForEachStream = false
 
-	// Configure SOCKS5 based on provided config or defaults
-	if socks5Conf != nil {
-		app.Conf.SOCKS5 = config.SOCKS5Config{
-			ListenerEnabled: socks5Conf.ListenerEnabled,
-			ProxyingEnabled: socks5Conf.ProxyingEnabled,
-			ListenAddress:   pickFreeAddr(ts.t),
-			UsingPeerID:     "",
-		}
-	} else if ts.isSimnet {
+	if ts.isSimnet {
 		app.Conf.SOCKS5 = config.SOCKS5Config{
 			ListenerEnabled: false,
 			ProxyingEnabled: false,
@@ -153,6 +168,10 @@ func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []mu
 			ListenAddress:   pickFreeAddr(ts.t),
 			UsingPeerID:     "",
 		}
+	}
+
+	if configModifier != nil {
+		configModifier(app.Conf)
 	}
 
 	testTUN := NewTestTUN()
