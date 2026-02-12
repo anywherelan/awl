@@ -51,6 +51,7 @@ type (
 		P2pNode               P2pNodeConfig          `json:"p2pNode"`
 		VPNConfig             VPNConfig              `json:"vpn"`
 		SOCKS5                SOCKS5Config           `json:"socks5"`
+		DNS                   DNSConfig              `json:"dns"`
 		KnownPeers            map[string]KnownPeer   `json:"knownPeers"`
 		BlockedPeers          map[string]BlockedPeer `json:"blockedPeers"`
 		Update                UpdateConfig           `json:"update"`
@@ -82,6 +83,10 @@ type (
 		ListenAddress   string `json:"listenAddress"`
 		// peer that is set as proxy
 		UsingPeerID string `json:"usingPeerID"`
+	}
+	DNSConfig struct {
+		DisableDNS    bool   `json:"disableDNS"`
+		ListenAddress string `json:"listenAddress"`
 	}
 	KnownPeer struct {
 		// Hex-encoded multihash representing a peer ID
