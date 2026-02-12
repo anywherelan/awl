@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
+
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/vpn"
@@ -21,7 +23,26 @@ var (
 
 // All public functions are part of the library
 
-func InitServer(dataDir string, tunFD int32) (err error) {
+func Setup(dataDir string) {
+	globalDataDir = dataDir
+	_ = os.Setenv(config.AppDataDirEnvKey, dataDir)
+}
+
+func GetConfig() string {
+	if globalDataDir == "" {
+		panic("call to GetConfig before Setup")
+	}
+
+	conf, loadConfigErr := config.LoadConfig(eventbus.NewBus())
+	if loadConfigErr != nil {
+		conf = config.NewConfig(eventbus.NewBus())
+	}
+
+	data := conf.Export()
+	return string(data)
+}
+
+func StartServer(tunFD int32) (err error) {
 	defer func() {
 		recovered := recover()
 		if recovered != nil {
@@ -29,8 +50,6 @@ func InitServer(dataDir string, tunFD int32) (err error) {
 		}
 	}()
 
-	globalDataDir = dataDir
-	_ = os.Setenv(config.AppDataDirEnvKey, dataDir)
 	_ = os.Setenv(vpn.TunFDEnvKey, strconv.Itoa(int(tunFD)))
 
 	globalApp = awl.New()
