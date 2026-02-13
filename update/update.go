@@ -40,8 +40,14 @@ const (
 )
 
 var (
-	awlFilenamesRegex     = regexp.MustCompile(fmt.Sprintf("awl-%s-%s.*", runtime.GOOS, runtime.GOARCH))
-	awlTrayFilenamesRegex = regexp.MustCompile(fmt.Sprintf("awl-tray-%s-%s.*", runtime.GOOS, runtime.GOARCH))
+	goos = func() string {
+		if config.IsWindows7 == "true" {
+			return "windows7"
+		}
+		return runtime.GOOS
+	}()
+	awlFilenamesRegex     = regexp.MustCompile(fmt.Sprintf("awl-%s-%s.*", goos, runtime.GOARCH))
+	awlTrayFilenamesRegex = regexp.MustCompile(fmt.Sprintf("awl-tray-%s-%s.*", goos, runtime.GOARCH))
 )
 
 func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType ApplicationType) (UpdateService, error) {

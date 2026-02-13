@@ -13,6 +13,11 @@ For instructions on how to install anywherelan [see readme](https://github.com/a
 {{range .AwlTrayWindows}}
 [{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
 
+### Windows 7 binary builds
+
+{{range .AwlTrayWindows7}}
+[{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
+
 ### macOS binary builds
 
 {{range .AwlTrayMacos}}
@@ -33,4 +38,9 @@ For instructions on how to install anywherelan [see readme](https://github.com/a
 ### Windows binary builds
 
 {{range .AwlWindows}}
+[{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
+
+### Windows 7 binary builds
+
+{{range .AwlWindows7}}
 [{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
