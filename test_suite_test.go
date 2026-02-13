@@ -39,12 +39,6 @@ import (
 
 const TestTUNBatchSize = 100
 
-func init() {
-	// TODO: move to config
-	useAwldns = false
-	config.DefaultBootstrapPeers = nil
-}
-
 // TODO: add support for goleak in TestSuite
 type TestSuite struct {
 	*require.Assertions
@@ -153,6 +147,8 @@ func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []mu
 	app.Conf.HttpListenOnAdminHost = false
 	app.Conf.SetListenAddresses(listenAddrs)
 	app.Conf.P2pNode.BootstrapPeers = ts.bootstrapAddrsStr
+	t := true
+	app.Conf.P2pNode.IgnoreDefaultBootstrapPeers = &t
 	app.Conf.P2pNode.ParallelSendingStreamsCount = 1
 	app.Conf.P2pNode.UseDedicatedConnForEachStream = false
 
@@ -169,6 +165,8 @@ func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []mu
 			UsingPeerID:     "",
 		}
 	}
+
+	app.Conf.DNS.DisableDNS = true
 
 	if configModifier != nil {
 		configModifier(app.Conf)

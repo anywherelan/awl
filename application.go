@@ -52,9 +52,6 @@ func FrontendStatic() fs.FS {
 	return fsys
 }
 
-// useAwldns is used for tests
-var useAwldns = true
-
 // @title Anywherelan API
 // @version 0.1
 // @description Anywherelan API
@@ -154,7 +151,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	go a.AuthStatus.BackgroundExchangeStatusInfo(a.ctx)
 	go a.SOCKS5.ServeConns(a.ctx)
 
-	if useAwldns && !a.Conf.VPNConfig.DisableVPNInterface {
+	if !a.Conf.DNS.DisableDNS && !a.Conf.VPNConfig.DisableVPNInterface {
 		interfaceName, err := a.vpnDevice.InterfaceName()
 		if err != nil {
 			a.logger.Errorf("failed to get TUN interface name: %v", err)
@@ -324,7 +321,14 @@ func NewDNSService(conf *config.Config, eventbus awlevent.Bus, ctx context.Conte
 
 func (a *DNSService) initDNS(interfaceName string) {
 	var err error
-	a.dnsResolver = awldns.NewResolver(awldns.DNSAddress)
+	dnsAddr := a.conf.DNS.ListenAddress
+	dnsHost, _, err := net.SplitHostPort(dnsAddr)
+	if err != nil {
+		a.logger.Errorf("invalid dns listen address %s: %v", dnsAddr, err)
+		return
+	}
+
+	a.dnsResolver = awldns.NewResolver(dnsAddr)
 	a.upstreamDNS = awldns.DefaultUpstreamDNSAddress
 	a.refreshDNSConfig()
 
@@ -338,7 +342,7 @@ func (a *DNSService) initDNS(interfaceName string) {
 		tsLogger.Infof(format, args...)
 	}, nil, &controlknobs.Knobs{}, interfaceName)
 	if err != nil {
-		a.logger.Errorf("create dns os configurator: %v", err)
+		a.logger.Errorf("unable to create dns os configurator: %v", err)
 		return
 	}
 
@@ -347,7 +351,7 @@ func (a *DNSService) initDNS(interfaceName string) {
 		panic(err)
 	}
 	newOSConfig := dns.OSConfig{
-		Nameservers:  []netip.Addr{netip.MustParseAddr(awldns.DNSIp)},
+		Nameservers:  []netip.Addr{netip.MustParseAddr(dnsHost)},
 		MatchDomains: []dnsname.FQDN{fqdn},
 	}
 

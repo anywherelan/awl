@@ -185,6 +185,10 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.SOCKS5.ListenAddress = defaultSOCKS5ListenAddress
 	}
 
+	if conf.DNS.ListenAddress == "" {
+		conf.DNS.ListenAddress = awldns.DefaultDNSAddress
+	}
+
 	uniqAliases := make(map[string]struct{}, len(conf.KnownPeers))
 	if conf.KnownPeers == nil {
 		conf.KnownPeers = make(map[string]KnownPeer)
