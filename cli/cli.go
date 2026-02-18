@@ -437,34 +437,36 @@ func (a *Application) init() {
 	}
 }
 
-func (a *Application) initApiConnection(c *cli.Context) (err error) {
+func (a *Application) initApiConnection(c *cli.Context) error {
 	apiAddr := c.String("api_addr")
-	var addr string
-	defer func() {
-		if err != nil {
-			return
-		}
-		a.api = apiclient.New(addr)
-		_, err2 := a.api.PeerInfo()
-		if err2 != nil {
-			err = fmt.Errorf("could not access api on address %s: %v", addr, err2)
-		}
-	}()
 	if apiAddr != "" {
-		addr = apiAddr
-		return nil
-	}
-	conf, err := config.LoadConfig(eventbus.NewBus())
-	if err != nil {
-		a.logger.Errorf("could not load config, use default api_addr (%s), error: %v", defaultApiAddr, err)
-		addr = defaultApiAddr
-		return nil
-	}
-	addr = conf.HttpListenAddress
-	if addr == "" {
-		return errors.New("httpListenAddress from config is empty")
+		return a.initApiFromAddr(apiAddr)
 	}
 
+	conf, errConfig := config.LoadConfig(eventbus.NewBus())
+	if errConfig == nil {
+		return a.initApiFromAddr(conf.HttpListenAddress)
+	}
+
+	errDefault := a.initApiFromAddr(defaultApiAddr)
+	if errDefault == nil {
+		return nil
+	}
+
+	a.logger.Errorf("could not load config file, error: %v", errConfig)
+	a.logger.Errorf("could not connect to default api_addr (%s), error: %v", defaultApiAddr, errDefault)
+
+	return errors.New("no connection to api server")
+}
+
+func (a *Application) initApiFromAddr(addr string) error {
+	api := apiclient.New(addr)
+	_, err := api.PeerInfo()
+	if err != nil {
+		return fmt.Errorf("could not access api on address %s: %v", addr, err)
+	}
+
+	a.api = api
 	return nil
 }
 
