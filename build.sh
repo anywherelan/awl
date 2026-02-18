@@ -119,13 +119,17 @@ build-web() {
   cd "$awldir"
   rm -rf static/
   cd "$awlflutterdir"
-  flutter build web --release
+  flutter build web --release --no-web-resources-cdn --pwa-strategy=none --csp
+  # TODO: compress static dir into a .zip to save ~6 MB per binary (10 MB --> 4 MB)
   cp -r "$awlflutterdir/build/web" "$awldir/static"
   cd "$awldir"
-  # at the time of flutter 3.3, canvaskit is saved in build files, but still not used in release run (using CDN instead)
-  # so we don't need extra 15 MB in our binaries
-  # see https://stackoverflow.com/q/70747972 with answer from core team
-  rm -rf static/canvaskit
+  # unused canvaskit variants
+  rm -rf static/canvaskit/*symbols
+  rm -rf static/canvaskit/skwasm*
+  rm -rf static/canvaskit/chromium
+  # extra 1.3 MB for "About Anywherelan" -> "VIEW LICENSES" page
+  # note: compressed it doesn't take much space
+  rm -rf static/assets/NOTICES
 }
 
 # build android library
