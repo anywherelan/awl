@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -48,21 +49,48 @@ func New(updateType update.ApplicationType) *Application {
 func (a *Application) Run() {
 	if len(os.Args) == 1 {
 		return
-	} else if os.Args[1] == WithEnvCommandName {
+	}
+
+	switch arg := os.Args[1]; arg {
+	case WithEnvCommandName:
 		// is handled in linux_root_hacks.go
 		return
-	} else if os.Args[1] == CliCommandName {
-		// ok, handle here below
-	} else {
-		a.logger.Fatalf("Unknown command '%s', try '%s cli -h' for info on cli commands or '%s' to start awl server", os.Args[1], binaryName, binaryName)
+	case CliCommandName:
+		err := a.cliapp.Run(os.Args[1:])
+		if err != nil {
+			a.logger.Fatalf("Error occurred: %v", err)
+		}
+		os.Exit(0)
+	case "-h", "--help":
+		a.printGlobalHelp()
+		os.Exit(0)
+	case "-v", "--version":
+		a.printVersion()
+		os.Exit(0)
+	default:
+		fmt.Printf("Unknown command '%s'. Use '%s -h' for help, or run '%s' to start the server\n", arg, binaryName, binaryName)
+		os.Exit(-1)
 	}
+}
 
-	err := a.cliapp.Run(os.Args[1:])
-	if err != nil {
-		a.logger.Fatalf("Error occurred: %v", err)
-	}
+func (a *Application) printGlobalHelp() {
+	fmt.Printf(`Usage: %s <command>
 
-	os.Exit(0)
+Run without a command to start the server.
+
+Flags:
+  -h, --help     Show context-sensitive help.
+  -v, --version  Show version.
+
+Commands:
+  cli    Command line interface for Anywherelan
+
+Run "%s <command> --help" for more information on a command.
+`, binaryName, binaryName)
+}
+
+func (a *Application) printVersion() {
+	fmt.Printf("Anywherelan version %s (%s %s-%s)\n", config.Version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
 func (a *Application) init() {
@@ -437,34 +465,36 @@ func (a *Application) init() {
 	}
 }
 
-func (a *Application) initApiConnection(c *cli.Context) (err error) {
+func (a *Application) initApiConnection(c *cli.Context) error {
 	apiAddr := c.String("api_addr")
-	var addr string
-	defer func() {
-		if err != nil {
-			return
-		}
-		a.api = apiclient.New(addr)
-		_, err2 := a.api.PeerInfo()
-		if err2 != nil {
-			err = fmt.Errorf("could not access api on address %s: %v", addr, err2)
-		}
-	}()
 	if apiAddr != "" {
-		addr = apiAddr
-		return nil
-	}
-	conf, err := config.LoadConfig(eventbus.NewBus())
-	if err != nil {
-		a.logger.Errorf("could not load config, use default api_addr (%s), error: %v", defaultApiAddr, err)
-		addr = defaultApiAddr
-		return nil
-	}
-	addr = conf.HttpListenAddress
-	if addr == "" {
-		return errors.New("httpListenAddress from config is empty")
+		return a.initApiFromAddr(apiAddr)
 	}
 
+	conf, errConfig := config.LoadConfig(eventbus.NewBus())
+	if errConfig == nil {
+		return a.initApiFromAddr(conf.HttpListenAddress)
+	}
+
+	errDefault := a.initApiFromAddr(defaultApiAddr)
+	if errDefault == nil {
+		return nil
+	}
+
+	a.logger.Errorf("could not load config file, error: %v", errConfig)
+	a.logger.Errorf("could not connect to default api_addr (%s), error: %v", defaultApiAddr, errDefault)
+
+	return errors.New("no connection to api server")
+}
+
+func (a *Application) initApiFromAddr(addr string) error {
+	api := apiclient.New(addr)
+	_, err := api.PeerInfo()
+	if err != nil {
+		return fmt.Errorf("could not access api on address %s: %v", addr, err)
+	}
+
+	a.api = api
 	return nil
 }
 
