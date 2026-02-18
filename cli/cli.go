@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -48,21 +49,48 @@ func New(updateType update.ApplicationType) *Application {
 func (a *Application) Run() {
 	if len(os.Args) == 1 {
 		return
-	} else if os.Args[1] == WithEnvCommandName {
+	}
+
+	switch arg := os.Args[1]; arg {
+	case WithEnvCommandName:
 		// is handled in linux_root_hacks.go
 		return
-	} else if os.Args[1] == CliCommandName {
-		// ok, handle here below
-	} else {
-		a.logger.Fatalf("Unknown command '%s', try '%s cli -h' for info on cli commands or '%s' to start awl server", os.Args[1], binaryName, binaryName)
+	case CliCommandName:
+		err := a.cliapp.Run(os.Args[1:])
+		if err != nil {
+			a.logger.Fatalf("Error occurred: %v", err)
+		}
+		os.Exit(0)
+	case "-h", "--help":
+		a.printGlobalHelp()
+		os.Exit(0)
+	case "-v", "--version":
+		a.printVersion()
+		os.Exit(0)
+	default:
+		fmt.Printf("Unknown command '%s'. Use '%s -h' for help, or run '%s' to start the server\n", arg, binaryName, binaryName)
+		os.Exit(-1)
 	}
+}
 
-	err := a.cliapp.Run(os.Args[1:])
-	if err != nil {
-		a.logger.Fatalf("Error occurred: %v", err)
-	}
+func (a *Application) printGlobalHelp() {
+	fmt.Printf(`Usage: %s <command>
 
-	os.Exit(0)
+Run without a command to start the server.
+
+Flags:
+  -h, --help     Show context-sensitive help.
+  -v, --version  Show version.
+
+Commands:
+  cli    Command line interface for Anywherelan
+
+Run "%s <command> --help" for more information on a command.
+`, binaryName, binaryName)
+}
+
+func (a *Application) printVersion() {
+	fmt.Printf("Anywherelan version %s (%s %s-%s)\n", config.Version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
 func (a *Application) init() {
