@@ -22,7 +22,7 @@ func printStatus(api *apiclient.Client) error {
 	table.AppendBulk([][]string{
 		{"Download rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateIn, stats.NetworkStatsInIECUnits.TotalIn)},
 		{"Upload rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateOut, stats.NetworkStatsInIECUnits.TotalOut)},
-		{"Bootstrap peers", fmt.Sprintf("%d/%d", stats.TotalBootstrapPeers, stats.ConnectedBootstrapPeers)},
+		{"Bootstrap peers", fmt.Sprintf("%d/%d", stats.ConnectedBootstrapPeers, stats.TotalBootstrapPeers)},
 		{"DNS", formatWorkingStatus(stats.IsAwlDNSSetAsSystem)},
 		{"SOCKS5 Proxy", formatWorkingStatus(stats.SOCKS5.ListenerEnabled)},
 		{"SOCKS5 Proxy address", stats.SOCKS5.ListenAddress},
