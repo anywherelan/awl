@@ -153,16 +153,16 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	}
 
 	if conf.VPNConfig.IPNet == "" {
-		conf.VPNConfig.IPNet = defaultNetworkSubnet
+		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 	}
 	if ip, _ := conf.VPNLocalIPMask(); ip == nil {
-		conf.VPNConfig.IPNet = defaultNetworkSubnet
+		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 	}
 	if conf.VPNConfig.InterfaceName == "" {
 		if runtime.GOOS == "darwin" {
 			conf.VPNConfig.InterfaceName = "utun"
 		} else {
-			conf.VPNConfig.InterfaceName = defaultInterfaceName
+			conf.VPNConfig.InterfaceName = DefaultVPNInterfaceName
 		}
 	}
 
@@ -172,6 +172,10 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	}
 	if conf.SOCKS5.ListenAddress == "" {
 		conf.SOCKS5.ListenAddress = defaultSOCKS5ListenAddress
+	}
+
+	if conf.DNS.ListenAddress == "" {
+		conf.DNS.ListenAddress = awldns.DefaultDNSAddress
 	}
 
 	uniqAliases := make(map[string]struct{}, len(conf.KnownPeers))

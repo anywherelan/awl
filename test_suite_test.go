@@ -39,12 +39,6 @@ import (
 
 const TestTUNBatchSize = 100
 
-func init() {
-	// TODO: move to config
-	useAwldns = false
-	config.DefaultBootstrapPeers = nil
-}
-
 // TODO: add support for goleak in TestSuite
 type TestSuite struct {
 	*require.Assertions
@@ -96,6 +90,16 @@ func (ts *TestSuite) NewTestPeer(disableLogging bool) TestPeer {
 	return ts.newTestPeer(disableLogging, listenAddrs, nil)
 }
 
+type ConfigModifier func(*config.Config)
+
+func (ts *TestSuite) NewTestPeerWithConfig(configModifier ConfigModifier) TestPeer {
+	listenAddrs := []multiaddr.Multiaddr{
+		multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
+		multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
+	}
+	return ts.newTestPeerWithConfig(true, listenAddrs, nil, configModifier)
+}
+
 // SOCKS5PeerConfig configures SOCKS5 settings for test peers
 type SOCKS5PeerConfig struct {
 	ListenerEnabled bool
@@ -103,10 +107,23 @@ type SOCKS5PeerConfig struct {
 }
 
 func (ts *TestSuite) newTestPeer(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option) TestPeer {
-	return ts.newTestPeerWithSOCKS5(disableLogging, listenAddrs, extraLibp2pOpts, nil)
+	return ts.newTestPeerWithConfig(disableLogging, listenAddrs, extraLibp2pOpts, nil)
 }
 
 func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, socks5Conf *SOCKS5PeerConfig) TestPeer {
+	return ts.newTestPeerWithConfig(disableLogging, listenAddrs, extraLibp2pOpts, func(c *config.Config) {
+		if socks5Conf != nil {
+			c.SOCKS5 = config.SOCKS5Config{
+				ListenerEnabled: socks5Conf.ListenerEnabled,
+				ProxyingEnabled: socks5Conf.ProxyingEnabled,
+				ListenAddress:   pickFreeAddr(ts.t),
+				UsingPeerID:     "",
+			}
+		}
+	})
+}
+
+func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, configModifier ConfigModifier) TestPeer {
 	tempDir := ts.t.TempDir()
 	ts.t.Setenv(config.AppDataDirEnvKey, tempDir)
 	tempConf := config.NewConfig(eventbus.NewBus())
@@ -130,18 +147,12 @@ func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []mu
 	app.Conf.HttpListenOnAdminHost = false
 	app.Conf.SetListenAddresses(listenAddrs)
 	app.Conf.P2pNode.BootstrapPeers = ts.bootstrapAddrsStr
+	t := true
+	app.Conf.P2pNode.IgnoreDefaultBootstrapPeers = &t
 	app.Conf.P2pNode.ParallelSendingStreamsCount = 1
 	app.Conf.P2pNode.UseDedicatedConnForEachStream = false
 
-	// Configure SOCKS5 based on provided config or defaults
-	if socks5Conf != nil {
-		app.Conf.SOCKS5 = config.SOCKS5Config{
-			ListenerEnabled: socks5Conf.ListenerEnabled,
-			ProxyingEnabled: socks5Conf.ProxyingEnabled,
-			ListenAddress:   pickFreeAddr(ts.t),
-			UsingPeerID:     "",
-		}
-	} else if ts.isSimnet {
+	if ts.isSimnet {
 		app.Conf.SOCKS5 = config.SOCKS5Config{
 			ListenerEnabled: false,
 			ProxyingEnabled: false,
@@ -153,6 +164,12 @@ func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []mu
 			ListenAddress:   pickFreeAddr(ts.t),
 			UsingPeerID:     "",
 		}
+	}
+
+	app.Conf.DNS.DisableDNS = true
+
+	if configModifier != nil {
+		configModifier(app.Conf)
 	}
 
 	testTUN := NewTestTUN()
@@ -204,8 +221,7 @@ func (ts *TestSuite) initBootstrapNode() {
 	p2pSrv := p2p.NewP2p(context.Background())
 	p2pHost, err := p2pSrv.InitHost(hostConfig)
 	ts.NoError(err)
-	err = p2pSrv.Bootstrap()
-	ts.NoError(err)
+	p2pSrv.Bootstrap()
 
 	peerInfo := peer.AddrInfo{ID: p2pHost.ID(), Addrs: p2pHost.Addrs()}
 	ts.bootstrapAddrs = append(ts.bootstrapAddrs, peerInfo)
@@ -222,14 +238,8 @@ func (ts *TestSuite) initBootstrapNode() {
 
 func (ts *TestSuite) ensurePeersAvailableInDHT(peer1, peer2 TestPeer) {
 	ts.Eventually(func() bool {
-		err1 := peer1.app.P2p.Bootstrap()
-		err2 := peer2.app.P2p.Bootstrap()
-		if err1 != nil || err2 != nil {
-			return false
-		}
-
-		_, err1 = peer1.app.P2p.FindPeer(context.Background(), peer2.app.P2p.PeerID())
-		_, err2 = peer2.app.P2p.FindPeer(context.Background(), peer1.app.P2p.PeerID())
+		_, err1 := peer1.app.P2p.FindPeer(context.Background(), peer2.app.P2p.PeerID())
+		_, err2 := peer2.app.P2p.FindPeer(context.Background(), peer1.app.P2p.PeerID())
 
 		return err1 == nil && err2 == nil
 	}, 20*time.Second, 100*time.Millisecond)

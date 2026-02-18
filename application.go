@@ -52,9 +52,6 @@ func FrontendStatic() fs.FS {
 	return fsys
 }
 
-// useAwldns is used for tests
-var useAwldns = true
-
 // @title Anywherelan API
 // @version 0.1
 // @description Anywherelan API
@@ -91,6 +88,8 @@ func New() *Application {
 }
 
 func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
+	a.logger.Info("Application initialization started")
+
 	a.ctx, a.ctxCancel = context.WithCancel(ctx)
 	a.P2p = p2p.NewP2p(a.ctx)
 	p2pHost, err := a.P2p.InitHost(a.makeP2pHostConfig())
@@ -100,27 +99,28 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 
 	privKey := p2pHost.Peerstore().PrivKey(p2pHost.ID())
 	a.Conf.SetIdentity(privKey, p2pHost.ID())
-	a.logger.Infof("Host created. We are: %s", p2pHost.ID().String())
-	a.logger.Infof("Listen interfaces: %v", p2pHost.Addrs())
+	a.logger.Infof("P2P host initialized. My peer_id: %s", p2pHost.ID().String())
+	a.logger.Infof("P2P listening on addresses: %v", p2pHost.Addrs())
 
-	localIP, netMask := a.Conf.VPNLocalIPMask()
-	interfaceName := a.Conf.VPNConfig.InterfaceName
-	vpnDevice, err := vpn.NewDevice(tunDevice, interfaceName, localIP, netMask)
-	if err != nil {
-		return fmt.Errorf("failed to init vpn: %v", err)
-	}
-	a.vpnDevice = vpnDevice
-	a.logger.Infof("Created vpn interface %s: %s", interfaceName, &net.IPNet{IP: localIP, Mask: netMask})
+	if a.Conf.VPNConfig.DisableVPNInterface {
+		a.logger.Info("VPN interface is disabled from config")
+	} else {
+		localIP, netMask := a.Conf.VPNLocalIPMask()
+		interfaceName := a.Conf.VPNConfig.InterfaceName
+		a.vpnDevice, err = vpn.NewDevice(tunDevice, interfaceName, localIP, netMask)
+		if err != nil {
+			return fmt.Errorf("failed to init vpn: %v", err)
+		}
+		a.logger.Infof("VPN interface created. Name: %s CIDR: %s", interfaceName, &net.IPNet{IP: localIP, Mask: netMask})
 
-	err = a.P2p.Bootstrap()
-	if err != nil {
-		return err
+		a.Tunnel = service.NewTunnel(a.P2p, a.vpnDevice, a.Conf)
+		go a.vpnDevice.ReadTUNPackets(a.Tunnel.HandleReadPackets)
 	}
+
+	a.P2p.Bootstrap()
 
 	a.Dns = NewDNSService(a.Conf, a.Eventbus, a.ctx, a.logger)
 	a.AuthStatus = service.NewAuthStatus(a.P2p, a.Conf, a.Eventbus)
-	a.Tunnel = service.NewTunnel(a.P2p, vpnDevice, a.Conf)
-	go vpnDevice.ReadTUNPackets(a.Tunnel.HandleReadPackets)
 	a.SOCKS5, err = service.NewSOCKS5(a.P2p, a.Conf)
 	if err != nil {
 		return fmt.Errorf("failed to init socks5: %v", err)
@@ -128,12 +128,16 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 
 	p2pHost.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
 	p2pHost.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
-	p2pHost.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
+	if a.Tunnel != nil {
+		p2pHost.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
+	}
 	p2pHost.SetStreamHandler(protocol.Socks5PacketMethod, a.SOCKS5.ProxyStreamHandler)
 
-	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
-		a.Tunnel.RefreshPeersList()
-	}, a.Eventbus, new(awlevent.KnownPeerChanged))
+	if a.Tunnel != nil {
+		awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
+			a.Tunnel.RefreshPeersList()
+		}, a.Eventbus, new(awlevent.KnownPeerChanged))
+	}
 
 	handler := api.NewHandler(a.Conf, a.P2p, a.AuthStatus, a.Tunnel, a.SOCKS5, a.LogBuffer, a.Dns)
 	a.Api = handler
@@ -147,14 +151,16 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	go a.AuthStatus.BackgroundExchangeStatusInfo(a.ctx)
 	go a.SOCKS5.ServeConns(a.ctx)
 
-	if useAwldns {
+	if !a.Conf.DNS.DisableDNS && !a.Conf.VPNConfig.DisableVPNInterface {
 		interfaceName, err := a.vpnDevice.InterfaceName()
 		if err != nil {
 			a.logger.Errorf("failed to get TUN interface name: %v", err)
-			return nil
+		} else {
+			a.Dns.initDNS(interfaceName)
 		}
-		a.Dns.initDNS(interfaceName)
 	}
+
+	a.logger.Info("Application initialized successfully")
 
 	return nil
 }
@@ -176,7 +182,7 @@ func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
 
 	encoderConfig := zap.NewDevelopmentEncoderConfig()
 	encoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-		enc.AppendString(t.Format("2006-01-02 15:04:05"))
+		enc.AppendString(t.Format("2006-01-02 15:04:05.99"))
 	}
 	consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
 	zapCore := zapcore.NewCore(consoleEncoder, syncer, zapcore.InfoLevel)
@@ -315,7 +321,14 @@ func NewDNSService(conf *config.Config, eventbus awlevent.Bus, ctx context.Conte
 
 func (a *DNSService) initDNS(interfaceName string) {
 	var err error
-	a.dnsResolver = awldns.NewResolver(awldns.DNSAddress)
+	dnsAddr := a.conf.DNS.ListenAddress
+	dnsHost, _, err := net.SplitHostPort(dnsAddr)
+	if err != nil {
+		a.logger.Errorf("invalid dns listen address %s: %v", dnsAddr, err)
+		return
+	}
+
+	a.dnsResolver = awldns.NewResolver(dnsAddr)
 	a.upstreamDNS = awldns.DefaultUpstreamDNSAddress
 	a.refreshDNSConfig()
 
@@ -329,7 +342,7 @@ func (a *DNSService) initDNS(interfaceName string) {
 		tsLogger.Infof(format, args...)
 	}, nil, &controlknobs.Knobs{}, interfaceName)
 	if err != nil {
-		a.logger.Errorf("create dns os configurator: %v", err)
+		a.logger.Errorf("unable to create dns os configurator: %v", err)
 		return
 	}
 
@@ -338,7 +351,7 @@ func (a *DNSService) initDNS(interfaceName string) {
 		panic(err)
 	}
 	newOSConfig := dns.OSConfig{
-		Nameservers:  []netip.Addr{netip.MustParseAddr(awldns.DNSIp)},
+		Nameservers:  []netip.Addr{netip.MustParseAddr(dnsHost)},
 		MatchDomains: []dnsname.FQDN{fqdn},
 	}
 

@@ -91,6 +91,20 @@ gobuild-windows() {
   done
 }
 
+# build for windows 7 OS
+gobuild-windows7() {
+  name="$1"
+  for arch in 386 amd64; do
+    install-wintun "$arch"
+    archive_name="$name-windows7-$arch-$VERSION.zip"
+    filename="$name.exe"
+    CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION} -X github.com/anywherelan/awl/config.IsWindows7=true" -o "$filename"
+    zip "$archive_name" "$filename"
+    rm "$filename"
+    mv "$archive_name" "$builddir"
+  done
+}
+
 # Commands (functions with "cross" build for different arch-es/OS-es)
 
 # create new build dir, delete static dir
@@ -194,6 +208,13 @@ release)
 release-macos)
   cd "$awldir/cmd/awl-tray"
   gobuild-macos awl-tray
+  ;;
+release-windows7)
+  download-wintun true
+  cd "$awldir/cmd/awl"
+  gobuild-windows7 awl
+  cd "$awldir/cmd/awl-tray"
+  gobuild-windows7 awl-tray
   ;;
 web)
   build-web

@@ -31,6 +31,11 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 		Reachability:            h.p2p.Reachability().String(),
 		AwlDNSAddress:           h.dns.AwlDNSAddress(),
 		IsAwlDNSSetAsSystem:     h.dns.IsAwlDNSSetAsSystem(),
+		VPN: entity.VPNInfo{
+			VPNInterfaceEnabled: h.tunnel != nil,
+			InterfaceName:       h.conf.VPNConfig.InterfaceName,
+			IPNet:               h.conf.VPNConfig.IPNet,
+		},
 		SOCKS5: entity.SOCKS5Info{
 			ListenAddress:   h.conf.SOCKS5.ListenAddress,
 			ProxyingEnabled: h.conf.SOCKS5.ProxyingEnabled,

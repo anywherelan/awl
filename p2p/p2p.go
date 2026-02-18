@@ -95,6 +95,8 @@ type P2p struct {
 	bootstrapPeers   []peer.AddrInfo
 	startedAt        time.Time
 	bootstrapsInfo   atomic.Pointer[map[string]BootstrapPeerDebugInfo]
+
+	dhtBootstrapFinishedChan chan struct{}
 }
 
 func NewP2p(ctx context.Context) *P2p {
@@ -103,6 +105,8 @@ func NewP2p(ctx context.Context) *P2p {
 		ctx:       newCtx,
 		ctxCancel: ctxCancel,
 		logger:    log.Logger("awl/p2p"),
+
+		dhtBootstrapFinishedChan: make(chan struct{}),
 	}
 }
 
@@ -300,45 +304,68 @@ func (p *P2p) SubscribeConnectionEvents(onConnected, onDisconnected func(network
 	p.host.Network().Notify(notifyBundle)
 }
 
-func (p *P2p) Bootstrap() error {
-	p.logger.Debug("Bootstrapping the DHT")
-	// connect to the bootstrap nodes first
-	ctx, cancel := context.WithTimeout(p.ctx, 2*time.Second)
-	defer cancel()
+func (p *P2p) Bootstrap() {
+	ctx, cancel := context.WithTimeout(p.ctx, 3*time.Second)
 	var wg sync.WaitGroup
+	successfulConnectionsCh := make(chan struct{}, len(p.bootstrapPeers))
 
+	p.logger.Debug("Start bootstrapping the DHT")
 	for _, peerAddr := range p.bootstrapPeers {
 		wg.Add(1)
-		p.host.ConnManager().Protect(peerAddr.ID, protectedBootstrapPeerTag)
-
 		go func() {
 			defer wg.Done()
 			if err := p.host.Connect(ctx, peerAddr); err != nil && !errors.Is(err, context.Canceled) {
 				p.logger.Warnf("Failed to connect to bootstrap node %s: %v", peerAddr.ID, err)
 			} else if err == nil {
 				p.logger.Infof("Connection established with bootstrap node: %s", peerAddr.ID)
+				successfulConnectionsCh <- struct{}{}
 			}
 		}()
 	}
-	wg.Wait()
-	p.logger.Info("Connection established with all bootstrap nodes")
 
-	if err := p.dht.Bootstrap(p.ctx); err != nil {
-		return fmt.Errorf("bootstrap dht: %v", err)
-	}
+	go func() {
+		defer cancel()
 
-	return nil
+		// wait for at least 2 bootstrap nodes
+		for range min(2, len(p.bootstrapPeers)) {
+			select {
+			case <-ctx.Done():
+			case <-successfulConnectionsCh:
+			}
+		}
+
+		p.logger.Info("Bootstrapping the DHT")
+		if err := p.dht.Bootstrap(p.ctx); err != nil {
+			// from the code err is always nil for now
+			p.logger.Warnf("Failed to bootstrap DHT: %v", err)
+		}
+		close(p.dhtBootstrapFinishedChan)
+
+		wg.Wait()
+		p.logger.Info("Finished connecting to all bootstrap nodes")
+	}()
 }
 
 func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.Duration, knownPeersIdsFunc func() []peer.ID) {
-	const firstTryInterval = 5 * time.Second
-	p.connectToKnownPeers(ctx, firstTryInterval, knownPeersIdsFunc())
+	const timeout = 5 * time.Second
+	const firstRetryDelay = 5 * time.Second
+
+	// wait for bootstrapping
 	select {
 	case <-ctx.Done():
 		return
-	case <-time.After(firstTryInterval):
+	case <-p.dhtBootstrapFinishedChan:
 	}
-	p.connectToKnownPeers(ctx, interval, knownPeersIdsFunc())
+
+	p.connectToKnownPeers(ctx, timeout, knownPeersIdsFunc())
+
+	// retry once after a short delay in case of network instability
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(firstRetryDelay):
+	}
+	p.connectToKnownPeers(ctx, timeout, knownPeersIdsFunc())
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -350,7 +377,7 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 		case <-ticker.C:
 		}
 
-		p.connectToKnownPeers(ctx, interval, knownPeersIdsFunc())
+		p.connectToKnownPeers(ctx, timeout, knownPeersIdsFunc())
 		ticker.Reset(interval)
 	}
 }
@@ -380,6 +407,8 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 
 	for _, peerAddr := range p.bootstrapPeers {
 		wg.Add(1)
+		p.host.ConnManager().Protect(peerAddr.ID, protectedBootstrapPeerTag)
+
 		go func() {
 			defer wg.Done()
 

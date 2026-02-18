@@ -19,9 +19,8 @@ const (
 
 const (
 	LocalDomain               = "awl"
-	DNSIp                     = "127.0.0.66"
+	DefaultDNSAddress         = "127.0.0.66:53"
 	DefaultDNSPort            = "53"
-	DNSAddress                = "127.0.0.66:53"
 	DefaultUpstreamDNSAddress = "1.1.1.1:53"
 )
 

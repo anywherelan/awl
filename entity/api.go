@@ -83,7 +83,14 @@ type (
 		Reachability            string `enums:"Unknown,Public,Private"`
 		AwlDNSAddress           string
 		IsAwlDNSSetAsSystem     bool
+		VPN                     VPNInfo
 		SOCKS5                  SOCKS5Info
+	}
+
+	VPNInfo struct {
+		VPNInterfaceEnabled bool
+		InterfaceName       string
+		IPNet               string
 	}
 
 	SOCKS5Info struct {
