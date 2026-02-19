@@ -29,19 +29,26 @@ var DefaultBootstrapPeers []multiaddr.Multiaddr
 
 func init() {
 	for _, s := range []string{
-		"/dnsaddr/rus-1.bootstrap.anywherelan.com/p2p/12D3KooWNWa2r6dJVogbjNf1CKrKNttVAhKZr1PpWRPJYX7o4t4M",
 		"/dnsaddr/rus-2.bootstrap.anywherelan.com/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 		"/dnsaddr/ita-1.bootstrap.anywherelan.com/p2p/12D3KooWRXyTH7ZxerZRu6UtYQx62uCmYeZ244SsLQZbjuxX7RrL",
 		"/dnsaddr/cze-1.bootstrap.anywherelan.com/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
 		"/dnsaddr/can-1.bootstrap.anywherelan.com/p2p/12D3KooWQeAvoyVnRm6T5XzWpKD8AzM1buzBL6o95iCodCZVQAsV",
 
 		// copy of cze-1 in case dns does not work
-		"/ip4/195.181.214.203/tcp/6150/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
-		"/ip4/195.181.214.203/udp/6150/quic-v1/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
+		"/ip4/80.211.201.49/tcp/6150/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
+		"/ip4/80.211.201.49/udp/6150/quic-v1/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
+		// copy of can-1 in case dns does not work
+		"/ip4/167.114.152.120/tcp/6150/p2p/12D3KooWQeAvoyVnRm6T5XzWpKD8AzM1buzBL6o95iCodCZVQAsV",
+		"/ip4/167.114.152.120/udp/6150/quic-v1/p2p/12D3KooWQeAvoyVnRm6T5XzWpKD8AzM1buzBL6o95iCodCZVQAsV",
+		"/ip6/2607:5300:201:3100::6b5f/tcp/7250/p2p/12D3KooWQeAvoyVnRm6T5XzWpKD8AzM1buzBL6o95iCodCZVQAsV",
+		"/ip6/2607:5300:201:3100::6b5f/udp/7250/quic-v1/p2p/12D3KooWQeAvoyVnRm6T5XzWpKD8AzM1buzBL6o95iCodCZVQAsV",
+		// copy of rus-2 in case dns does not work
+		"/ip4/45.67.230.223/tcp/6150/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
+		"/ip4/45.67.230.223/udp/6150/quic-v1/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 
 		// community relay server from pftmclub - location at Vietnam - Hosting Provided by Vietnix VPS
 		"/ip4/222.255.117.203/tcp/6150/p2p/12D3KooWRMFSvGstJEEZYuYq6jgZdByqwT5zpvFRZebZZbfp9XY1",
-		"/ip4/222.255.117.203/udp/6150//quic-v1/p2p/12D3KooWRMFSvGstJEEZYuYq6jgZdByqwT5zpvFRZebZZbfp9XY1",
+		"/ip4/222.255.117.203/udp/6150/quic-v1/p2p/12D3KooWRMFSvGstJEEZYuYq6jgZdByqwT5zpvFRZebZZbfp9XY1",
 	} {
 		ma, err := multiaddr.NewMultiaddr(s)
 		if err != nil {
