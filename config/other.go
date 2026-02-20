@@ -40,8 +40,8 @@ func init() {
 		"/ip4/195.181.214.203/udp/6150/quic-v1/p2p/12D3KooWJDDYCWbLYyCLTH16TFBZoxyDYD1Ypth2rtyznXYpnpza",
 
 		// community relay server from pftmclub - location at Vietnam - Hosting Provided by Vietnix VPS
-		"/ip4/222.255.238.138/tcp/9500/p2p/12D3KooWPfMmyZT1GAP7cDFSurPhAfKX3QFktK9rDLxD5zDZD6HW",
-		"/ip4/222.255.238.138/udp/9500/quic-v1/p2p/12D3KooWPfMmyZT1GAP7cDFSurPhAfKX3QFktK9rDLxD5zDZD6HW",
+		"/ip4/222.255.117.203/tcp/6150/p2p/12D3KooWRMFSvGstJEEZYuYq6jgZdByqwT5zpvFRZebZZbfp9XY1",
+		"/ip4/222.255.117.203/udp/6150//quic-v1/p2p/12D3KooWRMFSvGstJEEZYuYq6jgZdByqwT5zpvFRZebZZbfp9XY1",
 	} {
 		ma, err := multiaddr.NewMultiaddr(s)
 		if err != nil {
