@@ -19,9 +19,11 @@ import (
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
@@ -30,6 +32,7 @@ import (
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/metrics"
 	"github.com/anywherelan/awl/p2p"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/ringbuffer"
@@ -160,6 +163,11 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		}
 	}
 
+	// Metrics
+	metrics.SetNodeInfo(config.Version, p2pHost.ID().String())
+	cma := &configMetricsAdapter{conf: a.Conf, authStatus: a.AuthStatus, p2p: a.P2p}
+	go metrics.StartBackgroundUpdater(a.ctx, cma, a.P2p)
+
 	a.logger.Info("Application initialized successfully")
 
 	return nil
@@ -288,6 +296,7 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 			libp2p.ResourceManager(mgr),
 			libp2p.EnableHolePunching(),
 			libp2p.NATPortMap(),
+			libp2p.PrometheusRegisterer(prometheus.DefaultRegisterer),
 		}, a.ExtraLibp2pOpts...),
 		ConnManager: struct {
 			LowWater    int
@@ -413,4 +422,39 @@ func (a *DNSService) AwlDNSAddress() string {
 
 func (a *DNSService) IsAwlDNSSetAsSystem() bool {
 	return a.isAwlDNSSetAsSystem
+}
+
+// configMetricsAdapter implements metrics.ConfigMetrics by combining Config and AuthStatus.
+type configMetricsAdapter struct {
+	conf       *config.Config
+	authStatus *service.AuthStatus
+	p2p        *p2p.P2p
+}
+
+func (a *configMetricsAdapter) GetKnownPeersSnapshot() (total, confirmed, connected int, peerIDs []peer.ID) {
+	a.conf.RLock()
+	defer a.conf.RUnlock()
+	total = len(a.conf.KnownPeers)
+	peerIDs = make([]peer.ID, 0, total)
+	for _, kp := range a.conf.KnownPeers {
+		pid := kp.PeerId()
+		peerIDs = append(peerIDs, pid)
+		if kp.Confirmed {
+			confirmed++
+		}
+		if a.p2p.IsConnected(pid) {
+			connected++
+		}
+	}
+	return
+}
+
+func (a *configMetricsAdapter) GetBlockedPeersCount() int {
+	a.conf.RLock()
+	defer a.conf.RUnlock()
+	return len(a.conf.BlockedPeers)
+}
+
+func (a *configMetricsAdapter) GetAuthRequestCounts() (ingoing, outgoing int) {
+	return a.authStatus.GetAuthRequestCounts()
 }

@@ -9,6 +9,8 @@ import (
 
 	"github.com/ipfs/go-log/v2"
 	"github.com/miekg/dns"
+
+	"github.com/anywherelan/awl/metrics"
 )
 
 const (
@@ -142,6 +144,12 @@ func (r *Resolver) Close() {
 }
 
 func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) {
+	metrics.DNSQueriesTotal.WithLabelValues("awl").Inc()
+	start := time.Now()
+	defer func() {
+		metrics.DNSQueryDurationSeconds.Observe(time.Since(start).Seconds())
+	}()
+
 	if len(req.Question) == 0 {
 		return
 	}
@@ -183,6 +191,12 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 }
 
 func (r *Resolver) ptrv4Handler(resp dns.ResponseWriter, req *dns.Msg) {
+	metrics.DNSQueriesTotal.WithLabelValues("awl_ptr").Inc()
+	start := time.Now()
+	defer func() {
+		metrics.DNSQueryDurationSeconds.Observe(time.Since(start).Seconds())
+	}()
+
 	if len(req.Question) == 0 || req.Question[0].Qtype != dns.TypePTR {
 		r.dnsProxyHandler(resp, req)
 		return
@@ -222,6 +236,12 @@ func (r *Resolver) ptrv4Handler(resp dns.ResponseWriter, req *dns.Msg) {
 }
 
 func (r *Resolver) dnsProxyHandler(resp dns.ResponseWriter, req *dns.Msg) {
+	metrics.DNSQueriesTotal.WithLabelValues("proxy").Inc()
+	start := time.Now()
+	defer func() {
+		metrics.DNSQueryDurationSeconds.Observe(time.Since(start).Seconds())
+	}()
+
 	cfg := r.loadConfig()
 
 	dnsClient := r.udpClient
@@ -231,6 +251,7 @@ func (r *Resolver) dnsProxyHandler(resp dns.ResponseWriter, req *dns.Msg) {
 
 	upstreamResp, _, err := dnsClient.Exchange(req, cfg.upstreamDNS)
 	if err != nil {
+		metrics.DNSQueryErrorsTotal.Inc()
 		r.logger.Warnf("send request to upstream dns: %v", err)
 		m := new(dns.Msg)
 		m.SetRcode(req, dns.RcodeServerFailure)
