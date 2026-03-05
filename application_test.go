@@ -881,3 +881,36 @@ func BenchmarkTunnelPackets(b *testing.B) {
 		})
 	}
 }
+
+func TestMetricsEndpoint(t *testing.T) {
+	// NOTE: all tests use the same metrics register - so we can't rely on metrics values here
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(true)
+
+	// Make some API requests first so counter metrics get populated
+	_, _ = peer1.api.PeerInfo()
+
+	// Query the /metrics endpoint
+	metricsURL := fmt.Sprintf("http://%s/metrics", peer1.app.Api.Address())
+	resp, err := http.Get(metricsURL) //nolint:gosec
+	ts.NoError(err)
+	defer resp.Body.Close()
+
+	ts.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	ts.NoError(err)
+
+	metricsOutput := string(body)
+
+	// Verify AWL-specific metrics are present
+	ts.Contains(metricsOutput, "awl_node_info")
+	ts.Contains(metricsOutput, "awl_node_start_timestamp")
+	ts.Contains(metricsOutput, "awl_node_uptime_seconds")
+	ts.Contains(metricsOutput, "awl_peers_known_total")
+	ts.Contains(metricsOutput, "awl_api_request_duration_seconds_bucket")
+
+	// Verify libp2p built-in metrics are present
+	ts.Contains(metricsOutput, "libp2p_")
+}

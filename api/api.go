@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/ipfs/go-log/v2"
+	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
@@ -79,6 +80,15 @@ func (h *Handler) SetupAPI() error {
 	return nil
 }
 
+// use global to register metric only once
+var metricsMiddleware = echoprometheus.NewMiddlewareWithConfig(
+	echoprometheus.MiddlewareConfig{
+		Namespace: "awl",
+		Subsystem: "api",
+	},
+)
+var metricsHandler = echoprometheus.NewHandler()
+
 func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 	e := echo.New()
 	e.HideBanner = true
@@ -97,6 +107,10 @@ func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 	}
 
 	// Routes
+
+	// Metrics
+	e.Use(metricsMiddleware)
+	e.GET("/metrics", metricsHandler)
 
 	// Peers
 	e.GET(GetKnownPeersPath, h.GetKnownPeers)

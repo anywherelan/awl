@@ -15,6 +15,7 @@ import (
 
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
+	"github.com/anywherelan/awl/metrics"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/socks5"
 )
@@ -95,7 +96,12 @@ func (s *SOCKS5) SetProxyPeerID(peerID string) {
 }
 
 func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
+	metrics.SOCKS5ConnectionsTotal.WithLabelValues("server").Inc()
+	metrics.SOCKS5ActiveConnections.WithLabelValues("server").Inc()
+	start := time.Now()
 	defer func() {
+		metrics.SOCKS5ActiveConnections.WithLabelValues("server").Dec()
+		metrics.SOCKS5ConnectionDurationSeconds.WithLabelValues("server").Observe(time.Since(start).Seconds())
 		_ = stream.Reset()
 	}()
 
@@ -103,10 +109,12 @@ func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
 	peerID := remotePeer.String()
 	knownPeer, known := s.conf.GetPeer(peerID)
 	if !known {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("server", "denied").Inc()
 		s.logger.Infof("Unknown peer %s tried to socks5 proxy", peerID)
 		return
 	}
 	if !knownPeer.WeAllowUsingAsExitNode {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("server", "denied").Inc()
 		s.logger.Infof("Peer %s without rights tried to socks5 proxy", peerID)
 		return
 	}
@@ -116,6 +124,7 @@ func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
 	s.conf.RUnlock()
 
 	if !enabled {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("server", "proxying_disabled").Inc()
 		_ = s.server.SendServerFailureReply(stream)
 		return
 	}
@@ -162,27 +171,39 @@ func (s *SOCKS5) SetProxyingLocalhostEnabled(enabled bool) {
 }
 
 func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
+	metrics.SOCKS5ConnectionsTotal.WithLabelValues("client").Inc()
+	metrics.SOCKS5ActiveConnections.WithLabelValues("client").Inc()
+	start := time.Now()
+	defer func() {
+		metrics.SOCKS5ActiveConnections.WithLabelValues("client").Dec()
+		metrics.SOCKS5ConnectionDurationSeconds.WithLabelValues("client").Observe(time.Since(start).Seconds())
+	}()
+
 	s.conf.RLock()
 	usePeerID := s.conf.SOCKS5.UsingPeerID
 	s.conf.RUnlock()
 
 	if usePeerID == "" {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("client", "no_proxy_peer").Inc()
 		return errors.New("no peer is set for proxy")
 	}
 
 	peer, exists := s.conf.GetPeer(usePeerID)
 	if !exists || !peer.AllowedUsingAsExitNode {
-		return fmt.Errorf("configured proxy peer %s don't allow us proxying", usePeerID)
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("client", "peer_not_allowed").Inc()
+		return fmt.Errorf("configured proxy peer %s does not allow us to proxy traffic", usePeerID)
 	}
 
 	remotePeerID := peer.PeerId()
 	err := s.p2p.ConnectPeer(ctx, remotePeerID)
 	if err != nil {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("client", "peer_connect_failed").Inc()
 		return err
 	}
 
 	stream, err := s.p2p.NewStream(ctx, remotePeerID, protocol.Socks5PacketMethod)
 	if err != nil {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("client", "peer_stream_failed").Inc()
 		return err
 	}
 	defer func() {

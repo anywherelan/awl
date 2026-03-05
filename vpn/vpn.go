@@ -11,6 +11,8 @@ import (
 	"github.com/ipfs/go-log/v2"
 	"go.uber.org/zap"
 	"golang.zx2c4.com/wireguard/tun"
+
+	"github.com/anywherelan/awl/metrics"
 )
 
 const (
@@ -114,6 +116,7 @@ func (d *Device) WritePacketsBatch(packets []*Packet, bufs [][]byte, senderIP ne
 
 	packetsCount, err := d.tun.Write(bufs, tunPacketOffset)
 	if err != nil {
+		metrics.VPNTunWriteErrorsTotal.Inc()
 		return fmt.Errorf("write packet to tun: %v", err)
 	} else if packetsCount < len(bufs) {
 		d.logger.Warnf("wrote %d packets, but expected %d", packetsCount, len(bufs))
@@ -209,6 +212,7 @@ func (d *Device) ReadTUNPackets(packetsHandler func([]*Packet)) {
 		} else if errors.Is(err, os.ErrClosed) {
 			return
 		} else if err != nil {
+			metrics.VPNTunReadErrorsTotal.Inc()
 			d.logger.Errorf("Failed to read packets from TUN device: %v", err)
 			return
 		}

@@ -15,7 +15,8 @@ require (
 	github.com/haxii/socks5 v1.0.0
 	github.com/ipfs/go-datastore v0.9.0
 	github.com/ipfs/go-log/v2 v2.9.1
-	github.com/labstack/echo/v4 v4.14.0
+	github.com/labstack/echo-contrib v0.50.1
+	github.com/labstack/echo/v4 v4.15.0
 	github.com/libp2p/go-libp2p v0.47.0
 	github.com/libp2p/go-libp2p-kad-dht v0.37.1
 	github.com/libp2p/go-libp2p-kbucket v0.8.0
@@ -27,6 +28,7 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multistream v0.6.1
 	github.com/olekukonko/tablewriter v0.0.5
+	github.com/prometheus/client_golang v1.23.2
 	github.com/quic-go/quic-go v0.59.0
 	github.com/stretchr/testify v1.11.1
 	github.com/urfave/cli/v2 v2.27.7
@@ -123,10 +125,9 @@ require (
 	github.com/pion/webrtc/v4 v4.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/polydawn/refmt v0.89.0 // indirect
-	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.66.1 // indirect
-	github.com/prometheus/procfs v0.17.0 // indirect
+	github.com/prometheus/common v0.67.5 // indirect
+	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/webtransport-go v0.10.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect

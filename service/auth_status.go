@@ -16,6 +16,7 @@ import (
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/metrics"
 	"github.com/anywherelan/awl/protocol"
 )
 
@@ -63,6 +64,7 @@ func NewAuthStatus(p2pService P2p, conf *config.Config, eventbus awlevent.Bus) *
 }
 
 func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
+	metrics.PeersStatusRequestsReceivedTotal.Inc()
 	defer func() {
 		_ = stream.Close()
 	}()
@@ -122,6 +124,8 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 	defer func() {
 		_ = stream.Close()
 	}()
+
+	metrics.PeersStatusRequestsSentTotal.Inc()
 
 	_, isBlocked := s.conf.GetBlockedPeer(remotePeerID.String())
 	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isBlocked)
@@ -211,6 +215,7 @@ func (s *AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo proto
 }
 
 func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
+	metrics.PeersAuthRequestsReceivedTotal.Inc()
 	defer func() {
 		_ = stream.Close()
 	}()
@@ -255,6 +260,7 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 }
 
 func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req protocol.AuthPeer) error {
+	metrics.PeersAuthRequestsSentTotal.Inc()
 	s.authsLock.Lock()
 	s.outgoingAuths[peerID] = req
 	s.authsLock.Unlock()
@@ -460,6 +466,7 @@ func (s *AuthStatus) onPeerConnected(_ network.Network, conn network.Conn) {
 		}
 
 		if known {
+			metrics.PeersConnectionEventsTotal.WithLabelValues("connected").Inc()
 			dir := strings.ToLower(conn.Stat().Direction.String())
 			s.logger.Infof("peer '%s' connected, direction %s, address %s", knownPeer.DisplayName(), dir, conn.RemoteMultiaddr())
 
@@ -477,6 +484,14 @@ func (s *AuthStatus) onPeerDisconnected(_ network.Network, conn network.Conn) {
 	if !known {
 		return
 	}
+	metrics.PeersConnectionEventsTotal.WithLabelValues("disconnected").Inc()
 	s.conf.UpdatePeerLastSeen(peerID.String())
 	s.logger.Infof("peer '%s' disconnected, address %s", knownPeer.DisplayName(), conn.RemoteMultiaddr())
+}
+
+// GetAuthRequestCounts returns the number of pending ingoing and outgoing auth requests.
+func (s *AuthStatus) GetAuthRequestCounts() (ingoing, outgoing int) {
+	s.authsLock.RLock()
+	defer s.authsLock.RUnlock()
+	return len(s.ingoingAuths), len(s.outgoingAuths)
 }

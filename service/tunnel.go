@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/metrics"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/vpn"
 )
@@ -100,6 +101,7 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 		select {
 		case vpnPeer.inboundCh <- packet:
 		default:
+			metrics.VPNPacketsDroppedTotal.WithLabelValues("inbound_channel_full").Inc()
 			t.logger.Warnf("inbound reader dropped packet for peer %s", peerID)
 			t.device.PutTempPacket(packet)
 		}
@@ -222,6 +224,7 @@ func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
 		case vpnPeer.outboundCh <- packet:
 			packets[i] = nil
 		default:
+			metrics.VPNPacketsDroppedTotal.WithLabelValues("outbound_channel_full").Inc()
 		}
 	}
 }
@@ -315,6 +318,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			stream, err = t.makeTunnelStream(ctx, vp.peerID)
 			cancel()
 			if err != nil {
+				metrics.VPNStreamOpenErrorsTotal.Inc()
 				return fmt.Errorf("make tunnel stream: %v", err)
 			}
 			if stream.Stat().Limited {
@@ -331,7 +335,13 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			data = protocol.AppendPacketToBuf(data, packet.Packet)
 		}
 		_, err = stream.Write(data)
+		dataLen := len(data)
 		bytesBuf = data[:0]
+
+		if err == nil {
+			metrics.VPNPacketsSentTotal.Add(float64(len(packets)))
+			metrics.VPNBytesSentTotal.Add(float64(dataLen))
+		}
 
 		return err
 	}
@@ -412,6 +422,7 @@ func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
 		for i, packet := range packetsBatch {
 			ok := packet.Parse()
 			if !ok {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("parse_error").Inc()
 				t.logger.Warnf("got invalid packet from peerID (%s) local ip (%s)", vp.peerID, localIP)
 				t.device.PutTempPacket(packet)
 				packetsBatch[i] = nil
@@ -426,6 +437,13 @@ func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
 			err := t.device.WritePacketsBatch(filteredPackets, bytesBufs, localIP)
 			if err != nil {
 				t.logger.Warnf("write packets batch to vpn for local ip %s: %v", localIP, err)
+			} else {
+				metrics.VPNPacketsReceivedTotal.Add(float64(len(filteredPackets)))
+				packetsLen := 0
+				for _, p := range filteredPackets {
+					packetsLen += len(p.Packet)
+				}
+				metrics.VPNBytesReceivedTotal.Add(float64(packetsLen))
 			}
 		}
 

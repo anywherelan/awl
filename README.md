@@ -200,6 +200,12 @@ Tip: you can force using config file in the same directory with executable by cr
 
 It is not recommended to amend config file while application is still running.
 
+## Monitoring
+
+AWL includes built-in Prometheus metrics support. You can access the metrics endpoint at `http://localhost:8639/metrics`.
+
+A pre-packaged monitoring stack with Prometheus and Grafana dashboards is available in the [monitoring/](monitoring/) directory. See [monitoring/README.md](monitoring/README.md) for setup instructions.
+
 ## Terminal based client
 
 Both `awl` and `awl-tray` versions have CLI to communicate with vpn server.
@@ -261,12 +267,6 @@ systemctl restart awl
 ```
 
 As alternative, on Desktop/Server you can download new version from [releases page](https://github.com/anywherelan/awl/releases) and manually replace old files with new ones.
-
-# Roadmap
-
-- performance improvements for vpn tunnel protocol
-- exit nodes - let you route all internet traffic through other peers
-- add support for awl dns for android ([#17](https://github.com/anywherelan/awl/issues/17))
 
 # Contributing
 
