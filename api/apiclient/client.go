@@ -30,6 +30,30 @@ func New(address string) *Client {
 	}
 }
 
+func NewWithAuth(address, username, password string) *Client {
+	c := New(address)
+	if password != "" {
+		c.cli.Transport = &basicAuthTransport{
+			username: username,
+			password: password,
+			inner:    c.cli.Transport,
+		}
+	}
+	return c
+}
+
+type basicAuthTransport struct {
+	username string
+	password string
+	inner    http.RoundTripper
+}
+
+func (t *basicAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.SetBasicAuth(t.username, t.password)
+	return t.inner.RoundTrip(req)
+}
+
 func (c *Client) KnownPeers() ([]entity.KnownPeersResponse, error) {
 	knownPeers := make([]entity.KnownPeersResponse, 0)
 	err := c.sendGetRequest(api.GetKnownPeersPath, &knownPeers)

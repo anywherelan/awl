@@ -106,6 +106,14 @@ func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 		e.Use(middleware.Recover())
 	}
 
+	if h.conf.HttpBasicAuth.Password != "" {
+		username := h.conf.HttpBasicAuth.Username
+		password := h.conf.HttpBasicAuth.Password
+		e.Use(middleware.BasicAuth(func(u, p string, _ echo.Context) (bool, error) {
+			return u == username && p == password, nil
+		}))
+	}
+
 	// Routes
 
 	// Metrics
