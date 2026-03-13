@@ -45,7 +45,7 @@ func TestRemovePeer(t *testing.T) {
 	ts.NoError(err)
 
 	peer2From1, err := peer1.api.KnownPeerConfig(peer2.PeerID())
-	ts.EqualError(err, "peer not found")
+	ts.EqualError(err, "status code: 404, error: peer not found")
 	ts.Nil(peer2From1)
 	_, blockedPeerExists := peer1.app.Conf.GetBlockedPeer(peer2.PeerID())
 	ts.True(blockedPeerExists)
@@ -262,7 +262,7 @@ func TestUniquePeerAlias(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer", "")
-	ts.EqualError(err, api.ErrorPeerAliasIsNotUniq)
+	ts.EqualError(err, "status code: 400, error: "+api.ErrorPeerAliasIsNotUniq)
 }
 
 func TestUpdateUseAsExitNodeConfig(t *testing.T) {

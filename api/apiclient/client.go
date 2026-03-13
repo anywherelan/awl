@@ -3,6 +3,7 @@ package apiclient
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -28,6 +29,30 @@ func New(address string) *Client {
 			Timeout:   10 * time.Second,
 		},
 	}
+}
+
+func NewWithAuth(address, username, password string) *Client {
+	c := New(address)
+	if password != "" {
+		c.cli.Transport = &basicAuthTransport{
+			username: username,
+			password: password,
+			inner:    c.cli.Transport,
+		}
+	}
+	return c
+}
+
+type basicAuthTransport struct {
+	username string
+	password string
+	inner    http.RoundTripper
+}
+
+func (t *basicAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.SetBasicAuth(t.username, t.password)
+	return t.inner.RoundTrip(req)
 }
 
 func (c *Client) KnownPeers() ([]entity.KnownPeersResponse, error) {
@@ -206,9 +231,9 @@ func (c *Client) readResponseBody(resp *http.Response, responseRef interface{}) 
 		apiError := api.Error{}
 		err := json.NewDecoder(resp.Body).Decode(&apiError)
 		if err != nil {
-			return err
+			return fmt.Errorf("status code: %d, error decoding json: %w", resp.StatusCode, err)
 		}
-		return apiError
+		return fmt.Errorf("status code: %d, error: %w", resp.StatusCode, apiError)
 	} else if responseRef != nil {
 		return json.NewDecoder(resp.Body).Decode(responseRef)
 	}
