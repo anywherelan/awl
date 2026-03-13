@@ -4,8 +4,18 @@ services:
     extra_hosts:
       # define a host.docker.internal alias, so we can use the same prometheus.yml on Linux and macOS
       - "host.docker.internal:127.0.0.1"
+  pyroscope:
+    network_mode: "host"
+  alloy:
+    network_mode: "host"
+    extra_hosts:
+      # define a host.docker.internal alias, so we can use the same config.alloy on Linux and macOS
+      - "host.docker.internal:127.0.0.1"
+      # define a pyroscope alias so Alloy can reach Pyroscope via the same URL on Linux and macOS
+      - "pyroscope:127.0.0.1"
   grafana:
     network_mode: "host"
     extra_hosts:
-      # define a prometheus alias, so we can use the same datasources.yml on Linux and macOS
+      # define aliases so we can use the same datasources.yml on Linux and macOS
       - "prometheus:127.0.0.1"
+      - "pyroscope:127.0.0.1"

@@ -202,9 +202,19 @@ It is not recommended to amend config file while application is still running.
 
 ## Monitoring
 
-AWL includes built-in Prometheus metrics support. You can access the metrics endpoint at `http://localhost:8639/metrics`.
+AWL includes built-in Prometheus metrics and pprof profiling support:
 
-A pre-packaged monitoring stack with Prometheus and Grafana dashboards is available in the [monitoring/](monitoring/) directory. See [monitoring/README.md](monitoring/README.md) for setup instructions.
+- **Metrics**: `http://localhost:8639/metrics` (Prometheus format)
+- **Profiling**: `http://localhost:8639/api/v0/debug/pprof/`
+
+A pre-packaged monitoring stack is available in the [monitoring/](monitoring/) directory with:
+
+- **Prometheus** — scrapes AWL metrics
+- **Grafana** — dashboards for libp2p subsystems and AWL-specific metrics, plus profile exploration via Pyroscope datasource
+- **Pyroscope** — continuous profiling storage
+- **Grafana Alloy** — scrapes pprof endpoints and pushes CPU, heap, goroutine, mutex, and block profiles to Pyroscope
+
+See [monitoring/README.md](monitoring/README.md) for setup instructions.
 
 ## Terminal based client
 
