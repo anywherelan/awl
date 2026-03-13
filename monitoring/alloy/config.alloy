@@ -1,0 +1,41 @@
+pyroscope.scrape "anywherelan" {
+  targets = [{
+    __address__ = "host.docker.internal:8639",
+    "service_name" = "anywherelan",
+  }]
+  forward_to = [pyroscope.write.local.receiver]
+
+  profiling_config {
+    profile.process_cpu {
+      enabled = true
+      path    = "/api/v0/debug/pprof/profile"
+      delta   = true
+    }
+    profile.memory {
+      enabled = true
+      path    = "/api/v0/debug/pprof/heap"
+      delta   = false
+    }
+    profile.goroutine {
+      enabled = true
+      path    = "/api/v0/debug/pprof/goroutine"
+      delta   = false
+    }
+    profile.mutex {
+      enabled = true
+      path    = "/api/v0/debug/pprof/mutex"
+      delta   = true
+    }
+    profile.block {
+      enabled = true
+      path    = "/api/v0/debug/pprof/block"
+      delta   = true
+    }
+  }
+}
+
+pyroscope.write "local" {
+  endpoint {
+    url = "http://pyroscope:4040"
+  }
+}

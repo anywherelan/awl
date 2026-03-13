@@ -21,6 +21,15 @@ docker compose -f docker-compose.yml -f docker-compose-linux.yml up
 Then open:
 - **Grafana**: http://localhost:3000 (no login required)
 - **Prometheus**: http://localhost:9090
+- **Pyroscope**: http://localhost:4040
+
+## Continuous Profiling
+
+AWL exposes pprof endpoints at `http://localhost:8639/api/v0/debug/pprof/`. **Grafana Alloy** scrapes these every 15 seconds (CPU, heap, goroutine, mutex, block profiles) and pushes them to **Pyroscope** for storage and querying.
+
+To view profiles in Grafana: **Explore → select Pyroscope datasource** → pick `process_cpu{app="anywherelan"}` (or `memory`, `goroutine`, etc.).
+
+You can also browse profiles directly in the Pyroscope UI at http://localhost:4040.
 
 ## Metrics Reference
 
