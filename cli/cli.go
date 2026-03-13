@@ -108,6 +108,16 @@ func (a *Application) init() {
 				Usage:    fmt.Sprintf("awl api address, example: %s", defaultApiAddr),
 				Required: false,
 			},
+			&cli.StringFlag{
+				Name:     "api_user",
+				Usage:    "username for api basic auth",
+				Required: false,
+			},
+			&cli.StringFlag{
+				Name:     "api_password",
+				Usage:    "password for api basic auth",
+				Required: false,
+			},
 		},
 		Commands: []*cli.Command{
 			{
@@ -466,17 +476,24 @@ func (a *Application) init() {
 }
 
 func (a *Application) initApiConnection(c *cli.Context) error {
+	username := c.String("api_user")
+	password := c.String("api_password")
+
 	apiAddr := c.String("api_addr")
 	if apiAddr != "" {
-		return a.initApiFromAddr(apiAddr)
+		return a.initApiFromAddr(apiAddr, username, password)
 	}
 
 	conf, errConfig := config.LoadConfig(eventbus.NewBus())
 	if errConfig == nil {
-		return a.initApiFromAddr(conf.HttpListenAddress)
+		if username == "" && password == "" {
+			username = conf.HttpBasicAuth.Username
+			password = conf.HttpBasicAuth.Password
+		}
+		return a.initApiFromAddr(conf.HttpListenAddress, username, password)
 	}
 
-	errDefault := a.initApiFromAddr(defaultApiAddr)
+	errDefault := a.initApiFromAddr(defaultApiAddr, username, password)
 	if errDefault == nil {
 		return nil
 	}
@@ -487,8 +504,8 @@ func (a *Application) initApiConnection(c *cli.Context) error {
 	return errors.New("no connection to api server")
 }
 
-func (a *Application) initApiFromAddr(addr string) error {
-	api := apiclient.New(addr)
+func (a *Application) initApiFromAddr(addr, username, password string) error {
+	api := apiclient.NewWithAuth(addr, username, password)
 	_, err := api.PeerInfo()
 	if err != nil {
 		return fmt.Errorf("could not access api on address %s: %v", addr, err)

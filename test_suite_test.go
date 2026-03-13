@@ -23,7 +23,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
-	simlibp2p "github.com/libp2p/go-libp2p/x/simlibp2p"
+	"github.com/libp2p/go-libp2p/x/simlibp2p"
 	"github.com/marcopolo/simnet"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
@@ -87,7 +87,7 @@ func (ts *TestSuite) NewTestPeer(disableLogging bool) TestPeer {
 		multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
 		multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
 	}
-	return ts.newTestPeer(disableLogging, listenAddrs, nil)
+	return ts.newTestPeerWithConfig(disableLogging, listenAddrs, nil, nil)
 }
 
 type ConfigModifier func(*config.Config)
@@ -104,10 +104,6 @@ func (ts *TestSuite) NewTestPeerWithConfig(configModifier ConfigModifier) TestPe
 type SOCKS5PeerConfig struct {
 	ListenerEnabled bool
 	ProxyingEnabled bool
-}
-
-func (ts *TestSuite) newTestPeer(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option) TestPeer {
-	return ts.newTestPeerWithConfig(disableLogging, listenAddrs, extraLibp2pOpts, nil)
 }
 
 func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, socks5Conf *SOCKS5PeerConfig) TestPeer {
@@ -178,7 +174,7 @@ func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []mu
 
 	tp := TestPeer{
 		app: app,
-		api: apiclient.New(app.Api.Address()),
+		api: apiclient.NewWithAuth(app.Api.Address(), app.Conf.HttpBasicAuth.Username, app.Conf.HttpBasicAuth.Password),
 		tun: testTUN,
 	}
 
