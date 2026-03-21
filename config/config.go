@@ -48,6 +48,7 @@ type (
 		LoggerLevel           string                 `json:"loggerLevel"`
 		HttpListenAddress     string                 `json:"httpListenAddress"`
 		HttpListenOnAdminHost bool                   `json:"httpListenOnAdminHost"`
+		HttpBasicAuth         HttpBasicAuthConfig    `json:"httpBasicAuth"`
 		P2pNode               P2pNodeConfig          `json:"p2pNode"`
 		VPNConfig             VPNConfig              `json:"vpn"`
 		SOCKS5                SOCKS5Config           `json:"socks5"`
@@ -122,6 +123,10 @@ type (
 		UpdateServerURL       string `json:"updateServerURL"`
 		TrayAutoCheckEnabled  bool   `json:"trayAutoCheckEnabled"`
 		TrayAutoCheckInterval string `json:"trayAutoCheckInterval"`
+	}
+	HttpBasicAuthConfig struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 )
 

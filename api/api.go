@@ -106,6 +106,14 @@ func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 		e.Use(middleware.Recover())
 	}
 
+	if h.conf.HttpBasicAuth.Password != "" {
+		username := h.conf.HttpBasicAuth.Username
+		password := h.conf.HttpBasicAuth.Password
+		e.Use(middleware.BasicAuth(func(u, p string, _ echo.Context) (bool, error) {
+			return u == username && p == password, nil
+		}))
+	}
+
 	// Routes
 
 	// Metrics
@@ -205,10 +213,15 @@ func (cv *customValidator) Validate(i interface{}) error {
 
 type Error struct {
 	Message string `json:"error"`
+	// AuthMessage is an error from Echo framework, particularly from Basic Auth middleware
+	AuthMessage string `json:"message"`
 }
 
 func (e Error) Error() string {
-	return e.Message
+	if e.Message != "" && e.AuthMessage != "" {
+		return fmt.Sprintf("error: %s; message: %s", e.Message, e.AuthMessage)
+	}
+	return e.Message + e.AuthMessage
 }
 
 func ErrorMessage(message string) Error {
