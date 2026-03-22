@@ -2,7 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"os"
+	"io"
 	"strings"
 	"time"
 
@@ -12,13 +12,13 @@ import (
 	"github.com/anywherelan/awl/api/apiclient"
 )
 
-func printStatus(api *apiclient.Client) error {
+func printStatus(api *apiclient.Client, w io.Writer) error {
 	stats, err := api.PeerInfo()
 	if err != nil {
 		return err
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
+	table := tablewriter.NewWriter(w)
 	table.AppendBulk([][]string{
 		{"Download rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateIn, stats.NetworkStatsInIECUnits.TotalIn)},
 		{"Upload rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateOut, stats.NetworkStatsInIECUnits.TotalOut)},
@@ -44,55 +44,55 @@ func formatWorkingStatus(working bool) string {
 	return "not working"
 }
 
-func printPeerId(api *apiclient.Client) error {
+func printPeerId(api *apiclient.Client, w io.Writer) error {
 	info, err := api.PeerInfo()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("your peer id: %s\n", info.PeerID)
+	fmt.Fprintf(w, "your peer id: %s\n", info.PeerID)
 
-	qrterminal.GenerateHalfBlock(info.PeerID, qrterminal.M, os.Stdout)
+	qrterminal.GenerateHalfBlock(info.PeerID, qrterminal.M, w)
 
 	return nil
 }
 
-func renameMe(api *apiclient.Client, newName string) error {
+func renameMe(api *apiclient.Client, newName string, w io.Writer) error {
 	err := api.UpdateMySettings(newName)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("my peer name updated successfully")
+	fmt.Fprintln(w, "my peer name updated successfully")
 
 	return nil
 }
 
-func listProxies(api *apiclient.Client) error {
+func listProxies(api *apiclient.Client, w io.Writer) error {
 	proxies, err := api.ListAvailableProxies()
 	if err != nil {
 		return err
 	}
 
 	if len(proxies) == 0 {
-		fmt.Println("no available proxies")
+		fmt.Fprintln(w, "no available proxies")
 		return nil
 	}
 
-	fmt.Println("Proxies:")
+	fmt.Fprintln(w, "Proxies:")
 	for _, proxy := range proxies {
-		fmt.Printf("- peer name: %s | peer id: %s\n", proxy.PeerName, proxy.PeerID)
+		fmt.Fprintf(w, "- peer name: %s | peer id: %s\n", proxy.PeerName, proxy.PeerID)
 	}
 
 	return nil
 }
 
-func setProxy(api *apiclient.Client, peerID string) error {
+func setProxy(api *apiclient.Client, peerID string, w io.Writer) error {
 	err := api.UpdateProxySettings(peerID)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("proxy settings updated successfully")
+	fmt.Fprintln(w, "proxy settings updated successfully")
 
 	return nil
 }

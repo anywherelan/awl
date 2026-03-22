@@ -3,7 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"strconv"
 	"strings"
 
@@ -14,7 +14,7 @@ import (
 	"github.com/anywherelan/awl/entity"
 )
 
-func printPeersStatus(api *apiclient.Client, format string) error {
+func printPeersStatus(api *apiclient.Client, format string, w io.Writer) error {
 	const (
 		TableFormatRowNumber    = "n"
 		TableFormatPeer         = "p"
@@ -43,7 +43,7 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 		return fmt.Errorf("format flag is incorrect: format should contain at leest 1 char")
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
+	table := tablewriter.NewWriter(w)
 
 	headers := make([]string, 0, len(format))
 	columns := make([]string, 0, len(format))
@@ -134,17 +134,17 @@ func printPeersStatus(api *apiclient.Client, format string) error {
 	return nil
 }
 
-func printFriendRequests(api *apiclient.Client) error {
+func printFriendRequests(api *apiclient.Client, w io.Writer) error {
 	authRequests, err := api.AuthRequests()
 	if err != nil {
 		return err
 	}
 	if len(authRequests) == 0 {
-		fmt.Println("you have no incoming requests")
+		fmt.Fprintln(w, "you have no incoming requests")
 		return nil
 	}
 	for _, req := range authRequests {
-		fmt.Printf("Name: '%s' peerID: %s suggestedIP: %s\n", req.Name, req.PeerID, req.SuggestedIP)
+		fmt.Fprintf(w, "Name: '%s' peerID: %s suggestedIP: %s\n", req.Name, req.PeerID, req.SuggestedIP)
 	}
 
 	return nil
@@ -168,7 +168,7 @@ func getPeerIdByAlias(api *apiclient.Client, alias string) (string, error) {
 	return "", fmt.Errorf("can't find peer with name \"%s\"", alias)
 }
 
-func addPeer(api *apiclient.Client, peerID, alias, ipAddr string) error {
+func addPeer(api *apiclient.Client, peerID, alias, ipAddr string, w io.Writer) error {
 	authRequests, err := api.AuthRequests()
 	if err != nil {
 		return err
@@ -186,7 +186,7 @@ func addPeer(api *apiclient.Client, peerID, alias, ipAddr string) error {
 			return err
 		}
 
-		fmt.Println("user added to friends list successfully")
+		fmt.Fprintln(w, "user added to friends list successfully")
 		return nil
 	}
 
@@ -194,21 +194,21 @@ func addPeer(api *apiclient.Client, peerID, alias, ipAddr string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("friend request sent successfully")
+	fmt.Fprintln(w, "friend request sent successfully")
 	return nil
 }
 
-func removePeer(api *apiclient.Client, peerID string) error {
+func removePeer(api *apiclient.Client, peerID string, w io.Writer) error {
 	err := api.RemovePeer(peerID)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("peer removed successfully")
+	fmt.Fprintln(w, "peer removed successfully")
 	return nil
 }
 
-func changePeerAlias(api *apiclient.Client, peerID, newAlias string) error {
+func changePeerAlias(api *apiclient.Client, peerID, newAlias string, w io.Writer) error {
 	pcfg, err := api.KnownPeerConfig(peerID)
 	if err != nil {
 		return err
@@ -225,11 +225,11 @@ func changePeerAlias(api *apiclient.Client, peerID, newAlias string) error {
 		return err
 	}
 
-	fmt.Println("peer name updated successfully")
+	fmt.Fprintln(w, "peer name updated successfully")
 	return nil
 }
 
-func changePeerDomain(api *apiclient.Client, peerID, newDomain string) error {
+func changePeerDomain(api *apiclient.Client, peerID, newDomain string, w io.Writer) error {
 	pcfg, err := api.KnownPeerConfig(peerID)
 	if err != nil {
 		return err
@@ -246,11 +246,11 @@ func changePeerDomain(api *apiclient.Client, peerID, newDomain string) error {
 		return err
 	}
 
-	fmt.Println("peer domain name updated successfully")
+	fmt.Fprintln(w, "peer domain name updated successfully")
 	return nil
 }
 
-func changePeerIP(api *apiclient.Client, peerID, newIP string) error {
+func changePeerIP(api *apiclient.Client, peerID, newIP string, w io.Writer) error {
 	pcfg, err := api.KnownPeerConfig(peerID)
 	if err != nil {
 		return err
@@ -267,11 +267,11 @@ func changePeerIP(api *apiclient.Client, peerID, newIP string) error {
 		return err
 	}
 
-	fmt.Println("peer IP address updated successfully")
+	fmt.Fprintln(w, "peer IP address updated successfully")
 	return nil
 }
 
-func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool) error {
+func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool, w io.Writer) error {
 	pcfg, err := api.KnownPeerConfig(peerID)
 	if err != nil {
 		return err
@@ -288,6 +288,6 @@ func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool) e
 		return err
 	}
 
-	fmt.Println("AllowUsingAsExitNode config updated successfully")
+	fmt.Fprintln(w, "AllowUsingAsExitNode config updated successfully")
 	return nil
 }
