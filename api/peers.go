@@ -314,7 +314,7 @@ func (h *Handler) RemovePeer(c echo.Context) (err error) {
 // @Router /peers/get_blocked [GET]
 func (h *Handler) GetBlockedPeers(c echo.Context) (err error) {
 	h.conf.RLock()
-	result := make([]config.BlockedPeer, 0)
+	result := make([]config.BlockedPeer, 0, len(h.conf.BlockedPeers))
 
 	for _, blockedPeer := range h.conf.BlockedPeers {
 		result = append(result, blockedPeer)

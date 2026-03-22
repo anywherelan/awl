@@ -115,6 +115,11 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 	_, blockedPeerExists := peer2.app.Conf.GetBlockedPeer(peer1.PeerID())
 	ts.True(blockedPeerExists)
+
+	blocked, err := peer2.api.BlockedPeers()
+	ts.NoError(err)
+	ts.Len(blocked, 1)
+	ts.Equal(peer1.PeerID(), blocked[0].PeerID)
 }
 
 func TestAutoAcceptFriendRequest(t *testing.T) {

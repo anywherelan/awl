@@ -38,7 +38,7 @@ func convertBytesToIECUnits(bytesSize float64) string {
 		bytesSize /= unit
 		idx++
 	}
-	label := IECUnits[idx] //nolint:gosec
+	label := IECUnits[idx]
 
 	bytesSize = math.Round(bytesSize*100) / 100
 	bFormatted := strconv.FormatFloat(bytesSize, 'f', -1, 64)

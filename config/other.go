@@ -61,7 +61,7 @@ func init() {
 
 func CalcAppDataDir() string {
 	if envDir := os.Getenv(AppDataDirEnvKey); envDir != "" {
-		err := os.MkdirAll(envDir, dirsPerm)
+		err := os.MkdirAll(envDir, dirsPerm) //nolint:gosec
 		if err != nil {
 			logger.Errorf("could not create data directory from env: %v", err)
 		}
@@ -258,7 +258,7 @@ func ChownFileIfNeeded(path string) {
 	if runtime.GOOS != "linux" || LinuxFilesOwnerUID == 0 {
 		return
 	}
-	err := os.Chown(path, LinuxFilesOwnerUID, LinuxFilesOwnerUID)
+	err := os.Chown(path, LinuxFilesOwnerUID, LinuxFilesOwnerUID) //nolint:gosec
 	if err != nil {
 		logger.Errorf("Chown file '%s': %v", path, err)
 	}

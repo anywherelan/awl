@@ -127,6 +127,15 @@ func (c *Client) AuthRequests() ([]entity.AuthRequest, error) {
 	return authRequests, nil
 }
 
+func (c *Client) BlockedPeers() ([]config.BlockedPeer, error) {
+	blocked := make([]config.BlockedPeer, 0)
+	err := c.sendGetRequest(api.GetBlockedPeersPath, &blocked)
+	if err != nil {
+		return nil, err
+	}
+	return blocked, nil
+}
+
 func (c *Client) UpdatePeerSettings(request entity.UpdatePeerSettingsRequest) error {
 	return c.sendPostRequest(api.UpdatePeerSettingsPath, request, nil)
 }
