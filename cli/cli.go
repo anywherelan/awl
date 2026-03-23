@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"runtime"
@@ -44,6 +45,13 @@ func New(updateType update.ApplicationType) *Application {
 	app.init()
 
 	return app
+}
+
+// RunWithWriter runs CLI commands with the given args, writing output to w.
+// Suitable for use in tests. Unlike Run(), it does not read os.Args or call os.Exit.
+func (a *Application) RunWithWriter(args []string, w io.Writer) error {
+	a.cliapp.Writer = w
+	return a.cliapp.Run(args)
 }
 
 func (a *Application) Run() {
@@ -129,7 +137,7 @@ func (a *Application) init() {
 						Usage:  "Print your server status, network stats",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return printStatus(a.api)
+							return printStatus(a.api, c.App.Writer)
 						},
 					},
 					{
@@ -137,7 +145,7 @@ func (a *Application) init() {
 						Usage:  "Print your peer id",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return printPeerId(a.api)
+							return printPeerId(a.api, c.App.Writer)
 						},
 					},
 					{
@@ -152,7 +160,7 @@ func (a *Application) init() {
 						},
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return renameMe(a.api, c.String("name"))
+							return renameMe(a.api, c.String("name"), c.App.Writer)
 						},
 					},
 					{
@@ -160,7 +168,7 @@ func (a *Application) init() {
 						Usage:  "Prints list of available SOCKS5 proxies",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return listProxies(a.api)
+							return listProxies(a.api, c.App.Writer)
 						},
 					},
 					{
@@ -182,7 +190,7 @@ func (a *Application) init() {
 							return a.initApiAndPeerId(c, false)
 						},
 						Action: func(c *cli.Context) error {
-							return setProxy(a.api, c.String("pid"))
+							return setProxy(a.api, c.String("pid"), c.App.Writer)
 						},
 					},
 				},
@@ -207,7 +215,7 @@ func (a *Application) init() {
 						},
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return printPeersStatus(a.api, c.String("format"))
+							return printPeersStatus(a.api, c.String("format"), c.App.Writer)
 						},
 					},
 					{
@@ -215,7 +223,7 @@ func (a *Application) init() {
 						Usage:  "Print all incoming friend requests",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return printFriendRequests(a.api)
+							return printFriendRequests(a.api, c.App.Writer)
 						},
 					},
 					{
@@ -240,7 +248,7 @@ func (a *Application) init() {
 						},
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return addPeer(a.api, c.String("pid"), c.String("name"), c.String("ip"))
+							return addPeer(a.api, c.String("pid"), c.String("name"), c.String("ip"), c.App.Writer)
 						},
 					},
 					{
@@ -260,7 +268,7 @@ func (a *Application) init() {
 						},
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return removePeer(a.api, c.String("pid"))
+							return removePeer(a.api, c.String("pid"), c.App.Writer)
 						},
 					},
 					{
@@ -285,7 +293,7 @@ func (a *Application) init() {
 						},
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return changePeerAlias(a.api, c.String("pid"), c.String("new_name"))
+							return changePeerAlias(a.api, c.String("pid"), c.String("new_name"), c.App.Writer)
 						},
 					},
 					{
@@ -310,7 +318,7 @@ func (a *Application) init() {
 						},
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return changePeerDomain(a.api, c.String("pid"), c.String("domain"))
+							return changePeerDomain(a.api, c.String("pid"), c.String("domain"), c.App.Writer)
 						},
 					},
 					{
@@ -335,7 +343,7 @@ func (a *Application) init() {
 						},
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return changePeerIP(a.api, c.String("pid"), c.String("ip"))
+							return changePeerIP(a.api, c.String("pid"), c.String("ip"), c.App.Writer)
 						},
 					},
 					{
@@ -360,7 +368,7 @@ func (a *Application) init() {
 						},
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return setAllowUsingAsExitNode(a.api, c.String("pid"), c.Bool("allow"))
+							return setAllowUsingAsExitNode(a.api, c.String("pid"), c.Bool("allow"), c.App.Writer)
 						},
 					},
 				},
@@ -388,7 +396,7 @@ func (a *Application) init() {
 					if err != nil {
 						return err
 					}
-					fmt.Println(logs)
+					fmt.Fprintln(c.App.Writer, logs)
 
 					return nil
 				},
@@ -397,7 +405,7 @@ func (a *Application) init() {
 				Name:   "p2p_info",
 				Usage:  "Prints p2p debug info",
 				Before: a.initApiConnection,
-				Action: func(*cli.Context) error {
+				Action: func(c *cli.Context) error {
 					debugInfo, err := a.api.P2pDebugInfo()
 					if err != nil {
 						return err
@@ -407,7 +415,7 @@ func (a *Application) init() {
 					if err != nil {
 						return err
 					}
-					fmt.Println(string(bytes))
+					fmt.Fprintln(c.App.Writer, string(bytes))
 
 					return nil
 				},
