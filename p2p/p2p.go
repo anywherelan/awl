@@ -248,6 +248,11 @@ func (p *P2p) NewStream(ctx context.Context, id peer.ID, proto protocol.ID) (net
 	return p.host.NewStream(ctx, id, proto)
 }
 
+func (p *P2p) NewStreamMulti(ctx context.Context, id peer.ID, protos ...protocol.ID) (network.Stream, error) {
+	ctx = network.WithAllowLimitedConn(ctx, "awl")
+	return p.host.NewStream(ctx, id, protos...)
+}
+
 func (p *P2p) NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto protocol.ID) (network.Stream, error) {
 	ctx = network.WithAllowLimitedConn(ctx, "awl")
 

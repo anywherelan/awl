@@ -135,6 +135,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		p2pHost.SetStreamHandler(protocol.TunnelPacketMethod, a.Tunnel.StreamHandler)
 	}
 	p2pHost.SetStreamHandler(protocol.Socks5PacketMethod, a.SOCKS5.ProxyStreamHandler)
+	p2pHost.SetStreamHandler(protocol.Socks5NoAuthMethod, a.SOCKS5.ProxyStreamHandler)
 
 	if a.Tunnel != nil {
 		awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {

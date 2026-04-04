@@ -17,6 +17,7 @@ const (
 	GetStatusMethod    protocol.ID = basePath + "/status/"
 	TunnelPacketMethod protocol.ID = basePath + "/tunnel/"
 	Socks5PacketMethod protocol.ID = basePath + "/socks5/"
+	Socks5NoAuthMethod protocol.ID = basePath + "/socks5-noauth/"
 )
 
 type (
