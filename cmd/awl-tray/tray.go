@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"image"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
@@ -127,6 +128,14 @@ func initTray() {
 		for range updateMenu.ClickedCh {
 			err := onClickUpdateMenu()
 			handleErrorWithDialog(err)
+		}
+	}()
+
+	advancedMenu := systray.AddMenuItem("Advanced", "")
+	editConfigMenu := advancedMenu.AddSubMenuItem("Edit raw config", "Open config file in default editor")
+	go func() {
+		for range editConfigMenu.ClickedCh {
+			onClickEditRawConfig()
 		}
 	}()
 
@@ -297,6 +306,23 @@ func refreshProxySubmenus() {
 				app.Conf.Unlock()
 			}
 		}()
+	}
+}
+
+func onClickEditRawConfig() {
+	if app != nil {
+		ok := showQuestionDialog("Anywherelan", "Server is currently running.\nYou need to stop the server before editing the config,\notherwise your changes will be overwritten.\n\nStop the server now?", "Stop server")
+		if !ok {
+			return
+		}
+		StopServer()
+	}
+
+	configPath := filepath.Join(config.CalcAppDataDir(), config.AppConfigFilename)
+	err := openURL(configPath)
+	if err != nil {
+		logger.Errorf("failed to open config file %s: %v", configPath, err)
+		showErrorDialog("Anywherelan error", fmt.Sprintf("Failed to open config file %s: %v", configPath, err))
 	}
 }
 
