@@ -140,6 +140,7 @@ func ImportConfig(data []byte, directory string) error {
 	return nil
 }
 
+//nolint:gocyclo
 func setDefaults(conf *Config, bus awlevent.Bus) {
 	isEmptyConfig := conf.Version == ""
 
@@ -194,6 +195,9 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 
 	if conf.DNS.ListenAddress == "" {
 		conf.DNS.ListenAddress = awldns.DefaultDNSAddress
+	}
+	if conf.DNS.UpstreamDNSAddress == "" {
+		conf.DNS.UpstreamDNSAddress = awldns.DefaultUpstreamDNSAddress
 	}
 
 	uniqAliases := make(map[string]struct{}, len(conf.KnownPeers))

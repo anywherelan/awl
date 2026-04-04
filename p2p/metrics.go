@@ -64,6 +64,18 @@ func (p *P2p) PeerUserAgent(peerID peer.ID) string {
 	return ""
 }
 
+// HasDirectConnection reports whether at least one current connection to the
+// given peer is direct (i.e. not via a libp2p circuit relay). Returns false if
+// there are no connections at all.
+func (p *P2p) HasDirectConnection(peerID peer.ID) bool {
+	for _, info := range p.PeerConnectionsInfo(peerID) {
+		if !info.ThroughRelay {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
 	conns := p.connsToPeer(peerID)
 	infos := make([]ConnectionInfo, 0, len(conns))
@@ -81,6 +93,29 @@ func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
 		infos = append(infos, info)
 	}
 	return infos
+}
+
+// PeerPublicIP returns the verified public IP of the directly-connected peer.
+// It inspects active connections (skipping /p2p-circuit relay connections) and
+// returns the IP from the first non-relay Conn's RemoteMultiaddr — that address
+// is the one libp2p actually completed a handshake against, so it's reliable
+// (unlike Peerstore entries, which include unverified self-reported addrs from
+// identify). Returns "" if the peer is reachable only via a relay or is not
+// connected; in that case the real public IP is not observable to us.
+func (p *P2p) PeerPublicIP(peerID peer.ID) string {
+	for _, conn := range p.connsToPeer(peerID) {
+		addr := conn.RemoteMultiaddr()
+		if _, err := addr.ValueForProtocol(multiaddr.P_CIRCUIT); err == nil {
+			continue
+		}
+		if v, err := addr.ValueForProtocol(multiaddr.P_IP4); err == nil {
+			return v
+		}
+		if v, err := addr.ValueForProtocol(multiaddr.P_IP6); err == nil {
+			return v
+		}
+	}
+	return ""
 }
 
 func (p *P2p) ConnectedPeersCount() int {

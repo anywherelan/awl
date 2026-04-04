@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	ds "github.com/ipfs/go-datastore"
@@ -30,6 +31,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
+	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
 	msmux "github.com/multiformats/go-multistream"
@@ -57,6 +59,10 @@ type HostConfig struct {
 	BootstrapPeers           []peer.AddrInfo
 	AllowEmptyBootstrapPeers bool
 	EnableAutoRelay          bool
+
+	// SocketControlFunc is set when gateway mode is enabled to mark sockets
+	// (e.g., SO_MARK on Linux) so they bypass the VPN TUN interface.
+	SocketControlFunc func(network, address string, c syscall.RawConn) error
 
 	Libp2pOpts  []libp2p.Option
 	ConnManager struct {
@@ -159,6 +165,8 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 
 	p.config = hostConfig
 
+	transportOpts := p.buildTransportOpts(hostConfig.SocketControlFunc)
+
 	p2pHost, err := libp2p.New(
 		libp2p.Peerstore(hostConfig.Peerstore),
 		libp2p.Identity(privKey),
@@ -167,10 +175,7 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		libp2p.ConnectionManager(p.connManager),
 		libp2p.SwarmOpts(swarm.WithDialRanker(p.getDialRanker())),
 		libp2p.ListenAddrs(listenAddrs...),
-		libp2p.ChainOptions(
-			libp2p.Transport(libp2pquic.NewTransport),
-			libp2p.Transport(tcp.NewTCPTransport),
-		),
+		libp2p.ChainOptions(transportOpts...),
 		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
 			opts := []dht.Option{
 				dht.Datastore(hostConfig.DHTDatastore),
@@ -194,6 +199,43 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 	p.startedAt = time.Now()
 
 	return p2pHost, nil
+}
+
+func (p *P2p) buildTransportOpts(controlFunc func(network, address string, c syscall.RawConn) error) []libp2p.Option {
+	if controlFunc == nil {
+		return []libp2p.Option{
+			libp2p.Transport(libp2pquic.NewTransport),
+			libp2p.Transport(tcp.NewTCPTransport),
+		}
+	}
+
+	dialer := &net.Dialer{Control: controlFunc}
+	tcpDialer := func(raddr multiaddr.Multiaddr) (tcp.ContextDialer, error) {
+		return dialer, nil
+	}
+
+	listenUDP := func(network string, laddr *net.UDPAddr) (net.PacketConn, error) {
+		conn, err := net.ListenUDP(network, laddr)
+		if err != nil {
+			return nil, err
+		}
+		rawConn, err := conn.SyscallConn()
+		if err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		if err := controlFunc(network, laddr.String(), rawConn); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		return conn, nil
+	}
+
+	return []libp2p.Option{
+		libp2p.QUICReuse(quicreuse.NewConnManager, quicreuse.OverrideListenUDP(listenUDP)),
+		libp2p.Transport(libp2pquic.NewTransport),
+		libp2p.Transport(tcp.NewTCPTransport, tcp.WithDialerForAddr(tcpDialer)),
+	}
 }
 
 func (p *P2p) Close() error {

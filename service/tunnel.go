@@ -36,22 +36,34 @@ type Tunnel struct {
 	peerIDToPeer     map[peer.ID]*VpnPeer
 	netIPToPeer      map[string]*VpnPeer
 	udpBroadcastAddr net.IP
+
+	// VPN gateway mode fields (protected by peersLock).
+	vpnGatewayClientEnabled bool     // client side: we're using a gateway
+	vpnGatewayPeerID        peer.ID  // client side: which peer is our gateway
+	vpnGatewayPeer          *VpnPeer // resolved VpnPeer for outbound gateway traffic; rebound on RefreshPeersList
+	vpnGatewayServerEnabled bool     // server side: we serve as a VPN gateway for others
+	// awlSubnet is set once in NewTunnel and never mutated afterwards.
+	awlSubnet *net.IPNet
 }
 
 func NewTunnel(p2pService P2p, device *vpn.Device, conf *config.Config) *Tunnel {
 	localIP, netMask := conf.VPNLocalIPMask()
-	udpBroadcastAddr := vpn.GetIPv4BroadcastAddress(&net.IPNet{IP: localIP, Mask: netMask})
+	awlSubnet := &net.IPNet{IP: localIP, Mask: netMask}
+	udpBroadcastAddr := vpn.GetIPv4BroadcastAddress(awlSubnet)
 
 	tunnel := &Tunnel{
-		p2p:              p2pService,
-		conf:             conf,
-		device:           device,
-		logger:           log.Logger("awl/service/tunnel"),
-		peerIDToPeer:     make(map[peer.ID]*VpnPeer),
-		netIPToPeer:      make(map[string]*VpnPeer),
-		udpBroadcastAddr: udpBroadcastAddr,
+		p2p:                     p2pService,
+		conf:                    conf,
+		device:                  device,
+		logger:                  log.Logger("awl/service/tunnel"),
+		peerIDToPeer:            make(map[peer.ID]*VpnPeer),
+		netIPToPeer:             make(map[string]*VpnPeer),
+		udpBroadcastAddr:        udpBroadcastAddr,
+		vpnGatewayServerEnabled: conf.VPNGateway.ServerEnabled,
+		awlSubnet:               awlSubnet,
 	}
 	tunnel.RefreshPeersList()
+	p2pService.SubscribeConnectionEvents(tunnel.onPeerConnected, tunnel.onPeerDisconnected)
 
 	return tunnel
 }
@@ -73,10 +85,10 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 	wrappedStream := &io.LimitedReader{}
 	for {
 		packet := t.device.GetTempPacket()
-		packetSize, err := protocol.ReadUint64(stream)
+		packetSize, dir, err := protocol.ReadPacketHeader(stream)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				t.logger.Warnf("read packet size: %v", err)
+				t.logger.Warnf("read packet header: %v", err)
 			}
 			t.device.PutTempPacket(packet)
 			return
@@ -89,6 +101,7 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 			t.device.PutTempPacket(packet)
 			return
 		}
+		packet.GatewayDir = dir
 
 		t.peersLock.RLock()
 		vpnPeer, ok := t.peerIDToPeer[peerID]
@@ -112,6 +125,10 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 func (t *Tunnel) RefreshPeersList() {
 	t.peersLock.Lock()
 	defer t.peersLock.Unlock()
+
+	if t.isClosed.Load() {
+		return
+	}
 
 	t.conf.RLock()
 	defer t.conf.RUnlock()
@@ -162,6 +179,29 @@ func (t *Tunnel) RefreshPeersList() {
 		delete(t.peerIDToPeer, vpnPeer.peerID)
 		delete(t.netIPToPeer, string(localIP))
 	}
+
+	// Rebind gateway pointer to the (possibly new) VpnPeer for the configured gateway peer.
+	if t.vpnGatewayClientEnabled {
+		gwPeer, ok := t.peerIDToPeer[t.vpnGatewayPeerID]
+		if !ok {
+			t.logger.Warnf("VPN gateway peer %s no longer in KnownPeers, disabling gateway client mode", t.vpnGatewayPeerID)
+			t.vpnGatewayClientEnabled = false
+			t.vpnGatewayPeerID = ""
+			t.vpnGatewayPeer = nil
+		} else {
+			t.vpnGatewayPeer = gwPeer
+		}
+	}
+
+	// Recompute isGatewayClient for every peer. WeAllowUsingAsExitNode may
+	// have changed for any peer (peer settings update path)
+	for _, kp := range t.conf.KnownPeers {
+		vp, ok := t.peerIDToPeer[kp.PeerId()]
+		if !ok {
+			continue
+		}
+		vp.weAllowUsingAsExitNode.Store(kp.WeAllowUsingAsExitNode)
+	}
 }
 
 func (t *Tunnel) Close() {
@@ -191,6 +231,10 @@ func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
 		if packet == nil {
 			continue
 		}
+		// TODO: ipv6 support
+		if packet.IsIPv6 {
+			continue
+		}
 
 		// TODO: ipv6 support
 		if packet.Dst.Equal(t.udpBroadcastAddr) || packet.Dst.Equal(net.IPv4bcast) {
@@ -216,15 +260,40 @@ func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
 		}
 
 		vpnPeer, ok := t.netIPToPeer[string(packet.Dst)]
-		if !ok {
+		if ok {
+			// VPN gateway server: tag NAT-returned packets so the client peer
+			// applies a dst-only rewrite on receive. Discriminator: peer is
+			// our gateway client AND src is outside our awl subnet (i.e. came
+			// from the internet via NAT, not our own p2p initiative to the
+			// same peer). Subnet check is local to this side — no cross-side
+			// dependency on the client's awl subnet.
+			if vpnPeer.weAllowUsingAsExitNode.Load() && t.vpnGatewayServerEnabled && !t.awlSubnet.Contains(packet.Src) {
+				packet.GatewayDir = vpn.GatewayDirReturn
+			}
+			select {
+			case vpnPeer.outboundCh <- packet:
+				packets[i] = nil
+			default:
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("outbound_channel_full").Inc()
+			}
 			continue
 		}
 
-		select {
-		case vpnPeer.outboundCh <- packet:
-			packets[i] = nil
-		default:
-			metrics.VPNPacketsDroppedTotal.WithLabelValues("outbound_channel_full").Inc()
+		// VPN gateway client mode: forward non-local packets to the gateway peer.
+		// Subnet check is local to this side — it picks which packets go through
+		// the gateway vs. drop. The Forward tag carries the intent on the wire
+		// so the server doesn't have to re-derive it from packet IPs.
+		if t.vpnGatewayClientEnabled && t.vpnGatewayPeer != nil {
+			if isNonRoutableIP(packet.Dst) || t.awlSubnet.Contains(packet.Dst) {
+				continue
+			}
+			packet.GatewayDir = vpn.GatewayDirForward
+			select {
+			case t.vpnGatewayPeer.outboundCh <- packet:
+				packets[i] = nil
+			default:
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("gateway_channel_full").Inc()
+			}
 		}
 	}
 }
@@ -249,8 +318,10 @@ func (t *Tunnel) makeTunnelStream(ctx context.Context, peerID peer.ID) (network.
 }
 
 type VpnPeer struct {
-	peerID     peer.ID
-	localIP    atomic.Pointer[net.IP]
+	peerID                 peer.ID
+	localIP                atomic.Pointer[net.IP]
+	weAllowUsingAsExitNode atomic.Bool
+
 	inboundCh  chan *vpn.Packet // from remote peer to us
 	outboundCh chan *vpn.Packet // from us to remote
 
@@ -332,7 +403,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 
 		data := bytesBuf[:0]
 		for _, packet := range packets {
-			data = protocol.AppendPacketToBuf(data, packet.Packet)
+			data = protocol.AppendPacketToBuf(data, packet.Packet, packet.GatewayDir)
 		}
 		_, err = stream.Write(data)
 		dataLen := len(data)
@@ -434,7 +505,7 @@ func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
 		filteredPackets := packetsBatch[:newLen]
 
 		if len(filteredPackets) > 0 {
-			err := t.device.WritePacketsBatch(filteredPackets, bytesBufs, localIP)
+			err := t.writeInboundBatch(filteredPackets, bytesBufs, localIP, vp.peerID)
 			if err != nil {
 				t.logger.Warnf("write packets batch to vpn for local ip %s: %v", localIP, err)
 			} else {
@@ -447,14 +518,200 @@ func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
 			}
 		}
 
-		for i, packet := range packetsBatch {
+		for i, packet := range filteredPackets {
 			if packet == nil {
 				continue
 			}
 			t.device.PutTempPacket(packet)
-			packetsBatch[i] = nil
+			filteredPackets[i] = nil
 		}
 	}
+}
+
+// SetVPNGatewayServerEnabled enables or disables VPN gateway server mode on
+// this tunnel and persists the choice in the config. The decision propagates
+// to other peers on the next status exchange so their UI reflects whether
+// this node is currently offering VPN gateway server.
+func (t *Tunnel) SetVPNGatewayServerEnabled(enabled bool) {
+	t.peersLock.Lock()
+	t.vpnGatewayServerEnabled = enabled
+	t.conf.Lock()
+	t.conf.VPNGateway.ServerEnabled = enabled
+	t.conf.SaveLocked()
+	t.conf.Unlock()
+	t.peersLock.Unlock()
+}
+
+// SetVPNGatewayPeer enables VPN gateway client mode using the existing VpnPeer
+// for the given gateway peer, validates the peer's permission, and persists
+// the choice in the config.
+//
+// The peer must:
+//  1. Be in KnownPeers.
+//  2. Currently allow being used as a VPN gateway (KnownPeer.CanUseAsVPNGateway,
+//     i.e. AllowedUsingAsExitNode AND RemoteVPNGatewayServerEnabled from the
+//     most recent status exchange).
+func (t *Tunnel) SetVPNGatewayPeer(gatewayPeerID peer.ID) error {
+	t.peersLock.Lock()
+	defer t.peersLock.Unlock()
+
+	knownPeer, ok := t.conf.GetPeer(gatewayPeerID.String())
+	if !ok {
+		return fmt.Errorf("peer %s is not in known peers", gatewayPeerID)
+	}
+	if !knownPeer.CanUseAsVPNGateway() {
+		return fmt.Errorf("peer %s is not currently a valid VPN gateway "+
+			"(AllowedUsingAsExitNode=%v, RemoteVPNGatewayServerEnabled=%v)",
+			gatewayPeerID, knownPeer.AllowedUsingAsExitNode, knownPeer.RemoteVPNGatewayServerEnabled)
+	}
+
+	gwPeer, ok := t.peerIDToPeer[gatewayPeerID]
+	if !ok {
+		return fmt.Errorf("peer %s not found in peerIDToPeer", gatewayPeerID)
+	}
+
+	t.vpnGatewayClientEnabled = true
+	t.vpnGatewayPeerID = gatewayPeerID
+	t.vpnGatewayPeer = gwPeer
+
+	t.conf.Lock()
+	t.conf.VPNGateway.ClientEnabled = true
+	t.conf.VPNGateway.GatewayPeerID = gatewayPeerID.String()
+	t.conf.SaveLocked()
+	t.conf.Unlock()
+
+	return nil
+}
+
+// ClearVPNGatewayPeer disables VPN gateway client mode and persists the choice.
+func (t *Tunnel) ClearVPNGatewayPeer() {
+	t.peersLock.Lock()
+	defer t.peersLock.Unlock()
+
+	t.vpnGatewayClientEnabled = false
+	t.vpnGatewayPeerID = ""
+	t.vpnGatewayPeer = nil
+
+	t.conf.Lock()
+	t.conf.VPNGateway.ClientEnabled = false
+	t.conf.VPNGateway.GatewayPeerID = ""
+	t.conf.SaveLocked()
+	t.conf.Unlock()
+}
+
+func (t *Tunnel) onPeerConnected(_ network.Network, conn network.Conn) {
+	t.peersLock.RLock()
+	enabled := t.vpnGatewayClientEnabled
+	gatewayPeerID := t.vpnGatewayPeerID
+	t.peersLock.RUnlock()
+	if !enabled || gatewayPeerID == "" || conn.RemotePeer() != gatewayPeerID {
+		return
+	}
+	t.logger.Infof("VPN gateway peer %s connected", gatewayPeerID)
+}
+
+func (t *Tunnel) onPeerDisconnected(_ network.Network, conn network.Conn) {
+	t.peersLock.RLock()
+	enabled := t.vpnGatewayClientEnabled
+	gatewayPeerID := t.vpnGatewayPeerID
+	t.peersLock.RUnlock()
+	if !enabled || gatewayPeerID == "" || conn.RemotePeer() != gatewayPeerID {
+		return
+	}
+	// libp2p emits a disconnect per stream — this fires whenever the last
+	// connection to the peer goes away. Re-check IsConnected to suppress
+	// noise from transient stream closes that leave another conn alive.
+	if t.p2p.IsConnected(gatewayPeerID) {
+		return
+	}
+	t.logger.Warnf("VPN gateway peer %s disconnected", gatewayPeerID)
+	// TODO: emit an awlevent so the UI can show the VPN gateway peer is down
+}
+
+// writeInboundBatch rewrites IP headers per packet and writes the whole batch
+// to TUN in a single syscall. Per-packet behavior is selected by the wire-level
+// GatewayDir tag, which the sender stamped into the length prefix:
+//
+//   - GatewayDirForward (sender = gateway client → us): we must be acting as a
+//     VPN gateway server AND have granted this peer exit-node permission. src
+//     is rewritten to senderIP (the client's awl IP); dst is preserved so the
+//     kernel can NAT-forward to the internet. Forward packets without role or
+//     permission are dropped with a labelled metric.
+//
+//   - GatewayDirReturn (sender = our gateway server → us): we must be in
+//     gateway client mode AND the sender must be our configured gateway peer.
+//     dst is rewritten to localIP; src is preserved so apps see the real
+//     internet source. Returns from a non-gateway peer are dropped with a
+//     labelled metric.
+//
+//   - GatewayDirNone: normal awl peer-to-peer — full src/dst rewrite.
+//
+// awl subnet inspection is intentionally absent here. The on-wire tag carries
+// the sender's intent explicitly, so this side does not need to re-derive it
+// from packet IPs and is not exposed to a subnet mismatch between peers.
+func (t *Tunnel) writeInboundBatch(packets []*vpn.Packet, bufs [][]byte, senderIP net.IP, remotePeerID peer.ID) error {
+	t.peersLock.RLock()
+	serverEnabled := t.vpnGatewayServerEnabled
+	isOurGateway := t.vpnGatewayClientEnabled && remotePeerID == t.vpnGatewayPeerID
+	t.peersLock.RUnlock()
+
+	localIP := t.device.LocalIP()
+
+	// Lazy permission check: only resolved if we actually see a Forward
+	// packet, so the common case (no gateway role active) skips the
+	// peer.ID.String() allocation and the conf RLock.
+	var allowGateway, permResolved bool
+	isGatewayAllowed := func() bool {
+		if permResolved {
+			return allowGateway
+		}
+		// TODO: store this info in atomic in VpnPeer and update in RefreshPeersList
+		//  this will eliminate lock usage on every packets batch
+		kp, ok := t.conf.GetPeer(remotePeerID.String())
+		allowGateway = ok && kp.WeAllowUsingAsExitNode
+		permResolved = true
+		return allowGateway
+	}
+
+	for _, packet := range packets {
+		if packet.IsIPv6 {
+			// TODO: IPv6 — currently dropped at TUN write. Both the regular
+			//  awl rewrite and the gateway rewrites need IPv6 support.
+			continue
+		}
+		switch packet.GatewayDir {
+		case vpn.GatewayDirForward:
+			if !serverEnabled {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("gateway_server_disabled").Inc()
+				continue
+			}
+			if !isGatewayAllowed() {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("gateway_not_allowed").Inc()
+				continue
+			}
+			copy(packet.Src, senderIP)
+			// dst preserved
+		case vpn.GatewayDirReturn:
+			if !isOurGateway {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("gateway_return_from_non_gateway").Inc()
+				continue
+			}
+			copy(packet.Dst, localIP)
+			// src preserved
+		default:
+			copy(packet.Src, senderIP)
+			copy(packet.Dst, localIP)
+		}
+		packet.RecalculateChecksum()
+		bufs = append(bufs, packet.Buf())
+	}
+
+	return t.device.WriteBufs(bufs)
+}
+
+// isNonRoutableIP returns true for IPs that should not be forwarded through the gateway.
+func isNonRoutableIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast()
 }
 
 func readBatchFromChan(ch chan *vpn.Packet, buf []*vpn.Packet, offset int) []*vpn.Packet {

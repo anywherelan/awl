@@ -82,7 +82,7 @@ func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
 	}
 	data.RecalculateChecksum()
 
-	bufs := [][]byte{data.Buffer[:tunPacketOffset+len(data.Packet)]}
+	bufs := [][]byte{data.Buf()}
 	packetsCount, err := d.tun.Write(bufs, tunPacketOffset)
 	if err != nil {
 		return fmt.Errorf("write packet to tun: %v", err)
@@ -93,21 +93,22 @@ func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
 	return nil
 }
 
-// bufs should be len(bufs) == 0, cap(bufs) == len(packets)
-func (d *Device) WritePacketsBatch(packets []*Packet, bufs [][]byte, senderIP net.IP) error {
-	for _, packet := range packets {
-		if packet.IsIPv6 {
-			// TODO: implement. We need to set Device.localIP ipv6 instead of ipv4
-			continue
-		} else {
-			copy(packet.Src, senderIP)
-			copy(packet.Dst, d.localIP)
-		}
-		packet.RecalculateChecksum()
+// LocalIP returns the awl IP assigned to this device. Set once in NewDevice.
+func (d *Device) LocalIP() net.IP {
+	return d.localIP
+}
 
-		bufs = append(bufs, packet.Buffer[:tunPacketOffset+len(packet.Packet)])
+// WriteBufs writes a prepared batch of TUN packets in a single tun.Write
+// syscall. The caller is responsible for IP rewrites and checksum recalculation
+// on the underlying *Packet objects before building bufs via Packet.Buf.
+//
+// Empty bufs is a no-op. After writing, every entry is set to nil to release
+// the underlying buffer for GC; the caller should reuse the same backing array
+// (len=0, cap=batchSize) across calls to avoid per-batch allocation.
+func (d *Device) WriteBufs(bufs [][]byte) error {
+	if len(bufs) == 0 {
+		return nil
 	}
-
 	defer func() {
 		for i := range bufs {
 			bufs[i] = nil
@@ -117,7 +118,7 @@ func (d *Device) WritePacketsBatch(packets []*Packet, bufs [][]byte, senderIP ne
 	packetsCount, err := d.tun.Write(bufs, tunPacketOffset)
 	if err != nil {
 		metrics.VPNTunWriteErrorsTotal.Inc()
-		return fmt.Errorf("write packet to tun: %v", err)
+		return fmt.Errorf("write packets to tun: %v", err)
 	} else if packetsCount < len(bufs) {
 		d.logger.Warnf("wrote %d packets, but expected %d", packetsCount, len(bufs))
 	}

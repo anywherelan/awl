@@ -374,6 +374,84 @@ func (a *Application) init() {
 				},
 			},
 			{
+				Name:  "gateway",
+				Usage: "Group of commands to manage VPN gateway mode",
+				Subcommands: []*cli.Command{
+					{
+						Name:   "status",
+						Usage:  "Print VPN gateway status",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return gatewayStatus(a.api, c.App.Writer)
+						},
+					},
+					{
+						Name:  "client",
+						Usage: "Manage VPN gateway client mode (route all traffic through a peer)",
+						Subcommands: []*cli.Command{
+							{
+								Name:  "use",
+								Usage: "Route all traffic through the given peer. If already enabled with a different peer, atomically switches to the new one.",
+								Flags: []cli.Flag{
+									&cli.StringFlag{
+										Name:     "pid",
+										Usage:    "VPN gateway peer id",
+										Required: false,
+									},
+									&cli.StringFlag{
+										Name:     "name",
+										Usage:    "VPN gateway peer name",
+										Required: false,
+									},
+								},
+								Before: a.initApiAndPeerIdRequired,
+								Action: func(c *cli.Context) error {
+									return gatewayClientUse(a.api, c.String("pid"), c.App.Writer)
+								},
+							},
+							{
+								Name:   "stop",
+								Usage:  "Stop using a peer as VPN gateway",
+								Before: a.initApiConnection,
+								Action: func(c *cli.Context) error {
+									return gatewayClientStop(a.api, c.App.Writer)
+								},
+							},
+						},
+					},
+					{
+						Name:  "server",
+						Usage: "Manage VPN gateway server mode (serve as a gateway for permitted peers)",
+						Subcommands: []*cli.Command{
+							{
+								Name:   "enable",
+								Usage:  "Serve as a VPN gateway for permitted peers",
+								Before: a.initApiConnection,
+								Action: func(c *cli.Context) error {
+									return gatewaySetServerEnabled(a.api, true, c.App.Writer)
+								},
+							},
+							{
+								Name:   "disable",
+								Usage:  "Stop serving as a VPN gateway",
+								Before: a.initApiConnection,
+								Action: func(c *cli.Context) error {
+									return gatewaySetServerEnabled(a.api, false, c.App.Writer)
+								},
+							},
+						},
+					},
+					{
+						Name:   "list",
+						Usage:  "List peers available as VPN gateways",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return gatewayList(a.api, c.App.Writer)
+						},
+					},
+				},
+			},
+			{
 				Name:    "logs",
 				Aliases: []string{"log"},
 				Usage:   "Prints application logs (default print 10 logs from the end of logs)",

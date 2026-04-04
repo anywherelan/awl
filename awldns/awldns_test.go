@@ -80,19 +80,30 @@ func NewResolverClient(address string) *net.Resolver {
 }
 
 func FindFreePort() int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		panic(fmt.Sprintf("failed to listen on a port: %v", err))
+	const maxAttempts = 50
+	var lastErr error
+	for i := 0; i < maxAttempts; i++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+
+		// The DNS resolver listens on both TCP and UDP on this port, so it must be
+		// free for both. A TCP-free port is not guaranteed to be UDP-free, and on
+		// Windows the chosen port may fall inside an OS-excluded range (Hyper-V/WSL
+		// reservations), which fails the UDP bind with WSAEACCES. Release the port
+		// and try another instead of giving up.
+		u, err := net.ListenPacket("udp", l.Addr().String())
+		if err != nil {
+			_ = l.Close()
+			lastErr = err
+			continue
+		}
+		_ = u.Close()
+		_ = l.Close()
+		return port
 	}
-	defer l.Close()
-
-	port := l.Addr().(*net.TCPAddr).Port
-
-	u, err := net.ListenPacket("udp", l.Addr().String())
-	if err != nil {
-		panic(fmt.Sprintf("failed to listen on a udp port: %v", err))
-	}
-	defer u.Close()
-
-	return port
+	panic(fmt.Sprintf("failed to find a free tcp+udp port after %d attempts: %v", maxAttempts, lastErr))
 }

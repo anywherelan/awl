@@ -36,6 +36,7 @@ type Handler struct {
 	socks5     *service.SOCKS5
 	dns        DNSService
 	logBuffer  *ringbuffer.RingBuffer
+	vpnGateway *service.VPNGateway
 
 	echo      *echo.Echo
 	echoAdmin *echo.Echo
@@ -45,7 +46,7 @@ type Handler struct {
 }
 
 func NewHandler(conf *config.Config, p2p *p2p.P2p, authStatus *service.AuthStatus, tunnel *service.Tunnel, socks5 *service.SOCKS5,
-	logBuffer *ringbuffer.RingBuffer, dns DNSService) *Handler {
+	logBuffer *ringbuffer.RingBuffer, dns DNSService, vpnGateway *service.VPNGateway) *Handler {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	return &Handler{
 		conf:       conf,
@@ -55,6 +56,7 @@ func NewHandler(conf *config.Config, p2p *p2p.P2p, authStatus *service.AuthStatu
 		socks5:     socks5,
 		dns:        dns,
 		logBuffer:  logBuffer,
+		vpnGateway: vpnGateway,
 		logger:     log.Logger("awl/api"),
 		ctx:        ctx,
 		ctxCancel:  ctxCancel,
@@ -137,6 +139,12 @@ func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 	e.POST(UpdateProxySettingsPath, h.UpdateProxySettings)
 	e.GET(ExportServerConfigPath, h.ExportServerConfiguration)
 
+	// VPN Gateway. Status comes from /settings/peer_info (PeerInfo.VPNGateway).
+	e.POST(EnableVPNGatewayClientPath, h.EnableVPNGatewayClient)
+	e.POST(DisableVPNGatewayClientPath, h.DisableVPNGatewayClient)
+	e.POST(SetVPNGatewayServerEnabledPath, h.SetVPNGatewayServerEnabled)
+	e.GET(ListAvailableVPNGatewaysPath, h.ListAvailableVPNGateways)
+
 	// Debug
 	e.GET(GetP2pDebugInfoPath, h.GetP2pDebugInfo)
 	e.GET(GetDebugLogPath, h.GetLog)
@@ -177,6 +185,9 @@ func (h *Handler) SetupFrontend(fsys fs.FS) {
 }
 
 func (h *Handler) Shutdown(ctx context.Context) error {
+	if h.ctxCancel != nil {
+		h.ctxCancel()
+	}
 	if h.echoAdmin != nil {
 		err := h.echoAdmin.Server.Shutdown(ctx)
 		if err != nil {

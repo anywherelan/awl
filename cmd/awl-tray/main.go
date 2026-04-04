@@ -118,10 +118,20 @@ func InitServer() (err error) {
 		func(_ network.Network, conn network.Conn) {
 			peerID := conn.RemotePeer().String()
 			refreshPeersCounterOnPeersConnectionChanged(&peerID)
+
+			if _, known := app.Conf.GetPeer(peerID); known {
+				proxyRouting.refresh()
+				gatewayRouting.refresh()
+			}
 		},
 		func(_ network.Network, conn network.Conn) {
 			peerID := conn.RemotePeer().String()
 			refreshPeersCounterOnPeersConnectionChanged(&peerID)
+
+			if _, known := app.Conf.GetPeer(peerID); known {
+				proxyRouting.refresh()
+				gatewayRouting.refresh()
+			}
 		},
 	)
 

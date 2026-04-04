@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/haxii/socks5"
 	"github.com/ipfs/go-log/v2"
@@ -22,8 +23,19 @@ type Server struct {
 	rule  *UpdatableRule
 }
 
-func NewServer() *Server {
+// NewServer constructs the SOCKS5 exit-node server. dialControl, when non-nil,
+// is applied to every outbound connection the server opens to the real
+// destination — it is the same socket-marking callback used for libp2p
+// sockets (sockmark). This keeps SOCKS5 exit-node traffic going out the host's
+// physical NIC, independent of whether this node is itself a VPN gateway
+// client (whose 0.0.0.0/0-via-TUN default route would otherwise capture these
+// sockets). Marking unconditionally is safe: when gateway mode is off there is
+// no matching fwmark ip-rule, so the kernel ignores the mark — mirroring how
+// libp2p sockets are marked at all times (see application.go).
+// A nil dialControl yields a plain context-aware dialer.
+func NewServer(dialControl func(network, address string, c syscall.RawConn) error) *Server {
 	rule := NewUpdatableRule(NewRuleDenyLocalhost())
+	dialer := &net.Dialer{Control: dialControl}
 	conf := &socks5.Config{
 		// fake addr, we don't bind address for server
 		BindIP:   net.IPv4(127, 0, 0, 1),
@@ -31,6 +43,9 @@ func NewServer() *Server {
 		Rules:    rule,
 		Logger:   NewLogger(),
 		Resolver: nil,
+		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		},
 	}
 	server, err := socks5.New(conf)
 	if err != nil {

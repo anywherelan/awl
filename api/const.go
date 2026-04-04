@@ -22,6 +22,12 @@ const (
 	UpdateProxySettingsPath  = V0Prefix + "settings/set_proxy"
 	ExportServerConfigPath   = V0Prefix + "settings/export_server_config"
 
+	// VPN Gateway
+	EnableVPNGatewayClientPath     = V0Prefix + "vpn_gateway/client/enable"
+	DisableVPNGatewayClientPath    = V0Prefix + "vpn_gateway/client/disable"
+	ListAvailableVPNGatewaysPath   = V0Prefix + "vpn_gateway/client/list_available"
+	SetVPNGatewayServerEnabledPath = V0Prefix + "vpn_gateway/server/set_enabled"
+
 	// Debug
 	GetP2pDebugInfoPath = V0Prefix + "debug/p2p_info"
 	GetDebugLogPath     = V0Prefix + "debug/log"

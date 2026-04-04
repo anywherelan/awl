@@ -2,9 +2,12 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/anywherelan/awl/vpn"
 )
 
 func TestSendReceiveStatus(t *testing.T) {
@@ -54,23 +57,52 @@ func TestSendReceiveAuthResponse(t *testing.T) {
 	}
 }
 
-func TestAppendPacketToBuf(t *testing.T) {
+func TestAppendPacketToBuf_RoundTrip(t *testing.T) {
 	packet := []byte{1, 2, 3, 4, 5}
-	buf := AppendPacketToBuf(nil, packet)
+	cases := []vpn.GatewayDir{vpn.GatewayDirNone, vpn.GatewayDirForward, vpn.GatewayDirReturn}
 
-	require.Len(t, buf, 8+len(packet))
+	for _, dir := range cases {
+		buf := AppendPacketToBuf(nil, packet, dir)
+		require.Len(t, buf, 8+len(packet))
 
-	length, err := ReadUint64(bytes.NewReader(buf))
-	require.NoError(t, err)
-	require.Equal(t, uint64(len(packet)), length)
-	require.Equal(t, packet, buf[8:])
+		size, gotDir, err := ReadPacketHeader(bytes.NewReader(buf))
+		require.NoError(t, err)
+		require.Equal(t, uint64(len(packet)), size)
+		require.Equal(t, dir, gotDir)
+		require.Equal(t, packet, buf[8:])
+	}
 }
 
 func TestAppendPacketToBuf_EmptyPacket(t *testing.T) {
-	buf := AppendPacketToBuf(nil, []byte{})
+	buf := AppendPacketToBuf(nil, []byte{}, vpn.GatewayDirNone)
 	require.Len(t, buf, 8)
 
-	length, err := ReadUint64(bytes.NewReader(buf))
+	size, dir, err := ReadPacketHeader(bytes.NewReader(buf))
 	require.NoError(t, err)
-	require.Equal(t, uint64(0), length)
+	require.Equal(t, uint64(0), size)
+	require.Equal(t, vpn.GatewayDirNone, dir)
+}
+
+func TestReadPacketHeader_RejectsBothFlags(t *testing.T) {
+	var header [8]byte
+	v := uint64(100) | tunnelFlagGatewayForward | tunnelFlagGatewayReturn
+	binary.BigEndian.PutUint64(header[:], v)
+
+	_, _, err := ReadPacketHeader(bytes.NewReader(header[:]))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "both gateway flags")
+}
+
+func TestReadPacketHeader_RejectsHugeSize(t *testing.T) {
+	var header [8]byte
+	binary.BigEndian.PutUint64(header[:], tunnelMaxLength+1)
+
+	_, _, err := ReadPacketHeader(bytes.NewReader(header[:]))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds max")
+}
+
+func TestReadPacketHeader_TruncatedStream(t *testing.T) {
+	_, _, err := ReadPacketHeader(bytes.NewReader([]byte{1, 2, 3}))
+	require.Error(t, err)
 }

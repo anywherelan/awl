@@ -23,7 +23,31 @@ type Packet struct {
 	Src        net.IP
 	Dst        net.IP
 	IsIPv6     bool
+	GatewayDir GatewayDir
 	IPProtocol byte
+}
+
+// GatewayDir tags a tunnel packet's intent with respect to VPN gateway mode.
+type GatewayDir uint8
+
+const (
+	// GatewayDirNone is a regular awl peer-to-peer packet. Receiver applies the
+	// standard full src/dst rewrite.
+	GatewayDirNone GatewayDir = iota
+	// GatewayDirForward is sent client → server: the sender asks the receiver,
+	// who must be acting as a VPN gateway server for the sender, to forward
+	// this packet to the internet via NAT. Receiver rewrites only src.
+	GatewayDirForward
+	// GatewayDirReturn is sent server → client: the sender (the gateway server)
+	// is delivering a NAT-returned packet from the internet back to the client.
+	// Receiver rewrites only dst.
+	GatewayDirReturn
+)
+
+// Buf returns the slice of data.Buffer that includes the TUN header offset and
+// the parsed packet body, ready to be appended into a bufs slice for tun.Write.
+func (data *Packet) Buf() []byte {
+	return data.Buffer[:tunPacketOffset+len(data.Packet)]
 }
 
 func (data *Packet) clear() {
@@ -32,6 +56,7 @@ func (data *Packet) clear() {
 	data.Dst = nil
 	data.IsIPv6 = false
 	data.IPProtocol = 0
+	data.GatewayDir = GatewayDirNone
 }
 
 func (data *Packet) CopyTo(copyPacket *Packet) {

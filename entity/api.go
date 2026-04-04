@@ -52,23 +52,24 @@ type (
 // Responses
 type (
 	KnownPeersResponse struct {
-		PeerID                 string
-		Name                   string // Deprecated: use DisplayName instead
-		DisplayName            string // Deprecated: useless, equal to Alias all the time
-		Alias                  string
-		Version                string
-		IpAddr                 string
-		DomainName             string
-		Connected              bool
-		Confirmed              bool
-		Declined               bool
-		WeAllowUsingAsExitNode bool
-		AllowedUsingAsExitNode bool
-		LastSeen               time.Time
-		Connections            []p2p.ConnectionInfo
-		NetworkStats           metrics.Stats
-		NetworkStatsInIECUnits StatsInUnits
-		Ping                   time.Duration `swaggertype:"primitive,integer"`
+		PeerID                        string
+		Name                          string // Deprecated: use DisplayName instead
+		DisplayName                   string // Deprecated: useless, equal to Alias all the time
+		Alias                         string
+		Version                       string
+		IpAddr                        string
+		DomainName                    string
+		Connected                     bool
+		Confirmed                     bool
+		Declined                      bool
+		WeAllowUsingAsExitNode        bool
+		AllowedUsingAsExitNode        bool
+		RemoteVPNGatewayServerEnabled bool
+		LastSeen                      time.Time
+		Connections                   []p2p.ConnectionInfo
+		NetworkStats                  metrics.Stats
+		NetworkStatsInIECUnits        StatsInUnits
+		Ping                          time.Duration `swaggertype:"primitive,integer"`
 	}
 
 	PeerInfo struct {
@@ -85,6 +86,7 @@ type (
 		IsAwlDNSSetAsSystem     bool
 		VPN                     VPNInfo
 		SOCKS5                  SOCKS5Info
+		VPNGateway              VPNGatewayInfo
 	}
 
 	VPNInfo struct {
@@ -97,8 +99,13 @@ type (
 		ListenAddress   string
 		ProxyingEnabled bool
 		ListenerEnabled bool
-		UsingPeerID     string
-		UsingPeerName   string
+		// Connected — current libp2p connectivity to the exit peer.
+		Connected             bool
+		UsingPeerID           string
+		UsingPeerName         string
+		UsingPeerPublicIP     string
+		UsingPeerPing         time.Duration `swaggertype:"primitive,integer"`
+		UsingPeerThroughRelay bool
 	}
 
 	StatsInUnits struct {
@@ -119,8 +126,41 @@ type (
 		Proxies []AvailableProxy
 	}
 	AvailableProxy struct {
-		PeerID   string
-		PeerName string
+		PeerID    string
+		PeerName  string
+		Connected bool
+	}
+
+	VPNGatewayInfo struct {
+		// ClientEnabled — VPN gateway client mode is on (we route via GatewayPeerID).
+		ClientEnabled bool
+		// GatewayPeerID — the peer we route through; empty when disabled.
+		GatewayPeerID string
+		// GatewayPeerName — display name of the gateway peer, populated when known.
+		GatewayPeerName string
+		// Connected — current libp2p connectivity to the gateway peer.
+		Connected bool
+		// ServerEnabled — this node currently offers VPN gateway server.
+		ServerEnabled       bool
+		GatewayPublicIP     string
+		GatewayPing         time.Duration `swaggertype:"primitive,integer"`
+		GatewayThroughRelay bool
+	}
+	EnableVPNGatewayClientRequest struct {
+		GatewayPeerID string `validate:"required"`
+	}
+
+	SetVPNGatewayServerEnabledRequest struct {
+		Enabled bool
+	}
+
+	ListAvailableVPNGatewaysResponse struct {
+		VPNGateways []AvailableVPNGateway
+	}
+	AvailableVPNGateway struct {
+		PeerID    string
+		PeerName  string
+		Connected bool
 	}
 )
 

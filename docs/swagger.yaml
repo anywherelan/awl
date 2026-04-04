@@ -26,6 +26,14 @@ definitions:
         type: boolean
       listenAddress:
         type: string
+      upstreamDNSAddress:
+        description: |-
+          UpstreamDNSAddress is the public resolver (host:port) that the awl
+          DNS resolver forwards non-.awl queries to. Used as a fallback when
+          the OS exposes no base nameserver, and forced as the sole upstream in
+          VPN gateway client mode so DNS traverses the tunnel and does not leak.
+          On Android the host reads this value to configure VpnService DNS.
+        type: string
     type: object
   config.HttpBasicAuthConfig:
     properties:
@@ -65,6 +73,13 @@ definitions:
       peerId:
         description: Hex-encoded multihash representing a peer ID
         type: string
+      remoteVPNGatewayServerEnabled:
+        description: |-
+          RemoteVPNGatewayServerEnabled is the remote peer's VPNGatewayConfig.ServerEnabled
+          as advertised via the status protocol. Combined with AllowedUsingAsExitNode
+          (also from status) it determines whether this peer is currently a valid
+          VPN gateway target for us — see KnownPeer.CanUseAsVPNGateway.
+        type: boolean
       weAllowUsingAsExitNode:
         type: boolean
     type: object
@@ -104,9 +119,15 @@ definitions:
         type: string
       listenerEnabled:
         type: boolean
+      password:
+        type: string
       proxyingEnabled:
         description: allow using my host as proxy
         type: boolean
+      username:
+        description: Optional local auth credentials. If both are set, SOCKS5 clients
+          must authenticate.
+        type: string
       usingPeerID:
         description: peer that is set as proxy
         type: string
@@ -131,6 +152,22 @@ definitions:
       ipNet:
         type: string
     type: object
+  config.VPNGatewayConfig:
+    properties:
+      clientEnabled:
+        description: ClientEnabled — route all traffic through GatewayPeerID (client
+          side).
+        type: boolean
+      gatewayPeerID:
+        description: GatewayPeerID — selected gateway peer ID.
+        type: string
+      serverEnabled:
+        description: |-
+          ServerEnabled — this node serves as a VPN gateway for others.
+          Propagated via the status protocol so peers know whether to offer
+          this node as an option in their UI.
+        type: boolean
+    type: object
   entity.AuthRequest:
     properties:
       name:
@@ -143,6 +180,17 @@ definitions:
     type: object
   entity.AvailableProxy:
     properties:
+      connected:
+        type: boolean
+      peerID:
+        type: string
+      peerName:
+        type: string
+    type: object
+  entity.AvailableVPNGateway:
+    properties:
+      connected:
+        type: boolean
       peerID:
         type: string
       peerName:
@@ -217,6 +265,13 @@ definitions:
           type: string
         type: array
     type: object
+  entity.EnableVPNGatewayClientRequest:
+    properties:
+      gatewayPeerID:
+        type: string
+    required:
+      - gatewayPeerID
+    type: object
   entity.FriendRequest:
     properties:
       alias:
@@ -288,6 +343,8 @@ definitions:
         type: string
       ping:
         type: integer
+      remoteVPNGatewayServerEnabled:
+        type: boolean
       version:
         type: string
       weAllowUsingAsExitNode:
@@ -298,6 +355,13 @@ definitions:
       proxies:
         items:
           $ref: '#/definitions/entity.AvailableProxy'
+        type: array
+    type: object
+  entity.ListAvailableVPNGatewaysResponse:
+    properties:
+      vpngateways:
+        items:
+          $ref: '#/definitions/entity.AvailableVPNGateway'
         type: array
     type: object
   entity.P2pDebugInfo:
@@ -354,9 +418,14 @@ definitions:
         type: integer
       vpn:
         $ref: '#/definitions/entity.VPNInfo'
+      vpngateway:
+        $ref: '#/definitions/entity.VPNGatewayInfo'
     type: object
   entity.SOCKS5Info:
     properties:
+      connected:
+        description: Connected — current libp2p connectivity to the exit peer.
+        type: boolean
       listenAddress:
         type: string
       listenerEnabled:
@@ -367,6 +436,17 @@ definitions:
         type: string
       usingPeerName:
         type: string
+      usingPeerPing:
+        type: integer
+      usingPeerPublicIP:
+        type: string
+      usingPeerThroughRelay:
+        type: boolean
+    type: object
+  entity.SetVPNGatewayServerEnabledRequest:
+    properties:
+      enabled:
+        type: boolean
     type: object
   entity.StatsInUnits:
     properties:
@@ -408,6 +488,31 @@ definitions:
       usingPeerID:
         type: string
     type: object
+  entity.VPNGatewayInfo:
+    properties:
+      clientEnabled:
+        description: ClientEnabled — VPN gateway client mode is on (we route via GatewayPeerID).
+        type: boolean
+      connected:
+        description: Connected — current libp2p connectivity to the gateway peer.
+        type: boolean
+      gatewayPeerID:
+        description: GatewayPeerID — the peer we route through; empty when disabled.
+        type: string
+      gatewayPeerName:
+        description: GatewayPeerName — display name of the gateway peer, populated
+          when known.
+        type: string
+      gatewayPing:
+        type: integer
+      gatewayPublicIP:
+        type: string
+      gatewayThroughRelay:
+        type: boolean
+      serverEnabled:
+        description: ServerEnabled — this node currently offers VPN gateway server.
+        type: boolean
+    type: object
   entity.VPNInfo:
     properties:
       interfaceName:
@@ -447,6 +552,8 @@ definitions:
         type: string
       vpn:
         $ref: '#/definitions/config.VPNConfig'
+      vpnGateway:
+        $ref: '#/definitions/config.VPNGatewayConfig'
     type: object
   kbucket.PeerInfo:
     properties:
@@ -817,4 +924,68 @@ paths:
       summary: Update my peer info
       tags:
       - Settings
+  /vpn_gateway/client/disable:
+    post:
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Disable VPN gateway client mode
+      tags:
+        - VPN Gateway
+  /vpn_gateway/client/enable:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.EnableVPNGatewayClientRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Enable VPN gateway client mode
+      tags:
+        - VPN Gateway
+  /vpn_gateway/client/list_available:
+    get:
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.ListAvailableVPNGatewaysResponse'
+      summary: List available VPN gateways
+      tags:
+        - VPN Gateway
+  /vpn_gateway/server/set_enabled:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.SetVPNGatewayServerEnabledRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Toggle VPN gateway server mode
+      tags:
+        - VPN Gateway
 swagger: "2.0"

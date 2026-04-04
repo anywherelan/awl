@@ -2,6 +2,7 @@ package awl
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -147,7 +148,7 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 			peer1, peer2 := ts.NewSimnetPeerPair(sc.latency, sc.bandwidthMbps, nil, nil)
 
 			packet := testPacket(packetSize)
-			peer2.tun.ReferenceInboundPacketLen = packetSize
+			peer2.tun.SetInboundCapture(packetSize, nil)
 			peer2.tun.ClearInboundCount()
 
 			// Send packets
@@ -391,6 +392,294 @@ func TestSimulatedSOCKS5ProxyPerformance(t *testing.T) {
 		})
 
 		// Cool down between tests
+		time.Sleep(time.Second)
+	}
+
+	table.Render()
+}
+
+type gatewayPerfScenario struct {
+	name         string
+	latency      time.Duration
+	bandwidthBps int
+}
+
+var gatewayPerfScenarios = []gatewayPerfScenario{
+	{"WARM-UP", 10 * time.Millisecond, 50_000_000},
+	{"Fiber_100Mbps_1ms", 1 * time.Millisecond, 100_000_000},
+	{"Cable_50Mbps_10ms", 10 * time.Millisecond, 50_000_000},
+	{"LongDistCable_50Mbps_300ms", 300 * time.Millisecond, 50_000_000},
+	{"Cable_10Mbps_100ms", 100 * time.Millisecond, 10_000_000},
+	{"LongDistCable_10Mbps_300ms", 300 * time.Millisecond, 10_000_000},
+}
+
+// setupSimnetGatewayPair builds a simnet peer pair where the client uses the
+// exit node as a VPN gateway. Cannot reuse setupGatewayPeers because that one
+// goes through the DHT, which simnet does not have.
+//
+// Steps:
+//  1. Pair them with NewSimnetPeerPair (calls makeFriendsSimnet under the hood).
+//  2. Exit node advertises VPN gateway service via SetServeAsVPNGateway —
+//     persisted in config so the next outgoing PeerStatusInfo carries the flag.
+//  3. UpdatePeerSettings on the exit node grants the client exit-node
+//     permission AND triggers an immediate ExchangeNewStatusInfo. That single
+//     bidirectional exchange propagates both AllowedUsingAsExitNode and
+//     RemoteServesAsVPNGateway to the client in one round-trip.
+//  4. Wait until the client's KnownPeer.CanUseAsVPNGateway() returns true,
+//     since that is what SetGatewayPeer validates against.
+func (ts *TestSuite) setupSimnetGatewayPair(latency time.Duration, bandwidthBps int) (client, exitNode TestPeer) {
+	client, exitNode = ts.NewSimnetPeerPair(latency, bandwidthBps, nil, nil)
+
+	exitNode.app.Tunnel.SetVPNGatewayServerEnabled(true)
+
+	clientCfgOnExit, err := exitNode.api.KnownPeerConfig(client.PeerID())
+	ts.NoError(err)
+	err = exitNode.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               client.PeerID(),
+		Alias:                clientCfgOnExit.Alias,
+		DomainName:           clientCfgOnExit.DomainName,
+		IPAddr:               clientCfgOnExit.IPAddr,
+		AllowUsingAsExitNode: true,
+	})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		kp, ok := client.app.Conf.GetPeer(exitNode.PeerID())
+		return ok && kp.CanUseAsVPNGateway()
+	}, 5*time.Second, 50*time.Millisecond)
+
+	ts.NoError(client.app.Tunnel.SetVPNGatewayPeer(exitNode.app.P2p.PeerID()))
+	return client, exitNode
+}
+
+// runGatewayBlast injects gateway-mode packets (src=10.66.0.1, dst=8.8.8.8) at
+// `sender` for the given duration, then sleeps for `drainTail` to let in-flight
+// packets reach their final TUN. The caller chooses which peer's InboundCount
+// to read (one-way: exit node; round-trip: client).
+func runGatewayBlast(ctx context.Context, sender TestPeer, packetSize int, duration, drainTail time.Duration) (actualDuration time.Duration) {
+	packet := testPacketWithSrcDest(packetSize, "10.66.0.1", "8.8.8.8")
+	packetsBatch := make([][]byte, TestTUNBatchSize*10)
+	for i := range packetsBatch {
+		packetsBatch[i] = packet
+	}
+
+	startTime := time.Now()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		timer := time.NewTimer(duration)
+		defer timer.Stop()
+
+		for {
+			select {
+			case <-timer.C:
+				return
+			case <-ctx.Done():
+				return
+			case sender.tun.Outbound <- packetsBatch:
+				// ok
+			}
+		}
+	}()
+
+	<-done
+	actualDuration = time.Since(startTime)
+	time.Sleep(drainTail)
+	return
+}
+
+// startGatewayKernelReflector simulates the exit node's kernel: every packet
+// landing on the exit node's TUN (Forward-tagged from the client and
+// src-rewritten by writeInboundBatch to clientAssignedIP, with dst=8.8.8.8)
+// is captured, src↔dst swapped, checksum recomputed, and re-injected on
+// exitNode.tun.Outbound — mimicking a reply from the internet that conntrack
+// has rewritten back to dst=client.
+//
+// testTun.Write uses a non-blocking send for the capture channel; under
+// saturation some packets may be dropped at that boundary. Such drops show up
+// as elevated packet loss on the client side, which is exactly what the
+// round-trip test reports.
+func startGatewayKernelReflector(exitNode TestPeer, packetSize int) (stop func()) {
+	const captureChanSize = 8192
+	captureCh := make(chan []byte, captureChanSize)
+	exitNode.tun.SetInboundCapture(packetSize, captureCh)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case raw, ok := <-captureCh:
+				if !ok {
+					return
+				}
+				batch := make([][]byte, 0, TestTUNBatchSize)
+				batch = append(batch, swapAndRecalc(raw))
+			drain:
+				for len(batch) < TestTUNBatchSize {
+					select {
+					case more, ok := <-captureCh:
+						if !ok {
+							break drain
+						}
+						batch = append(batch, swapAndRecalc(more))
+					default:
+						break drain
+					}
+				}
+				select {
+				case exitNode.tun.Outbound <- batch:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+// swapAndRecalc returns a copy of raw with IPv4 src and dst swapped and the
+// header checksum recomputed. The body is left untouched.
+func swapAndRecalc(raw []byte) []byte {
+	out := make([]byte, len(raw))
+	copy(out, raw)
+	p := vpn.Packet{Packet: out}
+	if !p.Parse() {
+		return out
+	}
+	srcCopy := append([]byte{}, p.Src...)
+	copy(p.Src, p.Dst)
+	copy(p.Dst, srcCopy)
+	p.RecalculateChecksum()
+	return out
+}
+
+// appendGatewayPerfRow renders one scenario's results into the given table.
+// `received` is the inbound packet count at the chosen receive end (exit node
+// for one-way, client for round-trip); `sent` is the client's TUN outbound
+// count.
+func appendGatewayPerfRow(table *tablewriter.Table, sc gatewayPerfScenario, received, sent int64, packetSize int, duration time.Duration) {
+	const Mbps = 1_000_000
+	var packetLoss float64
+	if sent > 0 {
+		packetLoss = (1 - float64(received)/float64(sent)) * 100
+	}
+	totalBits := float64(received) * float64(packetSize) * 8
+	actualMbps := (totalBits / duration.Seconds()) / Mbps
+	expectedMbps := sc.bandwidthBps / Mbps
+	var utilization float64
+	if expectedMbps > 0 {
+		utilization = (actualMbps / float64(expectedMbps)) * 100
+	}
+	table.Append([]string{
+		sc.name,
+		sc.latency.String(),
+		fmt.Sprintf("%d Mbps", expectedMbps),
+		fmt.Sprintf("%.2f Mbps", actualMbps),
+		fmt.Sprintf("%.2f %%", utilization),
+		fmt.Sprintf("%.2f %%", packetLoss),
+	})
+}
+
+/*
+TestSimulatedGatewayPerformance benchmarks VPN-gateway client→exit-node throughput
+under simulated network conditions.
+
+Compared to TestSimulatedTunnelPerformance the only difference is the receive-side
+write path: the client stamps GatewayDirForward in the on-wire length-prefix,
+the exit node reads the tag and applies a per-packet src-only rewrite
+(preserving the real internet destination) instead of the full src/dst rewrite
+used for normal awl peer-to-peer traffic. Both paths share the same single
+tun.Write per batch. Run both tests together to compare the two paths.
+*/
+func TestSimulatedGatewayPerformance(t *testing.T) {
+	if os.Getenv(EnvRunPerfTests) == "" {
+		t.Skipf("skip perf test because %s env is empty", EnvRunPerfTests)
+	}
+
+	const packetSize = vpn.InterfaceMTU
+	const testDuration = 30 * time.Second
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Scenario", "Latency", "Bandwidth Limit", "Actual Throughput", "Utilization", "Packet Loss"})
+
+	for _, sc := range gatewayPerfScenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			ts := NewSimnetTestSuite(t)
+			ctx := t.Context()
+
+			client, exitNode := ts.setupSimnetGatewayPair(sc.latency, sc.bandwidthBps)
+
+			exitNode.tun.SetInboundCapture(packetSize, nil)
+			exitNode.tun.ClearInboundCount()
+
+			duration := runGatewayBlast(ctx, client, packetSize, testDuration, sc.latency*2)
+
+			appendGatewayPerfRow(table, sc,
+				exitNode.tun.InboundCount(),
+				client.tun.OutboundCount(),
+				packetSize, duration)
+		})
+		time.Sleep(time.Second)
+	}
+
+	table.Render()
+}
+
+/*
+TestSimulatedGatewayRoundTripPerformance benchmarks the full bidirectional
+gateway path: client → libp2p tunnel → exit node TUN → simulated kernel
+reflector → exit node TUN → libp2p tunnel → client TUN.
+
+The reflector swaps src↔dst on each packet that reaches the exit node's TUN
+and re-injects it as if it were a reply from the internet (i.e. it stands in
+for ip_forward + MASQUERADE + conntrack). Throughput is measured at the
+client's TUN inbound count, so the reported number is end-to-end success rate
+of the data round-trip.
+
+Cross-reference with TestSimulatedGatewayPerformance (the one-way version) to
+see how much of the throughput cost comes from the return path vs. the
+forward path alone.
+*/
+func TestSimulatedGatewayRoundTripPerformance(t *testing.T) {
+	if os.Getenv(EnvRunPerfTests) == "" {
+		t.Skipf("skip perf test because %s env is empty", EnvRunPerfTests)
+	}
+
+	const packetSize = vpn.InterfaceMTU
+	const testDuration = 30 * time.Second
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Scenario", "Latency", "Bandwidth Limit", "Round-Trip Throughput", "Utilization", "Packet Loss"})
+
+	for _, sc := range gatewayPerfScenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			ts := NewSimnetTestSuite(t)
+			ctx := t.Context()
+
+			client, exitNode := ts.setupSimnetGatewayPair(sc.latency, sc.bandwidthBps)
+
+			stop := startGatewayKernelReflector(exitNode, packetSize)
+			defer stop()
+
+			client.tun.SetInboundCapture(packetSize, nil)
+			client.tun.ClearInboundCount()
+
+			// Drain tail is 4× latency to cover the full round-trip plus
+			// libp2p stream-flush time after the blast goroutine stops.
+			duration := runGatewayBlast(ctx, client, packetSize, testDuration, sc.latency*4)
+
+			appendGatewayPerfRow(table, sc,
+				client.tun.InboundCount(),
+				client.tun.OutboundCount(),
+				packetSize, duration)
+		})
 		time.Sleep(time.Second)
 	}
 

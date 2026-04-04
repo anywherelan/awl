@@ -14,10 +14,11 @@ import (
 	"github.com/GrigoryKrasnochub/updaterini"
 	ico "github.com/Kodeworks/golang-image-ico"
 	"github.com/gen2brain/beeep"
+	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/embeds"
-	"github.com/anywherelan/awl/entity"
+	"github.com/anywherelan/awl/service"
 	"github.com/anywherelan/awl/update"
 )
 
@@ -27,9 +28,13 @@ var (
 	openBrowserMenu *systray.MenuItem
 	peersMenu       *systray.MenuItem
 	proxyMenu       *systray.MenuItem
+	gatewayMenu     *systray.MenuItem // nil when service.VPNGatewayClientSupported() != nil
 	startStopMenu   *systray.MenuItem
 	restartMenu     *systray.MenuItem
 	updateMenu      *systray.MenuItem
+
+	proxyRouting   *routingMenu
+	gatewayRouting *routingMenu // .root is nil when service.VPNGatewayClientSupported() != nil
 )
 
 const updateMenuLabel = "Check for updates"
@@ -95,11 +100,77 @@ func initTray() {
 				continue
 			}
 			refreshPeersSubmenus()
-			refreshProxySubmenus()
+			proxyRouting.refresh()
+			gatewayRouting.refresh()
 		}
 	}()
 
 	proxyMenu = systray.AddMenuItem("Proxy", "")
+	proxyRouting = newRoutingMenu(proxyMenu, routingMenuConfig{
+		noneLabel:        "None (no proxy)",
+		emptyLabel:       `No proxies available — set "Allow as exit node" on a remote device`,
+		listPeers:        listProxyPeers,
+		currentSelection: currentProxySelection,
+		selectPeer: func(peerID string) error {
+			app.SOCKS5.SetProxyPeerID(peerID)
+			return nil
+		},
+		disable: func() {
+			app.SOCKS5.SetProxyPeerID("")
+		},
+	})
+	go func() {
+		// On windows systray does not trigger clicked event on menus with submenus
+		for range proxyMenu.ClickedCh {
+			proxyRouting.refresh()
+		}
+	}()
+
+	if service.VPNGatewayClientSupported() == nil {
+		gatewayMenu = systray.AddMenuItem("VPN Gateway", "")
+		cfg := routingMenuConfig{
+			noneLabel:        "None (disabled)",
+			emptyLabel:       `No VPN gateways available — set "Allow as exit node" on a remote device`,
+			listPeers:        listGatewayPeers,
+			currentSelection: currentGatewaySelection,
+			selectPeer: func(peerIDStr string) error {
+				gatewayPeerID, err := peer.Decode(peerIDStr)
+				if err != nil {
+					return err
+				}
+				return app.VPNGateway.EnableClient(gatewayPeerID)
+			},
+			disable: func() {
+				app.VPNGateway.DisableClient()
+			},
+		}
+		// Only expose the "Serve as VPN gateway" toggle on platforms where
+		// server mode actually runs. Empty serveLabel makes routingMenu skip
+		// the toggle entirely.
+		if service.VPNGatewayServerSupported() == nil {
+			cfg.serveLabel = "Serve as VPN gateway"
+			cfg.serveCurrent = func() bool {
+				app.Conf.RLock()
+				defer app.Conf.RUnlock()
+				return app.Conf.VPNGateway.ServerEnabled
+			}
+			cfg.serveSet = func(b bool) error {
+				return app.VPNGateway.SetServerEnabled(b)
+			}
+		}
+		gatewayRouting = newRoutingMenu(gatewayMenu, cfg)
+
+		go func() {
+			// On windows systray does not trigger clicked event on menus with submenus
+			for range gatewayMenu.ClickedCh {
+				gatewayRouting.refresh()
+			}
+		}()
+	} else {
+		// Routing menu code expects a non-nil receiver; give it a no-op stub
+		// so refresh()/Enable() calls at runtime are safe and cheap.
+		gatewayRouting = newRoutingMenu(nil, routingMenuConfig{})
+	}
 
 	startStopMenu = systray.AddMenuItem("", "")
 	go func() {
@@ -156,11 +227,15 @@ func refreshMenusOnStartedServer() {
 	openBrowserMenu.Enable()
 	peersMenu.Enable()
 	proxyMenu.Enable()
+	if gatewayMenu != nil {
+		gatewayMenu.Enable()
+	}
 	startStopMenu.SetTitle("Stop server")
 	restartMenu.Enable()
 
 	refreshPeersSubmenus()
-	refreshProxySubmenus()
+	proxyRouting.refresh()
+	gatewayRouting.refresh()
 }
 
 func refreshMenusOnStoppedServer() {
@@ -169,8 +244,46 @@ func refreshMenusOnStoppedServer() {
 	openBrowserMenu.Disable()
 	peersMenu.Disable()
 	proxyMenu.Disable()
+	if gatewayMenu != nil {
+		gatewayMenu.Disable()
+	}
 	startStopMenu.SetTitle("Start server")
 	restartMenu.Disable()
+}
+
+// listProxyPeers / currentProxySelection adapt the SOCKS5 service to the
+// shape expected by routingMenu.
+func listProxyPeers() []routingPeer {
+	proxies := app.SOCKS5.ListAvailableProxies()
+	out := make([]routingPeer, len(proxies))
+	for i, p := range proxies {
+		out[i] = routingPeer{PeerID: p.PeerID, PeerName: p.PeerName, Connected: p.Connected}
+	}
+	return out
+}
+
+func currentProxySelection() (string, bool) {
+	app.Conf.RLock()
+	id := app.Conf.SOCKS5.UsingPeerID
+	app.Conf.RUnlock()
+	return id, id != ""
+}
+
+// listGatewayPeers / currentGatewaySelection adapt the VPN gateway state to
+// the shape expected by routingMenu.
+func listGatewayPeers() []routingPeer {
+	gateways := app.VPNGateway.ListAvailableVPNGateways()
+	out := make([]routingPeer, len(gateways))
+	for i, g := range gateways {
+		out[i] = routingPeer{PeerID: g.PeerID, PeerName: g.PeerName, Connected: g.Connected}
+	}
+	return out
+}
+
+func currentGatewaySelection() (string, bool) {
+	app.Conf.RLock()
+	defer app.Conf.RUnlock()
+	return app.Conf.VPNGateway.GatewayPeerID, app.Conf.VPNGateway.ClientEnabled
 }
 
 func setPeersConnectedCounter(peers int) {
@@ -178,10 +291,12 @@ func setPeersConnectedCounter(peers int) {
 }
 
 func refreshPeersCounterOnPeersConnectionChanged(peerID *string) {
-	if peerID != nil {
-		if _, known := app.Conf.GetPeer(*peerID); !known {
-			return
-		}
+	if peerID == nil {
+		setPeersConnectedCounter(0)
+		return
+	}
+	if _, known := app.Conf.GetPeer(*peerID); !known {
+		return
 	}
 
 	app.Conf.RLock()
@@ -256,56 +371,6 @@ func refreshPeersSubmenus() {
 		submenu := peersMenu.AddSubMenuItem(peerName, "")
 		submenu.Disable()
 		peersSubmenus = append(peersSubmenus, submenu)
-	}
-}
-
-var proxySubmenus []*systray.MenuItem
-var previousProxies []entity.AvailableProxy
-var previousProxyPeerID string
-
-func refreshProxySubmenus() {
-	if app == nil || proxyMenu == nil {
-		return
-	}
-
-	app.Conf.RLock()
-	currentProxy := app.Conf.SOCKS5.UsingPeerID
-	app.Conf.RUnlock()
-
-	proxies := app.SOCKS5.ListAvailableProxies()
-
-	if slices.Equal(previousProxies, proxies) && previousProxyPeerID == currentProxy {
-		return
-	}
-
-	for _, submenu := range proxySubmenus {
-		submenu.Remove()
-	}
-	proxySubmenus = nil
-
-	previousProxies = proxies
-	previousProxyPeerID = currentProxy
-
-	for _, proxy := range proxies {
-		isChecked := proxy.PeerID == currentProxy
-		submenu := proxyMenu.AddSubMenuItemCheckbox(proxy.PeerName, "", isChecked)
-		proxySubmenus = append(proxySubmenus, submenu)
-
-		go func() {
-			for range submenu.ClickedCh {
-				app.SOCKS5.SetProxyPeerID(proxy.PeerID)
-
-				app.Conf.Lock()
-				for _, currentSubmenu := range proxySubmenus {
-					if currentSubmenu == submenu {
-						submenu.Check()
-					} else {
-						currentSubmenu.Uncheck()
-					}
-				}
-				app.Conf.Unlock()
-			}
-		}()
 	}
 }
 

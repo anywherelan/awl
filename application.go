@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anywherelan/ts-dns/control/controlknobs"
@@ -38,6 +39,7 @@ import (
 	"github.com/anywherelan/awl/ringbuffer"
 	"github.com/anywherelan/awl/service"
 	"github.com/anywherelan/awl/vpn"
+	"github.com/anywherelan/awl/vpn/sockmark"
 )
 
 const (
@@ -74,6 +76,11 @@ type Application struct {
 	// For tests only:
 	ExtraLibp2pOpts          []libp2p.Option
 	AllowEmptyBootstrapPeers bool
+	// DisableGatewayOSSetup skips the netlink/iptables/route work in
+	// service.Gateway, leaving only the in-process bookkeeping. Tests run
+	// without root and against a mock TUN that has no kernel netlink
+	// presence, so the real setup paths cannot run. Set before Init.
+	DisableGatewayOSSetup bool
 
 	ctx        context.Context
 	ctxCancel  context.CancelFunc
@@ -83,7 +90,16 @@ type Application struct {
 	AuthStatus *service.AuthStatus
 	Tunnel     *service.Tunnel
 	SOCKS5     *service.SOCKS5
+	VPNGateway *service.VPNGateway
 	Dns        *DNSService
+
+	// SockMarker abstracts the per-platform socket-marking strategy used to
+	// keep libp2p traffic out of the VPN tunnel when gateway mode is on.
+	// Callers (notably cmd/gomobile-lib on Android) may set this before
+	// Init to inject a platform-specific marker — e.g.
+	//   app.SockMarker = sockmark.NewAndroid(protectorFn)
+	// Init falls back to sockmark.New() if SockMarker is left nil.
+	SockMarker sockmark.Marker
 }
 
 func New() *Application {
@@ -94,6 +110,9 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.logger.Info("Application initialization started")
 
 	a.ctx, a.ctxCancel = context.WithCancel(ctx)
+	if a.SockMarker == nil {
+		a.SockMarker = sockmark.New()
+	}
 	a.P2p = p2p.NewP2p(a.ctx)
 	p2pHost, err := a.P2p.InitHost(a.makeP2pHostConfig())
 	if err != nil {
@@ -124,7 +143,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 
 	a.Dns = NewDNSService(a.Conf, a.Eventbus, a.ctx, a.logger)
 	a.AuthStatus = service.NewAuthStatus(a.P2p, a.Conf, a.Eventbus)
-	a.SOCKS5, err = service.NewSOCKS5(a.P2p, a.Conf)
+	a.SOCKS5, err = service.NewSOCKS5(a.P2p, a.Conf, a.SockMarker)
 	if err != nil {
 		return fmt.Errorf("failed to init socks5: %v", err)
 	}
@@ -143,7 +162,9 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		}, a.Eventbus, new(awlevent.KnownPeerChanged))
 	}
 
-	handler := api.NewHandler(a.Conf, a.P2p, a.AuthStatus, a.Tunnel, a.SOCKS5, a.LogBuffer, a.Dns)
+	a.VPNGateway = service.NewVPNGateway(a.Conf, a.Tunnel, a.vpnDevice, a.P2p, a.SockMarker, a.Dns, a.DisableGatewayOSSetup)
+
+	handler := api.NewHandler(a.Conf, a.P2p, a.AuthStatus, a.Tunnel, a.SOCKS5, a.LogBuffer, a.Dns, a.VPNGateway)
 	a.Api = handler
 	err = handler.SetupAPI()
 	if err != nil {
@@ -168,6 +189,12 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	metrics.SetNodeInfo(config.Version, p2pHost.ID().String())
 	cma := &configMetricsAdapter{conf: a.Conf, authStatus: a.AuthStatus, p2p: a.P2p}
 	go metrics.StartBackgroundUpdater(a.ctx, cma, a.P2p)
+
+	// VPN Gateway mode setup
+	err = a.VPNGateway.SetupAtStartup()
+	if err != nil {
+		return fmt.Errorf("setup gateway: %v", err)
+	}
 
 	a.logger.Info("Application initialized successfully")
 
@@ -234,6 +261,10 @@ func (a *Application) Ctx() context.Context {
 
 func (a *Application) Close() {
 	a.Conf.Save()
+	// Teardown VPN gateway routes first (restore direct internet before shutting down P2P)
+	if a.VPNGateway != nil {
+		a.VPNGateway.TeardownAtShutdown()
+	}
 	if a.ctxCancel != nil {
 		a.ctxCancel()
 	}
@@ -291,6 +322,10 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		BootstrapPeers:           a.Conf.GetBootstrapPeers(),
 		AllowEmptyBootstrapPeers: a.AllowEmptyBootstrapPeers,
 		EnableAutoRelay:          true,
+		// SocketControlFunc is always used: marking happens at dial
+		// time on every socket, so libp2p connections opened *before* gateway
+		// mode is toggled on at runtime are already exempt from the VPN route.
+		SocketControlFunc: a.SockMarker.ControlFunc(),
 		Libp2pOpts: append([]libp2p.Option{
 			libp2p.EnableRelay(),
 			libp2p.EnableAutoNATv2(),
@@ -319,10 +354,18 @@ type DNSService struct {
 	ctx      context.Context
 	logger   *log.ZapEventLogger
 
+	mu                  sync.Mutex
+	dnsHost             string
+	dnsFQDN             dnsname.FQDN
 	dnsOsConfigurator   dns.OSConfigurator
 	dnsResolver         *awldns.Resolver
 	upstreamDNS         string
 	isAwlDNSSetAsSystem bool
+	// forceUpstream forces the awl resolver to capture all queries
+	// (MatchDomains=nil) and forward them to the configured public upstream so
+	// DNS traverses the tunnel instead of leaking to the system resolver. Set
+	// in VPN gateway client mode.
+	forceUpstream bool
 }
 
 func NewDNSService(conf *config.Config, eventbus awlevent.Bus, ctx context.Context, logger *log.ZapEventLogger) *DNSService {
@@ -330,22 +373,41 @@ func NewDNSService(conf *config.Config, eventbus awlevent.Bus, ctx context.Conte
 }
 
 func (a *DNSService) initDNS(interfaceName string) {
-	var err error
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	dnsAddr := a.conf.DNS.ListenAddress
 	dnsHost, _, err := net.SplitHostPort(dnsAddr)
 	if err != nil {
 		a.logger.Errorf("invalid dns listen address %s: %v", dnsAddr, err)
 		return
 	}
+	a.dnsHost = dnsHost
 
+	fqdn, err := dnsname.ToFQDN(awldns.LocalDomain)
+	if err != nil {
+		panic(err)
+	}
+	a.dnsFQDN = fqdn
+
+	// TODO(android awldns): on Android this NewResolver cannot bind :53 (needs
+	// root) and dnsOsConfigurator.SetDNS below fails (no writable resolv.conf),
+	// so awldns is effectively inert there and .awl names do not resolve. The
+	// Android host instead points VpnService at DNS.UpstreamDNSAddress directly
+	// (see awl-flutter MainActivity.establishTun), which prevents leaks but
+	// gives no .awl resolution. A full fix would intercept :53 to a magic awl
+	// IP inside the tunnel read-path (userspace netstack),
+	// rather than binding an OS socket.
 	a.dnsResolver = awldns.NewResolver(dnsAddr)
-	a.upstreamDNS = awldns.DefaultUpstreamDNSAddress
-	a.refreshDNSConfig()
+	a.upstreamDNS = a.conf.DNS.UpstreamDNSAddress
+	a.forceUpstream = a.conf.VPNGateway.ClientEnabled
+	a.refreshDNSConfigLocked()
 
 	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
-		a.refreshDNSConfig()
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.refreshDNSConfigLocked()
 	}, a.eventbus, new(awlevent.KnownPeerChanged))
-	defer a.refreshDNSConfig()
 
 	tsLogger := log.Logger("ts/dnsconf")
 	a.dnsOsConfigurator, err = dns.NewOSConfigurator(func(format string, args ...interface{}) {
@@ -356,43 +418,110 @@ func (a *DNSService) initDNS(interfaceName string) {
 		return
 	}
 
-	fqdn, err := dnsname.ToFQDN(awldns.LocalDomain)
-	if err != nil {
-		panic(err)
-	}
-	newOSConfig := dns.OSConfig{
-		Nameservers:  []netip.Addr{netip.MustParseAddr(dnsHost)},
-		MatchDomains: []dnsname.FQDN{fqdn},
-	}
+	a.applyOSDNSConfigLocked()
+}
 
-	if !a.dnsOsConfigurator.SupportsSplitDNS() {
-		newOSConfig.MatchDomains = nil
+// applyOSDNSConfigLocked (re)computes the OS DNS takeover config from the
+// current state (split-DNS support, base config, forceUpstream) and pushes it
+// to the OS, then refreshes the awl resolver. Caller must hold a.mu and have a
+// non-nil dnsOsConfigurator. Safe to call repeatedly.
+func (a *DNSService) applyOSDNSConfigLocked() {
+	supportsSplitDNS := a.dnsOsConfigurator.SupportsSplitDNS()
+
+	var baseNameservers []netip.Addr
+	if !supportsSplitDNS {
 		baseOSConfig, err := a.dnsOsConfigurator.GetBaseConfig()
 		if err != nil {
 			a.logger.Errorf("get base config from os configurator, abort setting os dns: %v", err)
 			return
 		}
-
 		a.logger.Infof("os does not support split dns. base config: %v", baseOSConfig)
-		if len(baseOSConfig.Nameservers) == 0 {
-			a.logger.Errorf("got zero nameservers from os configurator, use %s as default", awldns.DefaultUpstreamDNSAddress)
-			a.upstreamDNS = awldns.DefaultUpstreamDNSAddress
-		} else {
-			// TODO: use all nameservers in awldns resolver proxy
-			a.upstreamDNS = net.JoinHostPort(baseOSConfig.Nameservers[0].String(), awldns.DefaultDNSPort)
-		}
+		baseNameservers = baseOSConfig.Nameservers
 	}
 
-	err = a.dnsOsConfigurator.SetDNS(newOSConfig)
-	if err != nil {
-		a.logger.Errorf("set dns config to os configurator: %v", err)
-	} else {
-		a.logger.Info("successfully set dns config to os")
-		a.isAwlDNSSetAsSystem = true
+	matchDomains, upstream := chooseDNSPolicy(a.forceUpstream, supportsSplitDNS, baseNameservers, a.conf.DNS.UpstreamDNSAddress)
+	a.upstreamDNS = upstream
+	a.refreshDNSConfigLocked()
+
+	// TODO: consider setting SearchDomains = ["awl."] so peers resolve by bare
+	// short name (e.g. "mypeer" -> "mypeer.awl") instead of requiring the full
+	// .awl suffix. SearchDomains expands single-label queries into FQDNs and is
+	// additive to the OS's existing search list (distinct from MatchDomains,
+	// which only routes which zones reach the awl resolver). Would likely want a
+	// config toggle to gate it.
+	//
+	// TODO: consider pushing admin.awl into Hosts (a static FQDN->IP map applied
+	// to /etc/hosts) instead of (or in addition to) injecting
+	// AdminHttpServerDomainName into the resolver name mapping in
+	// refreshDNSConfigLocked — that would make the admin UI name resolvable even
+	// when the awl :53 resolver itself is not reachable.
+	newOSConfig := dns.OSConfig{
+		Nameservers:  []netip.Addr{netip.MustParseAddr(a.dnsHost)},
+		MatchDomains: matchDomains,
 	}
+	if err := a.dnsOsConfigurator.SetDNS(newOSConfig); err != nil {
+		a.logger.Errorf("set dns config to os configurator: %v", err)
+		return
+	}
+	a.logger.Infof("successfully set dns config to os (forceUpstream=%v, upstream=%s, matchDomains=%v)",
+		a.forceUpstream, a.upstreamDNS, matchDomains)
+	a.isAwlDNSSetAsSystem = true
 }
 
-func (a *DNSService) refreshDNSConfig() {
+// chooseDNSPolicy decides which domains the awl resolver should capture and
+// which upstream it forwards non-.awl queries to.
+//
+//   - forceUpstream (VPN gateway client mode): capture everything
+//     (MatchDomains=nil) and forward to the configured public upstream so DNS
+//     goes through the tunnel — no leak.
+//   - split-DNS supported: capture only .awl; other queries are handled by the
+//     OS resolver directly, so the awl upstream is unused (kept as the
+//     configured default for completeness).
+//   - split-DNS unsupported: capture everything and forward to the system's
+//     first base nameserver, falling back to the configured default when the OS
+//     reports none.
+func chooseDNSPolicy(forceUpstream, supportsSplitDNS bool, base []netip.Addr, upstreamCfg string) (matchDomains []dnsname.FQDN, upstream string) {
+	awlFQDN, err := dnsname.ToFQDN(awldns.LocalDomain)
+	if err != nil {
+		panic(err)
+	}
+
+	if forceUpstream {
+		return nil, upstreamCfg
+	}
+	if supportsSplitDNS {
+		return []dnsname.FQDN{awlFQDN}, upstreamCfg
+	}
+	// no split DNS: capture everything, forward to the system's base resolver
+	if len(base) == 0 {
+		return nil, upstreamCfg
+	}
+	// TODO: use all nameservers in awldns resolver proxy
+	return nil, net.JoinHostPort(base[0].String(), awldns.DefaultDNSPort)
+}
+
+// ForceUpstreamDNS toggles full-capture mode where the awl resolver intercepts
+// all DNS (not just .awl) and forwards it to the configured public upstream, so
+// queries traverse the tunnel and do not leak. Driven by the VPN gateway client
+// apply/teardown. No-op (returns nil) when DNS was never set up as the system
+// resolver (DNS disabled, or Android where the OS DNS takeover does not apply).
+// Idempotent.
+func (a *DNSService) ForceUpstreamDNS(enabled bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.dnsOsConfigurator == nil || !a.isAwlDNSSetAsSystem {
+		return nil
+	}
+	if a.forceUpstream == enabled {
+		return nil
+	}
+	a.forceUpstream = enabled
+	a.applyOSDNSConfigLocked()
+	return nil
+}
+
+func (a *DNSService) refreshDNSConfigLocked() {
 	if a.dnsResolver == nil {
 		a.logger.DPanicf("called refreshDNSConfig with nil resolver %v", a.dnsResolver)
 		return
@@ -403,6 +532,8 @@ func (a *DNSService) refreshDNSConfig() {
 }
 
 func (a *DNSService) Close() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.dnsOsConfigurator != nil {
 		err := a.dnsOsConfigurator.Close()
 		if err != nil {
@@ -415,6 +546,8 @@ func (a *DNSService) Close() {
 }
 
 func (a *DNSService) AwlDNSAddress() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.dnsResolver != nil {
 		return a.dnsResolver.DNSAddress()
 	}
@@ -422,6 +555,8 @@ func (a *DNSService) AwlDNSAddress() string {
 }
 
 func (a *DNSService) IsAwlDNSSetAsSystem() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.isAwlDNSSetAsSystem
 }
 
