@@ -125,12 +125,18 @@ func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
 
 	if !enabled {
 		metrics.SOCKS5ErrorsTotal.WithLabelValues("server", "proxying_disabled").Inc()
-		_ = s.server.SendServerFailureReply(stream)
+		if stream.Protocol() != protocol.Socks5NoAuthMethod {
+			_ = s.server.SendServerFailureReply(stream)
+		}
 		return
 	}
 
 	// ignore error, we can do nothing about it
-	_ = s.server.ServeStreamConn(stream)
+	if stream.Protocol() == protocol.Socks5NoAuthMethod {
+		_ = s.server.ServeStreamConnNoAuth(stream)
+	} else {
+		_ = s.server.ServeStreamConn(stream)
+	}
 
 	// stream.Write() + stream.Reset() are not guaranteed to run sequentially
 	// e.g reader on the other side may not read everything we sent because of stream.Reset()
@@ -201,7 +207,7 @@ func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 
-	stream, err := s.p2p.NewStream(ctx, remotePeerID, protocol.Socks5PacketMethod)
+	stream, err := s.p2p.NewStreamMulti(ctx, remotePeerID, protocol.Socks5NoAuthMethod, protocol.Socks5PacketMethod)
 	if err != nil {
 		metrics.SOCKS5ErrorsTotal.WithLabelValues("client", "peer_stream_failed").Inc()
 		return err
@@ -209,6 +215,12 @@ func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 	defer func() {
 		_ = stream.Reset()
 	}()
+
+	if stream.Protocol() == protocol.Socks5NoAuthMethod {
+		if err := s.client.HandleLocalAuth(conn); err != nil {
+			return err
+		}
+	}
 
 	s.handleStream(conn, stream)
 

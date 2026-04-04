@@ -16,6 +16,8 @@ import (
 	"github.com/anywherelan/awl/vpn"
 )
 
+const EnvRunPerfTests = "AWL_PERF_TESTS"
+
 /*
 TestSimulatedTunnelPerformance performs a benchmark of the AWL VPN tunnel under simulated network conditions.
 
@@ -32,8 +34,8 @@ It uses:
 func TestSimulatedTunnelPerformance(t *testing.T) {
 	const Mbps = 1_000_000
 
-	if os.Getenv("CI") != "" {
-		t.Skip("skip in CI because it's a benchmark")
+	if os.Getenv(EnvRunPerfTests) == "" {
+		t.Skipf("skip perf test because %s env is empty", EnvRunPerfTests)
 	}
 
 	scenarios := []struct {
@@ -230,8 +232,8 @@ func TestSimulatedSOCKS5ProxyPerformance(t *testing.T) {
 
 	const Mbps = 1_000_000
 
-	if os.Getenv("CI") != "" {
-		t.Skip("skip in CI because it's a benchmark")
+	if os.Getenv(EnvRunPerfTests) == "" {
+		t.Skipf("skip perf test because %s env is empty", EnvRunPerfTests)
 	}
 
 	scenarios := []struct {

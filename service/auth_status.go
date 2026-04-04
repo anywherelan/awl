@@ -29,6 +29,7 @@ type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
 	IsConnected(peerID peer.ID) bool
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
+	NewStreamMulti(ctx context.Context, id peer.ID, protos ...libp2pProtocol.ID) (network.Stream, error)
 	NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	SubscribeConnectionEvents(onConnected, onDisconnected func(network.Network, network.Conn))
 	RecordPeerLatency(id peer.ID, rtt time.Duration)

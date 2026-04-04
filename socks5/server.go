@@ -55,6 +55,11 @@ func (s *Server) ServeStreamConn(stream network.Stream) error {
 	return s.socks.ServeConn(conn)
 }
 
+func (s *Server) ServeStreamConnNoAuth(stream network.Stream) error {
+	conn := StreamConnWrapper{Stream: stream}
+	return s.socks.ServeConnNoAuth(conn)
+}
+
 // ServeConn is only used in tests. TODO: refactor tests
 func (s *Server) ServeConn(ioConn io.ReadWriteCloser) error {
 	conn := ReadWriterConnWrapper{ReadWriteCloser: ioConn}

@@ -21,6 +21,7 @@ import (
 	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
+	"github.com/anywherelan/awl/protocol"
 )
 
 func TestMakeFriends(t *testing.T) {
@@ -389,6 +390,43 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	info, err = peer2.api.PeerInfo()
 	ts.NoError(err)
 	ts.Equal("", info.SOCKS5.UsingPeerID)
+}
+
+func TestSOCKS5ProxyFallbackToOldProtocol(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false) // client
+	peer2 := ts.NewTestPeer(false) // server (simulates old version)
+
+	ts.makeFriends(peer2, peer1)
+
+	// Remove new protocol handler from peer2 to simulate old peer
+	peer2.app.P2p.Host().RemoveStreamHandler(protocol.Socks5NoAuthMethod)
+
+	// Allow peer1 to use peer2 as exit node
+	peer1Config, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+	ts.NoError(err)
+
+	err = peer2.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peer1.PeerID(),
+		Alias:                peer1Config.Alias,
+		DomainName:           peer1Config.DomainName,
+		IPAddr:               peer1Config.IPAddr,
+		AllowUsingAsExitNode: true,
+	})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		peer2Config, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		return peer2Config.AllowedUsingAsExitNode
+	}, 15*time.Second, 100*time.Millisecond)
+
+	peer1.app.SOCKS5.SetProxyPeerID(peer2.PeerID())
+	peer2.app.SOCKS5.SetProxyingLocalhostEnabled(true)
+
+	// Verify SOCKS5 still works via fallback to old protocol
+	testSOCKS5Proxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, "")
 }
 
 func TestUpdatePeerSettingsIPAddr(t *testing.T) {
