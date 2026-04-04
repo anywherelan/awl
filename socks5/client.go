@@ -11,12 +11,13 @@ import (
 )
 
 type Client struct {
-	listener net.Listener
-	connsCh  chan net.Conn
-	logger   *log.ZapEventLogger
+	listener      net.Listener
+	connsCh       chan net.Conn
+	logger        *log.ZapEventLogger
+	authenticator socks5Lib.Authenticator
 }
 
-func NewClient(listenAddr string) (*Client, error) {
+func NewClient(listenAddr string, username, password string) (*Client, error) {
 	// TODO: add support for udp?
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
@@ -25,10 +26,20 @@ func NewClient(listenAddr string) (*Client, error) {
 
 	logger := log.Logger("socks5/client")
 
+	var authenticator socks5Lib.Authenticator
+	if username != "" && password != "" {
+		authenticator = socks5Lib.UserPassAuthenticator{
+			Credentials: socks5Lib.StaticCredentials{username: password},
+		}
+	} else {
+		authenticator = socks5Lib.NoAuthAuthenticator{}
+	}
+
 	cli := Client{
-		listener: listener,
-		connsCh:  make(chan net.Conn, 1),
-		logger:   logger,
+		listener:      listener,
+		connsCh:       make(chan net.Conn, 1),
+		logger:        logger,
+		authenticator: authenticator,
 	}
 	go func() {
 		serveErr := cli.serve()
@@ -48,8 +59,8 @@ func (c *Client) ConnsChan() <-chan net.Conn {
 	return c.connsCh
 }
 
-// HandleLocalAuth performs the SOCKS5 auth negotiation locally, responding with NoAuth.
-// This avoids sending the auth handshake over the network to the remote peer.
+// HandleLocalAuth performs the SOCKS5 auth negotiation locally.
+// It reads the version byte and offered methods, then delegates to the configured authenticator.
 func (c *Client) HandleLocalAuth(conn net.Conn) error {
 	// Read version byte
 	version := []byte{0}
@@ -66,21 +77,22 @@ func (c *Client) HandleLocalAuth(conn net.Conn) error {
 		return fmt.Errorf("failed to read auth methods: %w", err)
 	}
 
-	// Check NoAuth is offered
-	hasNoAuth := false
+	// Check if the client offers our required method
+	requiredMethod := c.authenticator.GetCode()
+	hasMethod := false
 	for _, m := range methods {
-		if m == socks5Lib.AuthMethodNoAuth {
-			hasNoAuth = true
+		if m == requiredMethod {
+			hasMethod = true
 			break
 		}
 	}
-	if !hasNoAuth {
+	if !hasMethod {
 		_, _ = conn.Write([]byte{0x05, socks5Lib.AuthMethodNoAcceptable})
-		return fmt.Errorf("client does not support NoAuth method")
+		return fmt.Errorf("client does not support required auth method %d", requiredMethod)
 	}
 
-	// Respond: NoAuth selected
-	_, err = conn.Write([]byte{0x05, socks5Lib.AuthMethodNoAuth})
+	// Delegate to the authenticator (writes method selection + handles subnegotiation)
+	_, err = c.authenticator.Authenticate(conn, conn)
 	return err
 }
 

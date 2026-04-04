@@ -84,6 +84,9 @@ type (
 		ListenAddress   string `json:"listenAddress"`
 		// peer that is set as proxy
 		UsingPeerID string `json:"usingPeerID"`
+		// Optional local auth credentials. If both are set, SOCKS5 clients must authenticate.
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 	DNSConfig struct {
 		DisableDNS    bool   `json:"disableDNS"`
