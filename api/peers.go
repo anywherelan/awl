@@ -15,12 +15,12 @@ import (
 
 const ErrorPeerAliasIsNotUniq = "peer name is not unique"
 
-// @Tags Peers
-// @Summary Get known peers info
-// @Accept json
-// @Produce json
-// @Success 200 {array} entity.KnownPeersResponse
-// @Router /peers/get_known [GET]
+// @Tags		Peers
+// @Summary	Get known peers info
+// @Accept		json
+// @Produce	json
+// @Success	200	{array}	entity.KnownPeersResponse
+// @Router		/peers/get_known [GET]
 func (h *Handler) GetKnownPeers(c echo.Context) (err error) {
 	result := h.getKnownPeers()
 	return c.JSON(http.StatusOK, result)
@@ -71,15 +71,15 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 	return result
 }
 
-// @Tags Peers
-// @Summary Get known peer settings
-// @Accept json
-// @Produce json
-// @Param body body entity.PeerIDRequest true "Params"
-// @Success 200 {object} config.KnownPeer
-// @Failure 400 {object} api.Error
-// @Failure 404 {object} api.Error
-// @Router /peers/get_known_peer_settings [POST]
+// @Tags		Peers
+// @Summary	Get known peer settings
+// @Accept		json
+// @Produce	json
+// @Param		body	body		entity.PeerIDRequest	true	"Params"
+// @Success	200		{object}	config.KnownPeer
+// @Failure	400		{object}	api.Error
+// @Failure	404		{object}	api.Error
+// @Router		/peers/get_known_peer_settings [POST]
 func (h *Handler) GetKnownPeerSettings(c echo.Context) (err error) {
 	req := entity.PeerIDRequest{}
 	err = c.Bind(&req)
@@ -97,15 +97,15 @@ func (h *Handler) GetKnownPeerSettings(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, knownPeer)
 }
 
-// @Tags Peers
-// @Summary Update peer settings
-// @Accept json
-// @Produce json
-// @Param body body entity.UpdatePeerSettingsRequest true "Params"
-// @Success 200 "OK"
-// @Failure 400 {object} api.Error
-// @Failure 404 {object} api.Error
-// @Router /peers/update_settings [POST]
+// @Tags		Peers
+// @Summary	Update peer settings
+// @Accept		json
+// @Produce	json
+// @Param		body	body	entity.UpdatePeerSettingsRequest	true	"Params"
+// @Success	200		"OK"
+// @Failure	400		{object}	api.Error
+// @Failure	404		{object}	api.Error
+// @Router		/peers/update_settings [POST]
 func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	req := entity.UpdatePeerSettingsRequest{}
 	err = c.Bind(&req)
@@ -151,15 +151,15 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	return c.NoContent(http.StatusOK)
 }
 
-// @Tags Peers
-// @Summary Invite new peer
-// @Accept json
-// @Produce json
-// @Param body body entity.FriendRequest true "Params"
-// @Success 200 "OK"
-// @Failure 400 {object} api.Error
-// @Failure 500 {object} api.Error
-// @Router /peers/invite_peer [POST]
+// @Tags		Peers
+// @Summary	Invite new peer
+// @Accept		json
+// @Produce	json
+// @Param		body	body	entity.FriendRequest	true	"Params"
+// @Success	200		"OK"
+// @Failure	400		{object}	api.Error
+// @Failure	500		{object}	api.Error
+// @Router		/peers/invite_peer [POST]
 func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 	req := entity.FriendRequest{}
 	err = c.Bind(&req)
@@ -188,15 +188,15 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 	return c.NoContent(http.StatusOK)
 }
 
-// @Tags Peers
-// @Summary Accept new peer's invitation
-// @Accept json
-// @Produce json
-// @Param body body entity.FriendRequestReply true "Params"
-// @Success 200 "OK"
-// @Failure 400 {object} api.Error
-// @Failure 500 {object} api.Error
-// @Router /peers/accept_peer [POST]
+// @Tags		Peers
+// @Summary	Accept new peer's invitation
+// @Accept		json
+// @Produce	json
+// @Param		body	body	entity.FriendRequestReply	true	"Params"
+// @Success	200		"OK"
+// @Failure	400		{object}	api.Error
+// @Failure	500		{object}	api.Error
+// @Router		/peers/accept_peer [POST]
 func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	req := entity.FriendRequestReply{}
 	err = c.Bind(&req)
@@ -236,12 +236,12 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 	return c.NoContent(http.StatusOK)
 }
 
-// @Tags Peers
-// @Summary Get ingoing auth requests
-// @Accept json
-// @Produce json
-// @Success 200 {array} entity.AuthRequest
-// @Router /peers/auth_requests [GET]
+// @Tags		Peers
+// @Summary	Get ingoing auth requests
+// @Accept		json
+// @Produce	json
+// @Success	200	{array}	entity.AuthRequest
+// @Router		/peers/auth_requests [GET]
 func (h *Handler) GetAuthRequests(c echo.Context) (err error) {
 	authRequestsMap := h.authStatus.GetIngoingAuthRequests()
 	authRequests := make([]entity.AuthRequest, 0, len(authRequestsMap))
@@ -271,15 +271,15 @@ func (h *Handler) GetAuthRequests(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, authRequests)
 }
 
-// @Tags Peers
-// @Summary Remove known peer
-// @Accept json
-// @Produce json
-// @Param body body entity.PeerIDRequest true "Params"
-// @Success 200 "OK"
-// @Failure 400 {object} api.Error
-// @Failure 404 {object} api.Error
-// @Router /peers/remove [POST]
+// @Tags		Peers
+// @Summary	Remove known peer
+// @Accept		json
+// @Produce	json
+// @Param		body	body	entity.PeerIDRequest	true	"Params"
+// @Success	200		"OK"
+// @Failure	400		{object}	api.Error
+// @Failure	404		{object}	api.Error
+// @Router		/peers/remove [POST]
 func (h *Handler) RemovePeer(c echo.Context) (err error) {
 	req := entity.PeerIDRequest{}
 	err = c.Bind(&req)
@@ -306,12 +306,12 @@ func (h *Handler) RemovePeer(c echo.Context) (err error) {
 	return c.NoContent(http.StatusOK)
 }
 
-// @Tags Peers
-// @Summary Get blocked peers info
-// @Accept json
-// @Produce json
-// @Success 200 {array} config.BlockedPeer
-// @Router /peers/get_blocked [GET]
+// @Tags		Peers
+// @Summary	Get blocked peers info
+// @Accept		json
+// @Produce	json
+// @Success	200	{array}	config.BlockedPeer
+// @Router		/peers/get_blocked [GET]
 func (h *Handler) GetBlockedPeers(c echo.Context) (err error) {
 	h.conf.RLock()
 	result := make([]config.BlockedPeer, 0, len(h.conf.BlockedPeers))

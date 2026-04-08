@@ -9,12 +9,12 @@ import (
 	"github.com/anywherelan/awl/entity"
 )
 
-// @Tags Settings
-// @Summary Get my peer info
-// @Accept json
-// @Produce json
-// @Success 200 {object} entity.PeerInfo
-// @Router /settings/peer_info [GET]
+// @Tags		Settings
+// @Summary	Get my peer info
+// @Accept		json
+// @Produce	json
+// @Success	200	{object}	entity.PeerInfo
+// @Router		/settings/peer_info [GET]
 func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 	totalBootstraps, connectedBootstraps := h.p2p.BootstrapPeersStats()
 	netStats := h.p2p.NetworkStats()
@@ -51,13 +51,13 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, peerInfo)
 }
 
-// @Tags Settings
-// @Summary Update my peer info
-// @Accept json
-// @Produce json
-// @Param body body entity.UpdateMySettingsRequest true "Params"
-// @Success 200 "OK"
-// @Router /settings/update [POST]
+// @Tags		Settings
+// @Summary	Update my peer info
+// @Accept		json
+// @Produce	json
+// @Param		body	body	entity.UpdateMySettingsRequest	true	"Params"
+// @Success	200		"OK"
+// @Router		/settings/update [POST]
 func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 	req := entity.UpdateMySettingsRequest{}
 	err = c.Bind(&req)
@@ -80,24 +80,24 @@ func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 	return c.NoContent(http.StatusOK)
 }
 
-// @Tags Settings
-// @Summary Export server configuration
-// @Accept json
-// @Produce json
-// @Success 200 {object} config.Config
-// @Router /settings/export_server_config [GET]
+// @Tags		Settings
+// @Summary	Export server configuration
+// @Accept		json
+// @Produce	json
+// @Success	200	{object}	config.Config
+// @Router		/settings/export_server_config [GET]
 func (h *Handler) ExportServerConfiguration(c echo.Context) (err error) {
 	data := h.conf.Export()
 
 	return c.Blob(http.StatusOK, echo.MIMEApplicationJSON, data)
 }
 
-// @Tags Settings
-// @Summary List available socks5 proxies
-// @Accept json
-// @Produce json
-// @Success 200 {object} entity.ListAvailableProxiesResponse
-// @Router /settings/list_proxies [GET]
+// @Tags		Settings
+// @Summary	List available socks5 proxies
+// @Accept		json
+// @Produce	json
+// @Success	200	{object}	entity.ListAvailableProxiesResponse
+// @Router		/settings/list_proxies [GET]
 func (h *Handler) ListAvailableProxies(c echo.Context) (err error) {
 	proxies := h.socks5.ListAvailableProxies()
 
@@ -108,13 +108,13 @@ func (h *Handler) ListAvailableProxies(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, response)
 }
 
-// @Tags Settings
-// @Summary Update current proxy settings
-// @Accept json
-// @Produce json
-// @Param body body entity.UpdateProxySettingsRequest true "Params"
-// @Success 200 "OK"
-// @Router /settings/set_proxy [POST]
+// @Tags		Settings
+// @Summary	Update current proxy settings
+// @Accept		json
+// @Produce	json
+// @Param		body	body	entity.UpdateProxySettingsRequest	true	"Params"
+// @Success	200		"OK"
+// @Router		/settings/set_proxy [POST]
 func (h *Handler) UpdateProxySettings(c echo.Context) (err error) {
 	req := entity.UpdateProxySettingsRequest{}
 	err = c.Bind(&req)

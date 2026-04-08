@@ -4,6 +4,10 @@ definitions:
     properties:
       error:
         type: string
+      message:
+        description: AuthMessage is an error from Echo framework, particularly from
+          Basic Auth middleware
+        type: string
     type: object
   config.BlockedPeer:
     properties:
@@ -16,64 +20,18 @@ definitions:
         description: Hex-encoded multihash representing a peer ID
         type: string
     type: object
-  config.Config:
+  config.DNSConfig:
     properties:
-      connManager: {}
-      connectionGater: {}
-      disablePing:
+      disableDNS:
         type: boolean
-      enableAutoRelay:
-        type: boolean
-      enableService:
-        type: boolean
-      forceReachability:
-        type: integer
-      insecure:
-        type: boolean
-      listenAddrs:
-        items: {}
-        type: array
-      multiaddrResolver:
-        $ref: '#/definitions/madns.Resolver'
-      muxers:
-        items:
-          $ref: '#/definitions/config.MsMuxC'
-        type: array
-      peerKey: {}
-      peerstore: {}
-      psk:
-        items:
-          type: integer
-        type: array
-      relay:
-        type: boolean
-      relayCustom:
-        type: boolean
-      relayOpts:
-        items:
-          type: integer
-        type: array
-      reporter: {}
-      securityTransports:
-        items:
-          $ref: '#/definitions/config.MsSecC'
-        type: array
-      staticRelays:
-        items:
-          $ref: '#/definitions/peer.AddrInfo'
-        type: array
-      throttleGlobalLimit:
-        type: integer
-      throttleInterval:
-        type: integer
-      throttlePeerLimit:
-        type: integer
-      userAgent:
-        description: |-
-          UserAgent is the identifier this node will send to other peers when
-          identifying itself, e.g. via the identify protocol.
-
-          Set it via the UserAgent option function.
+      listenAddress:
+        type: string
+    type: object
+  config.HttpBasicAuthConfig:
+    properties:
+      password:
+        type: string
+      username:
         type: string
     type: object
   config.KnownPeer:
@@ -81,6 +39,8 @@ definitions:
       alias:
         description: User provided name
         type: string
+      allowedUsingAsExitNode:
+        type: boolean
       confirmed:
         description: Has remote peer confirmed our invitation
         type: boolean
@@ -105,15 +65,70 @@ definitions:
       peerId:
         description: Hex-encoded multihash representing a peer ID
         type: string
+      weAllowUsingAsExitNode:
+        type: boolean
     type: object
-  config.MsMuxC:
+  config.P2pNodeConfig:
     properties:
-      id:
+      autoAcceptAuthRequests:
+        type: boolean
+      bootstrapPeers:
+        items:
+          type: string
+        type: array
+      identity:
+        type: string
+      ignoreDefaultBootstrapPeers:
+        description: With this option only BootstrapPeers from config will be used
+        type: boolean
+      listenAddresses:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      parallelSendingStreamsCount:
+        type: integer
+      peerId:
+        description: Hex-encoded multihash representing a peer ID, calculated from
+          Identity
+        type: string
+      reconnectionIntervalSec:
+        type: integer
+      useDedicatedConnForEachStream:
+        type: boolean
+    type: object
+  config.SOCKS5Config:
+    properties:
+      listenAddress:
+        type: string
+      listenerEnabled:
+        type: boolean
+      proxyingEnabled:
+        description: allow using my host as proxy
+        type: boolean
+      usingPeerID:
+        description: peer that is set as proxy
         type: string
     type: object
-  config.MsSecC:
+  config.UpdateConfig:
     properties:
-      id:
+      lowestPriorityChan:
+        type: string
+      trayAutoCheckEnabled:
+        type: boolean
+      trayAutoCheckInterval:
+        type: string
+      updateServerURL:
+        type: string
+    type: object
+  config.VPNConfig:
+    properties:
+      disableVPNInterface:
+        type: boolean
+      interfaceName:
+        type: string
+      ipNet:
         type: string
     type: object
   entity.AuthRequest:
@@ -121,6 +136,16 @@ definitions:
       name:
         type: string
       peerID:
+        type: string
+      suggestedIP:
+        description: SuggestedIP is a free IP address generated for this peer
+        type: string
+    type: object
+  entity.AvailableProxy:
+    properties:
+      peerID:
+        type: string
+      peerName:
         type: string
     type: object
   entity.BandwidthDebugInfo:
@@ -152,10 +177,7 @@ definitions:
       openConnectionsCount:
         type: integer
       openStreamsCount:
-        type: integer
-      totalStreamsInbound:
-        type: integer
-      totalStreamsOutbound:
+        format: int64
         type: integer
     type: object
   entity.DhtDebugInfo:
@@ -168,10 +190,6 @@ definitions:
         items:
           type: string
         type: array
-      observedAddrs:
-        items:
-          type: string
-        type: array
       peersWithAddrsCount:
         type: integer
       reachability:
@@ -180,16 +198,31 @@ definitions:
         - Public
         - Private
         type: string
+      reachableAddrs:
+        items:
+          type: string
+        type: array
       routingTable:
         items:
           $ref: '#/definitions/kbucket.PeerInfo'
         type: array
       routingTableSize:
         type: integer
+      unknownAddrs:
+        items:
+          type: string
+        type: array
+      unreachableAddrs:
+        items:
+          type: string
+        type: array
     type: object
   entity.FriendRequest:
     properties:
       alias:
+        type: string
+      ipaddr:
+        description: 'optional: specific IP address for the peer'
         type: string
       peerID:
         type: string
@@ -203,6 +236,9 @@ definitions:
         type: string
       decline:
         type: boolean
+      ipaddr:
+        description: 'optional: specific IP address for the peer'
+        type: string
       peerID:
         type: string
     required:
@@ -220,6 +256,8 @@ definitions:
     properties:
       alias:
         type: string
+      allowedUsingAsExitNode:
+        type: boolean
       confirmed:
         type: boolean
       connected:
@@ -248,8 +286,19 @@ definitions:
         $ref: '#/definitions/entity.StatsInUnits'
       peerID:
         type: string
+      ping:
+        type: integer
       version:
         type: string
+      weAllowUsingAsExitNode:
+        type: boolean
+    type: object
+  entity.ListAvailableProxiesResponse:
+    properties:
+      proxies:
+        items:
+          $ref: '#/definitions/entity.AvailableProxy'
+        type: array
     type: object
   entity.P2pDebugInfo:
     properties:
@@ -261,6 +310,10 @@ definitions:
         $ref: '#/definitions/entity.DhtDebugInfo'
       general:
         $ref: '#/definitions/entity.GeneralDebugInfo'
+      knownPeers:
+        items:
+          $ref: '#/definitions/entity.KnownPeersResponse'
+        type: array
     type: object
   entity.PeerIDRequest:
     properties:
@@ -293,10 +346,27 @@ definitions:
         type: string
       serverVersion:
         type: string
+      socks5:
+        $ref: '#/definitions/entity.SOCKS5Info'
       totalBootstrapPeers:
         type: integer
       uptime:
         type: integer
+      vpn:
+        $ref: '#/definitions/entity.VPNInfo'
+    type: object
+  entity.SOCKS5Info:
+    properties:
+      listenAddress:
+        type: string
+      listenerEnabled:
+        type: boolean
+      proxyingEnabled:
+        type: boolean
+      usingPeerID:
+        type: string
+      usingPeerName:
+        type: string
     type: object
   entity.StatsInUnits:
     properties:
@@ -318,13 +388,65 @@ definitions:
     properties:
       alias:
         type: string
+      allowUsingAsExitNode:
+        type: boolean
       domainName:
+        type: string
+      ipaddr:
+        description: 'TODO: support ipv6'
         type: string
       peerID:
         type: string
     required:
     - alias
+    - domainName
+    - ipaddr
     - peerID
+    type: object
+  entity.UpdateProxySettingsRequest:
+    properties:
+      usingPeerID:
+        type: string
+    type: object
+  entity.VPNInfo:
+    properties:
+      interfaceName:
+        type: string
+      ipnet:
+        type: string
+      vpninterfaceEnabled:
+        type: boolean
+    type: object
+  github_com_anywherelan_awl_config.Config:
+    properties:
+      blockedPeers:
+        additionalProperties:
+          $ref: '#/definitions/config.BlockedPeer'
+        type: object
+      dns:
+        $ref: '#/definitions/config.DNSConfig'
+      httpBasicAuth:
+        $ref: '#/definitions/config.HttpBasicAuthConfig'
+      httpListenAddress:
+        type: string
+      httpListenOnAdminHost:
+        type: boolean
+      knownPeers:
+        additionalProperties:
+          $ref: '#/definitions/config.KnownPeer'
+        type: object
+      loggerLevel:
+        type: string
+      p2pNode:
+        $ref: '#/definitions/config.P2pNodeConfig'
+      socks5:
+        $ref: '#/definitions/config.SOCKS5Config'
+      update:
+        $ref: '#/definitions/config.UpdateConfig'
+      version:
+        type: string
+      vpn:
+        $ref: '#/definitions/config.VPNConfig'
     type: object
   kbucket.PeerInfo:
     properties:
@@ -344,17 +466,19 @@ definitions:
           Please see the DHT docs for the definition of usefulness.
         type: string
     type: object
-  madns.Resolver:
-    type: object
   metrics.Stats:
     properties:
       rateIn:
+        format: float64
         type: number
       rateOut:
+        format: float64
         type: number
       totalIn:
+        format: int64
         type: integer
       totalOut:
+        format: int64
         type: integer
     type: object
   p2p.BootstrapPeerDebugInfo:
@@ -364,6 +488,8 @@ definitions:
           type: string
         type: array
       error:
+        type: string
+      ping:
         type: string
     type: object
   p2p.ConnectionInfo:
@@ -384,14 +510,6 @@ definitions:
         type: boolean
       transient:
         type: boolean
-    type: object
-  peer.AddrInfo:
-    properties:
-      addrs:
-        items: {}
-        type: array
-      id:
-        type: string
     type: object
 host: localhost:8639
 info:
@@ -629,8 +747,22 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/config.Config'
+            $ref: '#/definitions/github_com_anywherelan_awl_config.Config'
       summary: Export server configuration
+      tags:
+        - Settings
+  /settings/list_proxies:
+    get:
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.ListAvailableProxiesResponse'
+      summary: List available socks5 proxies
       tags:
       - Settings
   /settings/peer_info:
@@ -645,6 +777,25 @@ paths:
           schema:
             $ref: '#/definitions/entity.PeerInfo'
       summary: Get my peer info
+      tags:
+        - Settings
+  /settings/set_proxy:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.UpdateProxySettingsRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Update current proxy settings
       tags:
       - Settings
   /settings/update:

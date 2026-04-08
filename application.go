@@ -55,14 +55,14 @@ func FrontendStatic() fs.FS {
 	return fsys
 }
 
-// @title Anywherelan API
-// @version 0.1
-// @description Anywherelan API
+//	@title			Anywherelan API
+//	@version		0.1
+//	@description	Anywherelan API
 
-// @Host localhost:8639
-// @BasePath /api/v0/
+//	@Host		localhost:8639
+//	@BasePath	/api/v0/
 
-//go:generate swag init --parseDependency -g application.go
+//go:generate go run github.com/swaggo/swag/cmd/swag@latest init --parseDependency -g application.go
 //go:generate rm -f docs/docs.go docs/swagger.json
 
 type Application struct {
