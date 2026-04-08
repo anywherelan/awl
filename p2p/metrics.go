@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/libp2p/go-libp2p-kbucket"
+	kbucket "github.com/libp2p/go-libp2p-kbucket"
 	"github.com/libp2p/go-libp2p/core/metrics"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -47,7 +47,7 @@ type ConnectionInfo struct {
 type BootstrapPeerDebugInfo struct {
 	Error       string   `json:",omitempty"`
 	Connections []string `json:",omitempty"`
-	Ping        Duration `json:",omitempty"`
+	Ping        Duration `json:",omitempty" swaggertype:"string"`
 }
 
 func (p *P2p) Uptime() time.Duration {
