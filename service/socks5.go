@@ -95,6 +95,12 @@ func (s *SOCKS5) SetProxyPeerID(peerID string) {
 	s.conf.Save()
 }
 
+func (s *SOCKS5) GetProxyPeerID() string {
+	s.conf.RLock()
+	defer s.conf.RUnlock()
+	return s.conf.SOCKS5.UsingPeerID
+}
+
 func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
 	metrics.SOCKS5ConnectionsTotal.WithLabelValues("server").Inc()
 	metrics.SOCKS5ActiveConnections.WithLabelValues("server").Inc()

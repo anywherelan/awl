@@ -337,7 +337,7 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		return peer1Config.AllowedUsingAsExitNode && peer1Config.WeAllowUsingAsExitNode
 	}, 15*time.Second, 100*time.Millisecond)
 
-	ts.Equal(peer1.PeerID(), peer2.app.Conf.SOCKS5.UsingPeerID)
+	ts.Equal(peer1.PeerID(), peer2.app.SOCKS5.GetProxyPeerID())
 
 	// disallow from peer2, check that peer1 got our new config
 	err = peer2.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
