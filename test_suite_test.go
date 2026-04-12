@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,6 +26,7 @@ import (
 	"github.com/marcopolo/simnet"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 	"go.uber.org/zap/zapcore"
 	"golang.zx2c4.com/wireguard/tun"
 
@@ -39,7 +39,6 @@ import (
 
 const TestTUNBatchSize = 100
 
-// TODO: add support for goleak in TestSuite
 type TestSuite struct {
 	*require.Assertions
 
@@ -50,10 +49,33 @@ type TestSuite struct {
 }
 
 func NewTestSuite(t testing.TB) *TestSuite {
-	// TODO: fix
-	if os.Getenv("CI") != "" && runtime.GOOS == "linux" {
-		t.Skip("doesn't work on linux in CI, flaky ensurePeersAvailableInDHT can't find peers")
-	}
+	// Snapshot goroutine state before anything starts. Because t.Cleanup is LIFO,
+	// registering here means this check runs last — after all peers and bootstrap
+	// nodes have been closed — so it reliably detects goroutine leaks.
+	//
+	// libp2p.NATPortMap() spawns a short-lived UPnP SSDP discovery goroutine
+	// (koron/go-ssdp.Search) with a 5-second timeout. It exits on its own and
+	// is not a real leak, so we filter it out.
+	ignoreCurrent := goleak.IgnoreCurrent()
+	t.Cleanup(func() {
+		goleak.VerifyNone(t, ignoreCurrent,
+			// UPnP/NAT discovery (Linux): spawned by libp2p.NATPortMap(), self-terminates
+			// after its timeout (~5s). koron/go-ssdp#6 (closed invalid) rejected adding
+			// context.Context to Search(), so there is no way to cancel it earlier.
+			goleak.IgnoreAnyFunction("github.com/koron/go-ssdp.Search"),
+			// NAT-PMP discovery (macOS/Windows): also spawned by libp2p.NATPortMap(),
+			// blocks on a UDP read waiting for a router response until its ~10s timeout.
+			// jackpal/go-nat-pmp has no context/cancellation support and no upstream
+			// issue tracking this.
+			goleak.IgnoreAnyFunction("github.com/jackpal/go-nat-pmp.(*Client).GetExternalAddress"),
+			// go-flow-metrics sweeper: package-level singleton started lazily by
+			// libp2p bandwidth tracking; intentionally lives for the process lifetime.
+			// No upstream issue exists for making it stoppable (the closest is
+			// libp2p/go-flow-metrics#23 which asks for a customizable sweeper but
+			// does not address stopping it).
+			goleak.IgnoreAnyFunction("github.com/libp2p/go-flow-metrics.(*sweeper).runActive"),
+		)
+	})
 
 	ts := &TestSuite{t: t, Assertions: require.New(t)}
 	ts.initBootstrapNode()
@@ -371,7 +393,11 @@ func (t *testTun) Read(bufs [][]byte, sizes []int, offset int) (n int, err error
 		return 0, os.ErrClosed
 	}
 	if len(t.t.outboundBuf) == 0 {
-		t.t.outboundBuf = <-t.t.Outbound
+		var ok bool
+		t.t.outboundBuf, ok = <-t.t.Outbound
+		if !ok {
+			return 0, os.ErrClosed
+		}
 	}
 
 	for i := range min(len(bufs), len(t.t.outboundBuf)) {
@@ -414,7 +440,10 @@ func (t *testTun) MTU() (int, error)        { return vpn.InterfaceMTU, nil }
 func (t *testTun) Name() (string, error)    { return "testTun", nil }
 func (t *testTun) Events() <-chan tun.Event { return t.t.events }
 func (t *testTun) Close() error {
-	t.t.isClosed.Store(true)
+	if t.t.isClosed.Swap(true) {
+		return nil
+	}
+	close(t.t.Outbound)
 	close(t.t.events)
 	return nil
 }
