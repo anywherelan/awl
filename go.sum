@@ -48,8 +48,8 @@ github.com/GrigoryKrasnochub/updaterini v0.1.0/go.mod h1:w+8blQZCZzGmJGXqmXbeSOs
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
 github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5 h1:uQsw+HnQo6Ru5eFgUdEQYKMwkiYkoNZDQmY2ob1E58Y=
 github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5/go.mod h1:r8UEDyeHO6bYVcP9R2/HnK2ZSZ5CJp89gubcHLKfRv0=
-github.com/anywherelan/socks5 v0.0.0-20260404130029-d414a53712fc h1:icO+nO4NZtJLZS8JnrCpGk8GGaaKNeleuY7WH7qzVik=
-github.com/anywherelan/socks5 v0.0.0-20260404130029-d414a53712fc/go.mod h1:KpbKhNH2RqojJGPVT9faDXnYWkqzfgpKeehC8xTKaeY=
+github.com/anywherelan/socks5 v0.0.0-20260412023451-3f08306d7836 h1:RCZ6EfWrhzILEJ5KcMTElIZS64NQCnyJNpiqoYCWJoA=
+github.com/anywherelan/socks5 v0.0.0-20260412023451-3f08306d7836/go.mod h1:KpbKhNH2RqojJGPVT9faDXnYWkqzfgpKeehC8xTKaeY=
 github.com/anywherelan/ts-dns v0.0.0-20240721135326-6d6b7b811853 h1:RVKWGnppAfxgD2wphkq+OYDOqqI8zgbymBLl2pxYKzY=
 github.com/anywherelan/ts-dns v0.0.0-20240721135326-6d6b7b811853/go.mod h1:ly7HpPle1G3D0jwrr12uolTGWKN3DPgxzBYNR086BLo=
 github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hCbHZ8TKRvWD2dDTCfh9M9ya+I9JpbB7O8o=

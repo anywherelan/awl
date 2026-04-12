@@ -4,7 +4,7 @@ go 1.26.0
 
 replace (
 	github.com/anywherelan/awl => ../../
-	github.com/haxii/socks5 => github.com/anywherelan/socks5 v0.0.0-20260404130029-d414a53712fc
+	github.com/haxii/socks5 => github.com/anywherelan/socks5 v0.0.0-20260412023451-3f08306d7836
 	github.com/ipfs/go-log/v2 => github.com/anywherelan/go-log/v2 v2.0.3-0.20221101180049-46e3967f6fe5
 	github.com/ncruces/zenity => github.com/pymq/zenity v0.0.0-20230509161854-c117c448544d
 )
