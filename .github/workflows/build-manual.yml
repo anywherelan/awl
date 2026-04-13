@@ -42,7 +42,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
+          go-version: 1.26.2
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -53,10 +53,10 @@ jobs:
           java-version: '17.x'
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.x'
+          flutter-version: '3.38.10'
           channel: 'stable'
       - run: flutter --version
-      - name: Install ndk-bundle
+      - name: Install ndk
         run: |
           echo "ls $ANDROID_HOME/"
           ls -lah $ANDROID_HOME/ || true
@@ -64,8 +64,8 @@ jobs:
           ls -lah $ANDROID_HOME/tools/bin/ || true
           echo "ls $ANDROID_HOME/cmdline-tools/latest/bin/"
           ls -lah $ANDROID_HOME/cmdline-tools/latest/bin/ || true
-          echo "install ndk-bundle"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk-bundle"
+          echo "install ndk"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973"
       - name: List available space
         run: |
           df -h
@@ -89,8 +89,8 @@ jobs:
           export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk-bundle
           unset ANDROID_NDK_HOME
           cd awl
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go get golang.org/x/mobile/cmd/gomobile
+          GOMOBILE_VERSION=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@$GOMOBILE_VERSION
           gomobile init
           go mod tidy -compat=1.26
           cd cmd/awl-tray && go mod tidy -compat=1.26 && cd ../..
@@ -146,7 +146,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
+          go-version: 1.26.2
           cache: true
           cache-dependency-path: |
             awl/go.sum
