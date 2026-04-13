@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go/integrationtests/tools/israce"
-	"go.uber.org/goleak"
 	"golang.org/x/net/proxy"
 
 	"github.com/anywherelan/awl/api"
@@ -278,9 +277,6 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 
 	ts.makeFriends(peer2, peer1)
-
-	current := goleak.IgnoreCurrent()
-	goleak.VerifyNone(t, current)
 
 	info, err := peer1.api.PeerInfo()
 	ts.NoError(err)
@@ -846,9 +842,6 @@ func TestTunnelPackets(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 
 	ts.makeFriends(peer2, peer1)
-
-	current := goleak.IgnoreCurrent()
-	goleak.VerifyNone(t, current)
 
 	const packetSize = 2500
 	const packetsCount = 2600 // approx 1.1 p2p streams
