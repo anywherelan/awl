@@ -1,6 +1,9 @@
 name: Manual build release
 
 on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
     inputs:
       awl_ref:
@@ -30,13 +33,13 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
-          ref: ${{ github.event.inputs.awl_ref }}
+          ref: ${{ github.event.inputs.awl_ref || github.ref }}
           path: 'awl'
       - name: Checkout awl-flutter code
         uses: actions/checkout@v6
         with:
           repository: 'anywherelan/awl-flutter'
-          ref: ${{ github.event.inputs.awl_flutter_ref }}
+          ref: ${{ github.event.inputs.awl_flutter_ref || github.ref }}
           path: 'awl-flutter'
 
       - name: Install Go
@@ -58,14 +61,7 @@ jobs:
       - run: flutter --version
       - name: Install ndk
         run: |
-          echo "ls $ANDROID_HOME/"
-          ls -lah $ANDROID_HOME/ || true
-          echo "ls $ANDROID_HOME/tools/bin/"
-          ls -lah $ANDROID_HOME/tools/bin/ || true
-          echo "ls $ANDROID_HOME/cmdline-tools/latest/bin/"
-          ls -lah $ANDROID_HOME/cmdline-tools/latest/bin/ || true
-          echo "install ndk"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.3.13750724"
       - name: List available space
         run: |
           df -h
@@ -86,8 +82,9 @@ jobs:
 
       - name: Build
         run: |
-          export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk-bundle
-          unset ANDROID_NDK_HOME
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.3.13750724
+          unset ANDROID_NDK_ROOT
+          export SOURCE_DATE_EPOCH=$(git -C awl-flutter log -1 --format=%ct)
           cd awl
           GOMOBILE_VERSION=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
           go install golang.org/x/mobile/cmd/gomobile@$GOMOBILE_VERSION
@@ -96,10 +93,14 @@ jobs:
           cd cmd/awl-tray && go mod tidy -compat=1.26 && cd ../..
           echo "check go mod tidy and git dirty"
           test -z "$(git status --porcelain)" || (git status; git diff && false)
-          echo "start building"          
+          cd ../awl-flutter && flutter pub get && cd ../awl
+          echo "=== Patching flutter_zxing for reproducible builds ==="
+          sed -i '1a add_link_options("LINKER:--build-id=none")' $HOME/.pub-cache/hosted/pub.dev/flutter_zxing-*/src/CMakeLists.txt
+          echo "start building"
           ./build.sh release
           echo "ls build"
           ls -lah build
+
       - name: List available space
         run: |
           df -h

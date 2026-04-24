@@ -2,6 +2,7 @@
 
 awldir=$(pwd)
 builddir="$awldir/build"
+mkdir -p "$builddir"
 awlflutterdir="$awldir/../awl-flutter"
 tempdir=$(dirname $(mktemp -u))
 
@@ -57,7 +58,7 @@ gobuild-linux() {
   for arch in 386 amd64 arm arm64 mips mipsle; do
     archive_name="$name-linux-$arch-$VERSION.tar.gz"
     filename="$name"
-    CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-buildid= -s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     tar -czf "$archive_name" "$filename"
     rm "$filename"
     mv "$archive_name" "$builddir"
@@ -70,7 +71,7 @@ gobuild-macos() {
   for arch in amd64 arm64; do
     archive_name="$name-macos-$arch-$VERSION.zip"
     filename="$name"
-    CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-buildid= -s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     zip "$archive_name" "$filename"
     rm "$filename"
     mv "$archive_name" "$builddir"
@@ -84,7 +85,7 @@ gobuild-windows() {
     install-wintun "$arch"
     archive_name="$name-windows-$arch-$VERSION.zip"
     filename="$name.exe"
-    CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-buildid= -s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
     zip "$archive_name" "$filename"
     rm "$filename"
     mv "$archive_name" "$builddir"
@@ -98,7 +99,7 @@ gobuild-windows7() {
     install-wintun "$arch"
     archive_name="$name-windows7-$arch-$VERSION.zip"
     filename="$name.exe"
-    CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION} -X github.com/anywherelan/awl/config.IsWindows7=true" -o "$filename"
+    CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-buildid= -s -w -H windowsgui -X github.com/anywherelan/awl/config.Version=${VERSION} -X github.com/anywherelan/awl/config.IsWindows7=true" -o "$filename"
     zip "$archive_name" "$filename"
     rm "$filename"
     mv "$archive_name" "$builddir"
@@ -137,7 +138,7 @@ build-android-lib() {
   cd "$awldir/cmd/gomobile-lib"
   # about `-checklinkname=0` https://github.com/wlynxg/anet#how-to-build-with-go-1230-or-later
   gomobile bind -androidapi 24 -trimpath \
-    -ldflags "-linkmode=external -extldflags=-Wl,-z,max-page-size=16384 -s -w -checklinkname=0 -X github.com/anywherelan/awl/config.Version=${VERSION}" \
+    -ldflags "-buildid= -linkmode=external -extldflags=-Wl,-z,max-page-size=16384 -s -w -checklinkname=0 -X github.com/anywherelan/awl/config.Version=${VERSION}" \
     -o anywherelan.aar -target=android . || { echo "gomobile bind failed"; exit 1; }
   mkdir -p "$awlflutterdir/android/app/src/main/libs"
   mv anywherelan.aar "$awlflutterdir/android/app/src/main/libs/"
@@ -147,7 +148,7 @@ build-android-lib() {
 build-android-apk() {
   cd "$awlflutterdir"
   flutter build apk --release
-  mv "$awlflutterdir/build/app/outputs/flutter-apk/app-release.apk" "$builddir/awl-android-$VERSION.apk"
+  cp "$awlflutterdir/build/app/outputs/flutter-apk/app-release.apk" "$builddir/awl-android-$VERSION.apk"
 }
 
 # build for android
@@ -184,7 +185,7 @@ build-awl-tray() {
     archive_name="$archive_name.tar.gz"
   fi
   cd "$awldir/cmd/awl-tray"
-  CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+  CGO_ENABLED=0 go build -trimpath -ldflags "-buildid= -s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
   if [ "$goos" == "windows" ]; then
     zip "$archive_name" "$filename"
   elif [ "$goos" == "linux" ]; then
