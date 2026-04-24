@@ -69,5 +69,9 @@ fabric.properties
 
 /node_modules/
 /vendor/
+
+# Project-specific
 /static/
 /build/
+/cmd/awl-tray/awl-tray
+/cmd/awl/awl
