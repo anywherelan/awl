@@ -5,29 +5,70 @@
 </p>
 
 
+# Table of contents
+
+- [About](#about)
+  - [Why Anywherelan](#why-anywherelan)
+  - [Features](#features)
+  - [Screenshots](#camera-screenshots)
+  - [How it works](#how-it-works)
+  - [Security](#security)
+- [Installation](#installation)
+  - [The web UI](#the-web-ui)
+  - [Android](#android)
+  - [Windows (`awl-tray`)](#windows-awl-tray)
+  - [macOS](#macos)
+  - [Linux desktop (`awl-tray`)](#linux-desktop-awl-tray)
+  - [Linux server (`awl`)](#linux-server-awl)
+- [Connecting devices](#connecting-devices)
+- [Using devices as SOCKS5 proxy](#using-devices-as-socks5-proxy)
+- [Configuration](#configuration)
+  - [Config file location](#config-file-location)
+  - [Example config](#example-config)
+- [Monitoring](#monitoring)
+- [Terminal-based client](#terminal-based-client)
+  - [Common examples](#common-examples)
+- [Upgrading](#upgrading)
+- [Contributing](#contributing)
+- [License](#license)
+
 # About
 
-Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are. It also allows you to route traffic through remote peers like a SOCKS5 proxy.
+Anywherelan (awl for brevity) is a peer-to-peer mesh VPN for connecting your own devices to each other, at the IP level, from wherever they are. A laptop behind a NAT, a home server, an old phone — give each one a stable `.awl` address and they can reach each other as if they were on the same LAN.
 
-Some use cases:
+awl is fully decentralized: no coordination server, no account, no control plane — nothing to pay for, nothing to sign up for, nothing that can be shut down from the outside. Everything awl needs is in this repository, under an open-source license.
 
-- connect to your home/work laptop with RDP/VNC/SSH/etc, which is usually behind NAT. Much easier with awl instead of configuring port forwarding or using heavy centralized VPNs
-- get secure access to your selfhosted services like Nextcloud, Home Assistant or Bitwarden without exposing them to the internet
-- access websites from another country by using a remote peer as a SOCKS5 proxy
-- gaming: local multiplayer like in one LAN
-- as an alternative instead of ngrok to share your development server with someone on another device for demonstration
-- you can use your old android device remotely with [scrcpy](https://github.com/Genymobile/scrcpy) + awl to run some android-only apps instead of using an emulator on your PC
+awl is aimed at personal use: selfhosters, groups of friends, small device fleets (roughly ~10s). It is not a replacement for commercial mesh VPNs in a team setting — there are no ACLs, tags, SSO, or admin dashboards.
+
+Some things people use it for:
+
+- SSH / RDP / VNC into your home or work laptop from anywhere, without port forwarding or exposing anything to the internet
+- reach selfhosted services (Nextcloud, Home Assistant, Bitwarden, ...) privately
+- route traffic through a remote device as a SOCKS5 proxy — useful for bypassing regional blocks
+- LAN-style multiplayer gaming across the internet
+- keep an old Android phone accessible for apps that only run there (e.g. with [scrcpy](https://github.com/Genymobile/scrcpy))
+
+## Why Anywherelan
+
+Tailscale, Netbird and ZeroTier are excellent products, especially for teams. awl is a different shape:
+
+- **Fully peer-to-peer.** There is no coordination server to trust, fund, or depend on. Peers find each other via libp2p's DHT and connect directly; encrypted traffic only flows through third parties (community relays) when both sides are behind restrictive NATs and no direct path is possible.
+- **Fully open source.** Every part of the stack — clients, bootstrap nodes, relays — is open. There is no closed-source control plane quietly running the show.
+- **Harder to block.** There is no single endpoint an ISP or government can blackhole. DHT discovery plus libp2p's transport negotiation makes awl more survivable on restrictive networks than VPNs that depend on a central coordination server.
+
+Tradeoffs worth knowing about:
+
+- No centralized policy management (no ACLs, no device tags, no SSO).
+- Smaller feature set than commercial alternatives. Bigger features are in flight; for now, awl is best at the thing it already does well — getting your devices talking to each other.
 
 ## Features
 
-- unlike many alternatives, it works fully peer-to-peer, no need to set up or trust any third-party coordination servers. Your traffic goes directly to other devices
-- route traffic through remote peers like a SOCKS5 proxy
-- easy to use: just download the app, scan QR code of your device, and you're set up
-- built-in support for NAT traversal
-- if both devices don't have public IP addresses (thus peer-to-peer is unavailable), awl will send your encrypted data through community relays (donates for infrastructure are welcome!)
-- TLS encryption
-- DNS server built-in. It allows using domains for your devices, like `work-laptop.awl` instead of IP address
-- works on Windows, Linux, macOS, Android
+- fully peer-to-peer, no coordination server — see [Why Anywherelan](#why-anywherelan) above
+- route traffic through a device as a SOCKS5 proxy
+- automatic NAT traversal via libp2p; falls back to community relays when a direct path isn't possible
+- TLS 1.3 encryption (QUIC or TCP+TLS)
+- built-in DNS: reach devices at `work-laptop.awl` instead of typing IPs
+- Windows, Linux, macOS, Android
 
 ## :camera: Screenshots
 
@@ -53,95 +94,96 @@ Some use cases:
 
 ## How it works
 
-Awl mainly relies on two libraries: tun/[wintun](https://www.wintun.net/) driver for virtual network interface (networking layer 3, IP) and [libp2p](https://libp2p.io/) as peer-to-peer networking stack.
+awl combines two things: a virtual network interface (TUN on Linux/macOS/Android, [wintun](https://www.wintun.net/) on Windows) and a peer-to-peer networking stack built on [libp2p](https://libp2p.io/). IP packets sent into the awl interface are wrapped into libp2p streams and delivered directly to the addressed peer.
 
-As a transport awl uses QUIC or TCP with TLS on top. Awl uses [DHT](https://en.wikipedia.org/wiki/Distributed_hash_table) for connecting between peers.
-
-At first, awl connects to community [bootstrap nodes](https://github.com/anywherelan/awl-bootstrap-node), register itself (send peer id (with public key) and public ip addresses) and later asks for addresses of peers you want to connect (all known peers). If peer does not have public addresses, peer could be reached out through bootstrap nodes.
+- **Transport:** QUIC (with native TLS 1.3) or TCP+TLS, negotiated per-connection.
+- **Discovery:** on startup, awl announces itself in the libp2p [DHT](https://en.wikipedia.org/wiki/Distributed_hash_table) via community [bootstrap nodes](https://github.com/anywherelan/awl-bootstrap-node). To reach a peer, awl looks it up in the DHT and opens a connection directly.
+- **NAT traversal and relays:** libp2p handles hole-punching for most NATs; when both peers are behind restrictive NAT, traffic is forwarded through a libp2p circuit relay. Relays only see encrypted bytes. For details on the mechanics, see [libp2p's NAT docs](https://docs.libp2p.io/concepts/nat/overview/).
 
 ## Security
 
-For transport and security, awl fully relies on the [libp2p](https://docs.libp2p.io/) library.
+awl's transport security comes from [libp2p](https://docs.libp2p.io/).
 
-- **Encryption**: Traffic between peers is encrypted using TLS 1.3 (or higher). This applies to both QUIC (which uses TLS natively) and TCP transports.
-- **Authentication**: `ed25519` keys are used for peer authentication. A `peer_id` is essentially a public key, ensuring secure identification of devices.
+- **Encryption:** all peer traffic is TLS 1.3, via either QUIC (which uses TLS natively) or TCP+TLS. Bootstrap nodes and relays see only ciphertext.
+- **Identity:** each peer has an `ed25519` keypair; the `peer_id` *is* the public key, so identity and authentication aren't separate layers. There is no CA, no certificate to revoke.
+- **Trust model:** peers must add each other explicitly. You exchange `peer_id`s out-of-band (copy/paste, QR, messenger, whatever works), one side invites, the other accepts. No trust-on-first-use; unknown peers can't connect to you.
+- **Key compromise:** there is no revocation mechanism. If an identity key leaks, generate a new one and re-add peers.
+- **Metadata:** nodes participating in the DHT can observe which peer IDs are online and being looked up. Packet contents are end-to-end encrypted and not visible to them.
 
 # Installation
 
-For desktop there are two versions: `awl` and `awl-tray`. `awl` is mainly used for servers and other headless purposes and `awl-tray` is for desktop usage: it has nice system tray service (app indicator) to quickly get status of the vpn server, start/stop/restart it or to see which peers are online. Both versions have web-based ui for configuration and monitoring, and terminal interface [cli](#terminal-based-client).
+awl ships in two desktop flavors:
 
-First, download archive from [releases page](https://github.com/anywherelan/awl/releases) for your OS and processor architecture, extract it to any place you like.
+- **`awl-tray`** — desktop build with a system-tray indicator: status at a glance, start/stop/restart, peer list. Use this for regular desktop usage.
+- **`awl`** — headless server build, no GUI. Use this for servers and embedded devices.
+
+Both share the same web UI and the same [CLI](#terminal-based-client).
+
+Grab the archive for your platform/arch from the [releases page](https://github.com/anywherelan/awl/releases) and extract it wherever you like.
+
+## The web UI
+
+Once awl is running, open **http://admin.awl** in a browser. `admin.awl` is a magic local domain that awl's built-in DNS resolves to the local web UI (default http://127.0.0.1:8639). On `awl-tray` you can also right-click the tray icon → *Open Web UI*.
 
 ## Android
 
-Simply install apk from [releases page](https://github.com/anywherelan/awl/releases) and launch the application.
+Install the APK from the [releases page](https://github.com/anywherelan/awl/releases) and open the app.
 
-## Windows desktop (`awl-tray`)
+## Windows (`awl-tray`)
 
-After downloading you need to unpack zip archive and to run program as administrator (right click on binary ➞ run as administrator). This is necessary because only admins can create virtual network interfaces.
+Unpack the zip and run the binary **as administrator** (right-click → *Run as administrator*). Admin rights are required to create the virtual network interface.
 
-It's known problem that some antivirus software may get false detection, in this case you need to manually allow this application.
-
-After starting the program you will see icon in system tray below. Press right click and choose `Open Web UI`. Or you can manually go to the http://admin.awl
+Some antivirus engines flag awl as a false positive; if that happens you'll need to allowlist it manually.
 
 ## macOS
 
-After downloading you need to unpack zip archive, right-click the `awl-tray` binary and select `Open`. You'll be warned that the app is from unidentified developer (because app isn't signed, it costs money), click "Open" to run it. It will also ask for admin rights. This is necessary because only admins can create virtual network interfaces.
+Unpack the zip, right-click `awl-tray`, choose *Open*. You'll see an "unidentified developer" warning (the binary isn't signed — signing costs money); click *Open* to run it anyway. awl will then prompt for admin rights, which are needed to create the virtual network interface.
 
-After starting the program you will see icon in the system tray. Press right click and choose `Open Web UI`. Or you can manually go to the http://admin.awl
+## Linux desktop (`awl-tray`)
 
-## Linux
-
-### Desktop (`awl-tray`)
-
-Make sure `zenity` is installed. It's not mandatory, but highly recommended in order to have working notifications and modal dialogs.
+For working notifications and modal dialogs, make sure `zenity` is installed:
 
 ```bash
 sudo apt install -y zenity
 ```
 
-After downloading just execute binary as any other app. It will ask root permissions in order to get access to `/dev/tun` and to create virtual network interface. It will automatically create desktop entry, so next time you can run awl from applications list.
+Then run the binary like any other app. It will prompt for root (needed for `/dev/tun` and the virtual network interface) and automatically create a desktop entry, so next time you can launch awl from the applications menu.
 
-After starting the program you will see icon in system tray below. Press right click and choose `Open Web UI`. Or you can manually go to the http://admin.awl
+## Linux server (`awl`)
 
-### Server (`awl`)
-
-To automatically install awl use the script below. It will install latest awl version as systemd service `awl.service`, binary and config files will be in `/etc/anywherelan/`. Also, awl will be started on every system reboot.
+To install as a systemd service — binary and config in `/etc/anywherelan/`, autostart on boot — run:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/anywherelan/awl/master/install.sh | sudo bash
 ```
 
-Awl is up and running!
+Then:
 
 ```bash
-# print server status
-awl cli me status
-# set a name for your device
-awl cli me rename --name your-name-here
-# print your peer id
-awl cli me id
-# print help
-awl cli -h
-# print systemd service status
-systemctl status awl.service
+awl cli me status                          # server status
+awl cli me rename --name your-name-here    # set a name
+awl cli me id                              # print your peer id
+awl cli -h                                 # full help
+systemctl status awl.service               # systemd status
 ```
 
-See [cli](#terminal-based-client) for more information on terminal client.
+See [Terminal-based client](#terminal-based-client) for more.
 
-## Connecting peers
+## Connecting devices
 
-To connect two devices with each other, you need to have their `peer_id`s. `peer_id` is a unique identifier of your device. One peer can send "friend invitation" to another. The second peer can accept or block the first one. After accepting the invitation, peers can access each other by their IP on vpn network or by their .awl domain address.
+To connect two devices you exchange their `peer_id`s. A `peer_id` is the device's permanent identifier (and public key — see [Security](#security)). One peer sends a friend invitation, the other accepts or blocks it. After acceptance, both can reach each other by VPN IP or by `.awl` domain.
 
-Below you can see example on how you can connect to public peer for testing purposes. This peer will automatically accept any invitations, so you don't need to wait for it.
+For testing, there is a public peer that auto-accepts invitations, so you don't need a second device to try awl out.
 
-### Desktop/Android
+### Desktop / Android
 
-Go to web interface (http://admin.awl) or run application in case of android. You can find your `peer_id` by clicking `SHOW ID`. To invite peer you need to press `NEW PEER`. Let's add public peer as an example. Enter `peer_id` equal to `12D3KooWJMUjt9b5T1umzgzjLv5yG2ViuuF4qjmN65tsRXZGS1p8` and name it `awl-tester`. After a few seconds you will see a new peer in your list. Now try to go to the http://awl-tester.awl/. You should see a page with network speed test.
+Open the web UI at http://admin.awl (or the Android app). On the Status / Overview page, click the QR icon next to your device name to show your own `peer_id`. To invite someone, click *Add peer* (on Android, the **+** floating button on the Peers tab).
 
-Note that awl dns is currently unsupported on Android, see [#17](https://github.com/anywherelan/awl/issues/17). So on Android, you can only access peers by IP addresses.
+To try the public tester: enter `12D3KooWJMUjt9b5T1umzgzjLv5yG2ViuuF4qjmN65tsRXZGS1p8` as peer id, name it `awl-tester`, save. After a few seconds it will appear in your peer list. Open http://awl-tester.awl/ — you should see a network speed-test page.
 
-If someone invites you, a notification will appear, and then you can accept/block this peer in the admin interface.
+> `.awl` DNS is not yet available on Android ([#17](https://github.com/anywherelan/awl/issues/17)); on Android you access peers by IP.
+
+When someone invites you, a notification will appear; accept or block in the admin UI.
 
 ### Server
 
@@ -163,42 +205,85 @@ ping 10.66.0.2
 ping awl-tester.awl
 ```
 
-## Using peers as SOCK5 proxy
+## Using devices as SOCKS5 proxy
 
-Now that you have connected to your first peer, you can configure it as a SOCKS5 proxy and route your traffic through it. Any peer can be used as a SOCKS5 proxy (even Android devices), but only if they allow it.
+Once you have at least one connected device, you can route your outbound traffic through it. Any device can act as a SOCKS5 exit node (Android included) as long as they allow it.
 
-To configure it on desktop with web UI go to admin page, select a peer, press Settings, then check `Allow to use my device as exit node` and press save. Now this peer can use your device as SOCKS5 proxy.
+**To let a peer use your device as an exit node (desktop web UI):** open http://admin.awl, select the peer, press *Settings*, tick *Allow as exit node*, save.
 
-How to configure using cli:
+**Via the CLI:**
+
 ```bash
-# list all your connected peers and their EXIT NODE status (if they or you allowed to use as a proxy)
+# list connected peers and their EXIT NODE status (whether they allow you, or you allow them)
 awl cli peers status
 
-# allow peer `peer-name` to use this device as a SOCKS5 proxy
+# let `peer-name` use this device as a SOCKS5 exit node
 awl cli peers allow_exit_node --name="peer-name" --allow=true
 
-# list available exit nodes/SOCKS5 proxies
+# list exit nodes available to you
 awl cli me list_proxies
 
-# set current proxy. it will be available on SOCKS5 Proxy address (default 127.0.0.66:8080)
+# route local SOCKS5 traffic through a peer (default listener: 127.0.0.66:8080, no auth)
 awl cli me set_proxy --name="peer-name"
 ```
 
-Now you can use selected peer as SOCKS5 proxy, default address is `127.0.0.66:8080`, no auth required. On desktop, you can select peer for proxy in web GUI or in system tray.
+On desktop you can also pick the active exit node from the web UI or the system tray menu.
 
-When you route your traffic through a peer, there are no restrictions other than your connection between two peers. You can also connect through a relay if you do not have a direct connection. You can access a remote peer's local network through proxy, but you can't access localhost.
+Traffic through a peer has no restrictions beyond the connection between the two of you — direct and relayed paths both work. You can reach the remote peer's LAN, but not the remote peer's `localhost`.
 
-## Config file location
+## Configuration
 
-Awl looks for config file `config_awl.json` in paths in this order:
+Awl stores all its state in a single JSON file called `config_awl.json`. The file is created automatically on the first launch and is rewritten by the application every time you change something through the web UI or CLI. You can also edit it by hand while awl is stopped.
 
-- in directory provided by environment variable `AWL_DATA_DIR`, if set. If path does not exist or there is no config file, awl will initialize new config in this path
-- in the same directory as executable (if config file exists here)
-- in OS-specific config directory. For example, on Linux it's `$HOME/.config/anywherelan/`, on Windows it's `%AppData%/anywherelan/` and on macOS it's `$HOME/Library/Application Support/anywherelan/`. If there is no config here, awl will initialize new config in this path
+### Config file location
 
-Tip: you can force using config file in the same directory with executable by creating `config_awl.json` with content `{}` before first launch.
+Awl looks for `config_awl.json` in these paths, in order:
 
-It is not recommended to amend config file while application is still running.
+1. In the directory provided by the `AWL_DATA_DIR` environment variable (if set). If the path does not exist or there is no config file, awl will initialize a new config in this path.
+2. In the same directory as the executable (only if a config file already exists there).
+3. In the OS-specific user config directory. If there is no config there, awl will initialize a new config in this path:
+    - **Linux:** `$HOME/.config/anywherelan/`
+    - **Windows:** `%AppData%\anywherelan\` (typically `C:\Users\<YourUser>\AppData\Roaming\anywherelan\`)
+    - **macOS:** `$HOME/Library/Application Support/anywherelan/`
+
+Tip: you can force awl to use the executable's directory by creating a file named `config_awl.json` with the content `{}` next to the binary before the first launch.
+
+To find out which directory is actually used at runtime, look at the very first lines of awl logs — the data directory is printed on startup:
+
+```
+2026-04-10 16:41:12.03    INFO    awl    Initializing app in /home/max/Projects/awl/testconfig directory
+```
+
+It is not recommended to edit `config_awl.json` while the application is running — your changes will be silently overwritten the next time awl saves the config.
+
+### Example config
+
+A minimal, populated `config_awl.json` (peer IDs and identity truncated):
+
+```json
+{
+  "p2pNode": {
+    "peerId": "12D3KooW...",
+    "name": "my-laptop",
+    "identity": "<base58-encoded private key>"
+  },
+  "vpn": {
+    "interfaceName": "awl0",
+    "ipNet": "10.66.0.1/24"
+  },
+  "knownPeers": {
+    "12D3KooW...": {
+      "peerId": "12D3KooW...",
+      "name": "work-laptop",
+      "ipAddr": "10.66.0.2",
+      "domainName": "work-laptop",
+      "confirmed": true
+    }
+  }
+}
+```
+
+Every field (with comments and types) lives in [`config/config.go`](config/config.go), which is the authoritative reference.
 
 ## Monitoring
 
@@ -216,39 +301,65 @@ A pre-packaged monitoring stack is available in the [monitoring/](monitoring/) d
 
 See [monitoring/README.md](monitoring/README.md) for setup instructions.
 
-## Terminal based client
+## Terminal-based client
 
-Both `awl` and `awl-tray` versions have CLI to communicate with vpn server.
+Both `awl` and `awl-tray` binaries ship with a built-in CLI that talks to a running awl server over the local HTTP API. Run the server in the background (or keep the tray app running) and use the CLI from another terminal.
 
-TODO: examples
+By default, the CLI connects to `127.0.0.1:8639`, so when awl is running locally no flags are needed. To target a different server, pass `--api_addr`, plus `--api_user` / `--api_password` if you have basic auth enabled.
 
-```
-$ ./awl cli -h     
-NAME:
-   awl cli - p2p mesh vpn
+Run `awl cli --help` (or `awl cli <command> --help`) for the full command list and per-command flags. A cheat sheet of the most common ones follows.
 
-USAGE:
-   awl cli [global options] command [command options]
+### Common examples
 
-VERSION:
-   v0.12.0
+```bash
+# --- me: your own peer ---
 
-DESCRIPTION:
-   Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are.
-   See more at the project page https://github.com/anywherelan/awl
+# print server status and network stats
+awl cli me status
+# print your own peer id (share this with people who want to add you as a peer)
+awl cli me id
+# rename your peer
+awl cli me rename --name my-laptop
 
-COMMANDS:
-   me         Group of commands to work with your status and settings
-   peers      Group of commands to work with peers. Use to check friend requests and work with known peers
-   logs, log  Prints application logs (default print 10 logs from the end of logs)
-   p2p_info   Prints p2p debug info
-   update     Updates awl to the latest version
-   help, h    Shows a list of commands or help for one command
+# --- peers: friends and friend requests ---
 
-GLOBAL OPTIONS:
-   --api_addr value  awl api address, example: 127.0.0.1:8639
-   --help, -h        show help
-   --version, -v     print the version
+# list known peers and their online status, last seen, version, connections, exit-node flag, etc
+awl cli peers status
+# same but with a custom column layout (see `awl cli peers status --help` for all keys)
+awl cli peers status -f npsie
+
+# list incoming friend requests
+awl cli peers requests
+# invite a peer, or accept an incoming invitation from this peer
+awl cli peers add --pid 12D3KooWJMUjt9b5T1umzgzjLv5yG2ViuuF4qjmN65tsRXZGS1p8 --name awl-tester
+# remove a peer (by peer id or by name)
+awl cli peers remove --name awl-tester
+# rename/redomain/re-ip a known peer
+awl cli peers rename        --name awl-tester --new_name tester
+awl cli peers update_domain --name tester     --domain test-box
+awl cli peers update_ip     --name tester     --ip 10.66.0.5
+
+# --- SOCKS5 exit nodes ---
+
+# allow a peer to use this device as a SOCKS5 exit node
+awl cli peers allow_exit_node --name tester --allow=true
+# list exit nodes / SOCKS5 proxies that are available to you
+awl cli me list_proxies
+# route local SOCKS5 traffic through a specific peer (127.0.0.66:8080 by default)
+awl cli me set_proxy --name tester
+# stop routing through a peer
+awl cli me set_proxy --name ""
+
+# --- logs, diagnostics, updates ---
+
+# tail the last 10 log lines from the running server
+awl cli logs
+# print the first 50 log lines
+awl cli logs --head -n 50
+# print libp2p/p2p debug info as JSON
+awl cli p2p_info
+# update awl to the latest release (headless, no prompt)
+awl cli update -q
 ```
 
 ## Upgrading
@@ -263,20 +374,20 @@ Awl is not yet published in any store, so the only option is to download new ver
 
 ### Server
 
-You can easily upgrade and restart `awl` on remote host while being connected to it by `awl` (through ssh for example) and your connection won't be terminated.
+If you're connecting to a remote host *through* awl (e.g. SSH over the awl VPN), you can upgrade and restart the daemon without dropping your session:
 
 ```bash
 # run under root
 cd /etc/anywherelan
 # no need to stop awl beforehand
 ./awl cli update
-# restart with systemd in case you installed awl as described in Installation section
+# restart (if installed as a systemd service)
 systemctl restart awl
-# print current status
+# check status
 ./awl cli me status
 ```
 
-As alternative, on Desktop/Server you can download new version from [releases page](https://github.com/anywherelan/awl/releases) and manually replace old files with new ones.
+As an alternative on desktop or server: download the new build from the [releases page](https://github.com/anywherelan/awl/releases) and replace the files manually.
 
 # Contributing
 
@@ -285,7 +396,7 @@ Contributions to this repository are very welcome.
 You can help by creating:
 - Bug reports - unexpected behavior, crashes
 - Feature proposals - proposal to change/add/delete some features
-- Documentation - improves to this README.md are appreciated
+- Documentation - improvements to this README.md are appreciated
 - Pull Requests - implementing a new feature yourself or fixing bugs. If the change is big, then it's a good idea to open a new issue first to discuss changes.
 
 # License
