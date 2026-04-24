@@ -18,7 +18,7 @@ require (
 	github.com/labstack/echo-contrib v0.50.1
 	github.com/labstack/echo/v4 v4.15.1
 	github.com/libp2p/go-libp2p v0.48.0
-	github.com/libp2p/go-libp2p-kad-dht v0.39.0
+	github.com/libp2p/go-libp2p-kad-dht v0.39.1
 	github.com/libp2p/go-libp2p-kbucket v0.8.0
 	github.com/marcopolo/simnet v0.0.6
 	github.com/mdp/qrterminal/v3 v3.2.1
