@@ -425,6 +425,56 @@ func TestSOCKS5ProxyFallbackToOldProtocol(t *testing.T) {
 	testSOCKS5Proxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, "")
 }
 
+func TestSOCKS5ProxyWithLocalAuth(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeerWithConfig(func(c *config.Config) {
+		c.SOCKS5 = config.SOCKS5Config{
+			ListenerEnabled: true,
+			ProxyingEnabled: true,
+			ListenAddress:   pickFreeAddr(ts.t),
+			Username:        "testuser",
+			Password:        "testpass",
+		}
+	})
+	peer2 := ts.NewTestPeer(false)
+
+	ts.makeFriends(peer2, peer1)
+
+	// Allow peer1 to use peer2 as exit node
+	peer1Config, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+	ts.NoError(err)
+
+	err = peer2.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peer1.PeerID(),
+		Alias:                peer1Config.Alias,
+		DomainName:           peer1Config.DomainName,
+		IPAddr:               peer1Config.IPAddr,
+		AllowUsingAsExitNode: true,
+	})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		peer2Config, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		return peer2Config.AllowedUsingAsExitNode
+	}, 15*time.Second, 100*time.Millisecond)
+
+	peer1.app.SOCKS5.SetProxyPeerID(peer2.PeerID())
+	peer2.app.SOCKS5.SetProxyingLocalhostEnabled(true)
+
+	proxyAddr := peer1.app.Conf.SOCKS5.ListenAddress
+
+	// Correct credentials — should succeed
+	testSOCKS5ProxyWithAuth(ts, proxyAddr, &proxy.Auth{User: "testuser", Password: "testpass"}, 1, "")
+
+	// Wrong password — should fail with auth error
+	testSOCKS5ProxyWithAuth(ts, proxyAddr, &proxy.Auth{User: "testuser", Password: "wrong"}, 1, "username/password authentication failed")
+
+	// No credentials — should fail (server requires user/pass, client offers no auth only)
+	testSOCKS5ProxyWithAuth(ts, proxyAddr, nil, 1, "no acceptable authentication methods")
+}
+
 func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 	ts := NewTestSuite(t)
 
@@ -782,6 +832,10 @@ func TestDisableVPNInterface(t *testing.T) {
 }
 
 func testSOCKS5Proxy(ts *TestSuite, proxyAddr string, expectSocksErr string) {
+	testSOCKS5ProxyWithAuth(ts, proxyAddr, nil, 20, expectSocksErr)
+}
+
+func testSOCKS5ProxyWithAuth(ts *TestSuite, proxyAddr string, auth *proxy.Auth, iterations int, expectSocksErr string) {
 	// setup mock server
 	expectedBody := strings.Repeat("test text", 10_000)
 	addr := pickFreeAddr(ts.t)
@@ -799,13 +853,13 @@ func testSOCKS5Proxy(ts *TestSuite, proxyAddr string, expectSocksErr string) {
 	}()
 
 	// client
-	dialer, err := proxy.SOCKS5("tcp", proxyAddr, nil, nil)
+	dialer, err := proxy.SOCKS5("tcp", proxyAddr, auth, nil)
 	ts.NoError(err)
 	httpTransport := &http.Transport{DialContext: dialer.(proxy.ContextDialer).DialContext}
 	httpClient := http.Client{Transport: httpTransport}
 
 	// test
-	for range 20 {
+	for range iterations {
 		response, err := httpClient.Get(fmt.Sprintf("http://%s/test", addr))
 		if expectSocksErr != "" {
 			ts.Error(err)
@@ -816,7 +870,7 @@ func testSOCKS5Proxy(ts *TestSuite, proxyAddr string, expectSocksErr string) {
 			ts.ErrorAs(urlErr.Err, &netErr)
 
 			ts.Equal("socks connect", netErr.Op)
-			ts.EqualError(netErr.Err, expectSocksErr)
+			ts.Contains(netErr.Err.Error(), expectSocksErr)
 
 			continue
 		}

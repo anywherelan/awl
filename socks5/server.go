@@ -31,7 +31,6 @@ func NewServer() *Server {
 		Rules:    rule,
 		Logger:   NewLogger(),
 		Resolver: nil,
-		// TODO: add optional password authentication method support
 	}
 	server, err := socks5.New(conf)
 	if err != nil {

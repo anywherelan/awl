@@ -35,7 +35,7 @@ func NewSOCKS5(p2pService P2p, conf *config.Config) (*SOCKS5, error) {
 	var client *socks5.Client
 	if conf.SOCKS5.ListenerEnabled {
 		var err error
-		client, err = socks5.NewClient(conf.SOCKS5.ListenAddress)
+		client, err = socks5.NewClient(conf.SOCKS5.ListenAddress, conf.SOCKS5.Username, conf.SOCKS5.Password)
 		if err != nil {
 			return nil, fmt.Errorf("failed to start socks5 listener: %v", err)
 		}
