@@ -46,9 +46,9 @@ func init() {
 		"/ip4/45.67.230.223/tcp/6150/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 		"/ip4/45.67.230.223/udp/6150/quic-v1/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 
-		// community relay server from pftmclub - location at Vietnam - Hosting Provided by Vietnix VPS
-		"/ip4/222.255.117.203/tcp/6150/p2p/12D3KooWRMFSvGstJEEZYuYq6jgZdByqwT5zpvFRZebZZbfp9XY1",
-		"/ip4/222.255.117.203/udp/6150/quic-v1/p2p/12D3KooWRMFSvGstJEEZYuYq6jgZdByqwT5zpvFRZebZZbfp9XY1",
+		// community relay server from pftmclub - location at Vietnam - Hosting Provided by VPSMMO.vn
+		"/ip4/103.77.242.85/tcp/6150/p2p/12D3KooWFdFV4ZcwMhNQuQnzNCp1K1aaQAsAnr8sXJnj7vehtCFW",
+		"/ip4/103.77.242.85/udp/6150/quic-v1/p2p/12D3KooWFdFV4ZcwMhNQuQnzNCp1K1aaQAsAnr8sXJnj7vehtCFW",
 	} {
 		ma, err := multiaddr.NewMultiaddr(s)
 		if err != nil {
