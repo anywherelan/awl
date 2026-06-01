@@ -81,7 +81,7 @@ gobuild-macos() {
 # build for windows OS
 gobuild-windows() {
   name="$1"
-  for arch in 386 amd64; do
+  for arch in 386 amd64 arm64; do
     install-wintun "$arch"
     archive_name="$name-windows-$arch-$VERSION.zip"
     filename="$name.exe"
