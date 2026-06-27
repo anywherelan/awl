@@ -45,7 +45,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.26.2
+          go-version: 1.26.4
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -147,7 +147,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.26.2
+          go-version: 1.26.4
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -189,8 +189,8 @@ jobs:
       - name: Download and setup go-legacy-win7
         run: |
           mkdir -p /tmp/go-legacy-setup
-          wget -P /tmp/go-legacy-setup https://github.com/thongtech/go-legacy-win7/releases/download/v1.26.1-1/go-legacy-win7-1.26.1-1.linux_amd64.tar.gz
-          tar -xzf /tmp/go-legacy-setup/go-legacy-win7-1.26.1-1.linux_amd64.tar.gz -C /tmp/go-legacy-setup
+          wget -P /tmp/go-legacy-setup https://github.com/thongtech/go-legacy-win7/releases/download/v1.26.4-1/go-legacy-win7-1.26.4-1.linux_amd64.tar.gz
+          tar -xzf /tmp/go-legacy-setup/go-legacy-win7-1.26.4-1.linux_amd64.tar.gz -C /tmp/go-legacy-setup
           export GOROOT=/tmp/go-legacy-setup/go-legacy-win7
           export PATH=$GOROOT/bin:$PATH
           go version

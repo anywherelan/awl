@@ -35,7 +35,6 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
 	msmux "github.com/multiformats/go-multistream"
-	"go.uber.org/multierr"
 )
 
 const (
@@ -240,7 +239,7 @@ func (p *P2p) buildTransportOpts(controlFunc func(network, address string, c sys
 
 func (p *P2p) Close() error {
 	p.ctxCancel()
-	err := multierr.Append(
+	err := errors.Join(
 		p.dht.Close(),
 		p.host.Close(),
 	)
