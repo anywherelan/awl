@@ -51,6 +51,7 @@ type (
 		HttpBasicAuth         HttpBasicAuthConfig    `json:"httpBasicAuth"`
 		P2pNode               P2pNodeConfig          `json:"p2pNode"`
 		VPNConfig             VPNConfig              `json:"vpn"`
+		VPNGateway            VPNGatewayConfig       `json:"vpnGateway"`
 		SOCKS5                SOCKS5Config           `json:"socks5"`
 		DNS                   DNSConfig              `json:"dns"`
 		KnownPeers            map[string]KnownPeer   `json:"knownPeers"`
@@ -77,6 +78,22 @@ type (
 		InterfaceName       string `json:"interfaceName"`
 		IPNet               string `json:"ipNet"`
 	}
+	// VPNGatewayConfig configures full-tunnel VPN gateway mode.
+	//
+	// VPN gateway is a separate feature from SOCKS5 exit-node: a peer can
+	// allow being used as a SOCKS5 exit (KnownPeer.AllowedUsingAsExitNode,
+	// propagated via the status protocol) without serving as a VPN gateway,
+	// and vice versa. KnownPeer.CanUseAsVPNGateway() combines both.
+	VPNGatewayConfig struct {
+		// ClientEnabled — route all traffic through GatewayPeerID (client side).
+		ClientEnabled bool `json:"clientEnabled"`
+		// GatewayPeerID — selected gateway peer ID.
+		GatewayPeerID string `json:"gatewayPeerID"`
+		// ServerEnabled — this node serves as a VPN gateway for others.
+		// Propagated via the status protocol so peers know whether to offer
+		// this node as an option in their UI.
+		ServerEnabled bool `json:"serverEnabled"`
+	}
 	SOCKS5Config struct {
 		ListenerEnabled bool `json:"listenerEnabled"`
 		// allow using my host as proxy
@@ -91,6 +108,12 @@ type (
 	DNSConfig struct {
 		DisableDNS    bool   `json:"disableDNS"`
 		ListenAddress string `json:"listenAddress"`
+		// UpstreamDNSAddress is the public resolver (host:port) that the awl
+		// DNS resolver forwards non-.awl queries to. Used as a fallback when
+		// the OS exposes no base nameserver, and forced as the sole upstream in
+		// VPN gateway client mode so DNS traverses the tunnel and does not leak.
+		// On Android the host reads this value to configure VpnService DNS.
+		UpstreamDNSAddress string `json:"upstreamDNSAddress"`
 	}
 	KnownPeer struct {
 		// Hex-encoded multihash representing a peer ID
@@ -113,6 +136,11 @@ type (
 		Declined               bool `json:"declined"`
 		WeAllowUsingAsExitNode bool `json:"weAllowUsingAsExitNode"`
 		AllowedUsingAsExitNode bool `json:"allowedUsingAsExitNode"`
+		// RemoteVPNGatewayServerEnabled is the remote peer's VPNGatewayConfig.ServerEnabled
+		// as advertised via the status protocol. Combined with AllowedUsingAsExitNode
+		// (also from status) it determines whether this peer is currently a valid
+		// VPN gateway target for us — see KnownPeer.CanUseAsVPNGateway.
+		RemoteVPNGatewayServerEnabled bool `json:"remoteVPNGatewayServerEnabled"`
 	}
 	BlockedPeer struct {
 		// Hex-encoded multihash representing a peer ID
@@ -139,9 +167,21 @@ func (c *Config) Save() {
 	c.RUnlock()
 }
 
+// SaveLocked persists the config without taking the lock. The caller must
+// already hold c.Lock(). Use this when atomically batching mutations and
+// persistence under a single critical section.
+func (c *Config) SaveLocked() {
+	c.save()
+}
+
 func (c *Config) IsUniqPeerAlias(excludePeerID, alias string) bool {
 	c.RLock()
 	defer c.RUnlock()
+	return c.IsUniqPeerAliasUnlocked(excludePeerID, alias)
+}
+
+// IsUniqPeerAliasUnlocked is IsUniqPeerAlias without locking; the caller must hold the lock.
+func (c *Config) IsUniqPeerAliasUnlocked(excludePeerID, alias string) bool {
 	for _, kPeer := range c.KnownPeers {
 		if kPeer.PeerID == excludePeerID {
 			continue
@@ -160,6 +200,11 @@ func (c *Config) GenUniqPeerAlias(name, alias string) string {
 	return alias
 }
 
+// GenUniqPeerAliasUnlocked is GenUniqPeerAlias without locking; the caller must hold the lock.
+func (c *Config) GenUniqPeerAliasUnlocked(name, alias string) string {
+	return c.genUniqPeerAlias(name, alias, nil)
+}
+
 func (c *Config) KnownPeersIds() []peer.ID {
 	c.RLock()
 	ids := make([]peer.ID, 0, len(c.KnownPeers))
@@ -172,9 +217,23 @@ func (c *Config) KnownPeersIds() []peer.ID {
 
 func (c *Config) GetPeer(peerID string) (KnownPeer, bool) {
 	c.RLock()
-	knownPeer, ok := c.KnownPeers[peerID]
+	knownPeer, ok := c.GetPeerUnlocked(peerID)
 	c.RUnlock()
 	return knownPeer, ok
+}
+
+// GetPeerUnlocked is GetPeer without locking; the caller must hold the lock.
+func (c *Config) GetPeerUnlocked(peerID string) (KnownPeer, bool) {
+	knownPeer, ok := c.KnownPeers[peerID]
+	return knownPeer, ok
+}
+
+// NodeName returns this node's name under the read lock. P2pNode.Name is mutated
+// at runtime (UpdateMySettings), so it must not be read directly without the lock.
+func (c *Config) NodeName() string {
+	c.RLock()
+	defer c.RUnlock()
+	return c.P2pNode.Name
 }
 
 func (c *Config) RemovePeer(peerID string) (KnownPeer, bool) {
@@ -207,6 +266,29 @@ func (c *Config) UpsertPeerUnlocked(peer KnownPeer) {
 	c.save()
 
 	_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
+}
+
+// UpdatePeerFields atomically applies mutate to the stored KnownPeer under the
+// write lock and persists the change. It returns false if the peer is unknown.
+//
+// mutate must only change the fields it owns and must NOT replace the struct
+// wholesale, so that fields updated concurrently by other callers are not
+// clobbered. mutate runs while the lock is held, so it must not call other
+// Config methods that take the lock (use the *Unlocked variants instead).
+func (c *Config) UpdatePeerFields(peerID string, mutate func(*KnownPeer)) bool {
+	c.Lock()
+	knownPeer, ok := c.KnownPeers[peerID]
+	if ok {
+		mutate(&knownPeer)
+		c.KnownPeers[peerID] = knownPeer
+		c.save()
+	}
+	c.Unlock()
+
+	if ok {
+		_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
+	}
+	return ok
 }
 
 func (c *Config) UpdatePeerLastSeen(peerID string) {
@@ -442,4 +524,14 @@ func (kp KnownPeer) DisplayName() string {
 	}
 
 	return name
+}
+
+// CanUseAsVPNGateway reports whether this peer can currently be used as a
+// VPN gateway. It requires both that the peer permits being used as an exit
+// node (shared with SOCKS5 via AllowedUsingAsExitNode) and that the peer has
+// VPN gateway server enabled on its side (RemoteVPNGatewayServerEnabled).
+// Both flags are populated from the status protocol exchange in
+// service/auth_status.go.
+func (kp KnownPeer) CanUseAsVPNGateway() bool {
+	return kp.AllowedUsingAsExitNode && kp.RemoteVPNGatewayServerEnabled
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"runtime"
 	"sort"
@@ -18,6 +19,7 @@ import (
 	"golang.org/x/net/proxy"
 
 	"github.com/anywherelan/awl/api"
+	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/anywherelan/awl/protocol"
@@ -82,9 +84,13 @@ func TestRemovePeer(t *testing.T) {
 	ts.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
 	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 
-	// test ping
-	p1Ping := peer1.app.P2p.GetPeerLatency(peer2.app.P2p.PeerID())
-	ts.NotEmpty(p1Ping)
+	// test ping. Latency is recorded asynchronously by the status/auth exchange
+	// the re-add above kicks off in a goroutine (RecordPeerLatency); on slow CI
+	// the fixed sleeps aren't always enough for it to land, so poll for it rather
+	// than asserting once.
+	ts.Eventually(func() bool {
+		return peer1.app.P2p.GetPeerLatency(peer2.app.P2p.PeerID()) != 0
+	}, 15*time.Second, 100*time.Millisecond, "peer latency should be recorded after the status exchange")
 }
 
 func TestDeclinePeerFriendRequest(t *testing.T) {
@@ -485,20 +491,8 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 	// Make peer2 and peer1 friends using the helper
 	ts.makeFriends(peer2, peer1)
 
-	// Make peer3 and peer1 friends (manual to use unique alias "peer_3")
-	// TODO: refactor makeFriends helper to accept alias arg
-	ts.ensurePeersAvailableInDHT(peer3, peer1)
-	err := peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
-	ts.NoError(err)
-
-	var authRequests []entity.AuthRequest
-	ts.Eventually(func() bool {
-		authRequests, err = peer1.api.AuthRequests()
-		ts.NoError(err)
-		return len(authRequests) == 1
-	}, 15*time.Second, 50*time.Millisecond)
-	err = peer1.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_3", false, "")
-	ts.NoError(err)
+	// Make peer3 and peer1 friends
+	ts.makeFriendsWithAliases(peer3, peer1, "peer_3", "peer_1")
 
 	time.Sleep(500 * time.Millisecond)
 
@@ -759,8 +753,8 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 		ts.Equal(newIP, updatedConfig.IPAddr)
 
 		// Configure tunnel for packet testing
-		peer1.tun.ReferenceInboundPacketLen = packetSize
-		peer2.tun.ReferenceInboundPacketLen = packetSize
+		peer1.tun.SetInboundCapture(packetSize, nil)
+		peer2.tun.SetInboundCapture(packetSize, nil)
 		peer1.tun.ClearInboundCount()
 		peer2.tun.ClearInboundCount()
 
@@ -815,7 +809,7 @@ func TestDisableVPNInterface(t *testing.T) {
 
 	// Try to send traffic from peer1 (enabled) to peer2 (disabled)
 	const packetSize = 100
-	peer1.tun.ReferenceInboundPacketLen = packetSize
+	peer1.tun.SetInboundCapture(packetSize, nil)
 	peer2.tun.ClearInboundCount()
 
 	// Send packet
@@ -900,8 +894,8 @@ func TestTunnelPackets(t *testing.T) {
 	const packetSize = 2500
 	const packetsCount = 2600 // approx 1.1 p2p streams
 
-	peer1.tun.ReferenceInboundPacketLen = packetSize
-	peer2.tun.ReferenceInboundPacketLen = packetSize
+	peer1.tun.SetInboundCapture(packetSize, nil)
+	peer2.tun.SetInboundCapture(packetSize, nil)
 
 	wg := &sync.WaitGroup{}
 
@@ -946,7 +940,7 @@ func BenchmarkTunnelPackets(b *testing.B) {
 
 			b.SetBytes(int64(packetSize))
 			packet := testPacket(packetSize)
-			peer2.tun.ReferenceInboundPacketLen = len(packet)
+			peer2.tun.SetInboundCapture(len(packet), nil)
 			peer2.tun.ClearInboundCount()
 			packetsBatch := make([][]byte, TestTUNBatchSize*10)
 			for i := range packetsBatch {
@@ -1003,4 +997,79 @@ func TestMetricsEndpoint(t *testing.T) {
 
 	// Verify libp2p built-in metrics are present
 	ts.Contains(metricsOutput, "libp2p_")
+}
+
+func TestChooseDNSPolicy(t *testing.T) {
+	const upstreamCfg = "9.9.9.9:53"
+	base := []netip.Addr{netip.MustParseAddr("192.168.0.1"), netip.MustParseAddr("8.8.8.8")}
+
+	tests := []struct {
+		name             string
+		forceUpstream    bool
+		supportsSplitDNS bool
+		base             []netip.Addr
+		wantCapturesAll  bool // MatchDomains == nil
+		wantUpstream     string
+	}{
+		{
+			name:             "gateway on captures everything to configured upstream",
+			forceUpstream:    true,
+			supportsSplitDNS: true,
+			base:             base,
+			wantCapturesAll:  true,
+			wantUpstream:     upstreamCfg,
+		},
+		{
+			name:             "gateway on ignores split dns support",
+			forceUpstream:    true,
+			supportsSplitDNS: false,
+			base:             base,
+			wantCapturesAll:  true,
+			wantUpstream:     upstreamCfg,
+		},
+		{
+			name:             "split dns captures only .awl",
+			forceUpstream:    false,
+			supportsSplitDNS: true,
+			base:             base,
+			wantCapturesAll:  false,
+			wantUpstream:     upstreamCfg,
+		},
+		{
+			name:             "no split dns forwards to system base resolver",
+			forceUpstream:    false,
+			supportsSplitDNS: false,
+			base:             base,
+			wantCapturesAll:  true,
+			wantUpstream:     "192.168.0.1:" + awldns.DefaultDNSPort,
+		},
+		{
+			name:             "no split dns with empty base falls back to configured upstream",
+			forceUpstream:    false,
+			supportsSplitDNS: false,
+			base:             nil,
+			wantCapturesAll:  true,
+			wantUpstream:     upstreamCfg,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matchDomains, upstream := chooseDNSPolicy(tt.forceUpstream, tt.supportsSplitDNS, tt.base, upstreamCfg)
+
+			gotCapturesAll := matchDomains == nil
+			if gotCapturesAll != tt.wantCapturesAll {
+				t.Errorf("captures all queries = %v, want %v (matchDomains=%v)", gotCapturesAll, tt.wantCapturesAll, matchDomains)
+			}
+			if !tt.wantCapturesAll {
+				// split-DNS: must capture exactly the .awl zone
+				if len(matchDomains) != 1 || matchDomains[0].WithoutTrailingDot() != awldns.LocalDomain {
+					t.Errorf("split-DNS match domains = %v, want [%s]", matchDomains, awldns.LocalDomain)
+				}
+			}
+			if upstream != tt.wantUpstream {
+				t.Errorf("upstream = %q, want %q", upstream, tt.wantUpstream)
+			}
+		})
+	}
 }

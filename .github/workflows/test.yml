@@ -33,6 +33,19 @@ jobs:
         run: go test -count=1 -v ./...
       - name: Test with -race
         run: go test -race -count=1 -v ./...
+      - name: VPN gateway host-network integration test (Linux, root)
+        # Hidden behind the `vpn_hostnet` build tag and excluded from `go test ./...`.
+        # Exercises the real netlink/iptables plumbing (SetupNAT/SetupGatewayRoutes
+        # + teardown/stale-recovery) against the runner's own network, so it needs
+        # root and only runs on Linux. Compile as the normal user, then run the
+        # binary under sudo so root never pollutes the Go build cache.
+        # TODO: if a hard failure ever leaves the runner's egress black-holed
+        # (default route via a dead awl0) and breaks log upload, add a separate
+        # `if: always()` cleanup step
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          go test -c -tags vpn_hostnet -o gw-hostnet.test ./vpn/routes/
+          sudo ./gw-hostnet.test -test.run '^TestGatewayHostNet' -test.v
       - name: Build cmd/awl
         run: go build github.com/anywherelan/awl/cmd/awl
       - name: Upload cmd/awl build
@@ -103,9 +116,68 @@ jobs:
           # TODO: remove this temporal hack for linux
           ping awl-tester.awl -w 20 -c 10 || true
 
+          # ---- VPN gateway server (exit-node) mode: runtime enable/disable round-trips OS state ----
+          # awl runs as root here, so enabling the server installs real NAT
+          # (iptables MASQUERADE + AWL-FORWARD chain) in this netns. We assert the
+          # commands succeed AND that they actually mutate then fully restore the
+          # netfilter state. `iptables -S` (no packet/byte counters, unlike
+          # iptables-save) makes the before/after comparison stable.
+          nat_state() { sudo iptables -S; sudo iptables -t nat -S; }
+          NAT_BEFORE=$(nat_state)
+          ./awl cli gateway server enable
+          test "$(nat_state)" != "$NAT_BEFORE"          # enable actually changed netfilter
+          sudo iptables -S | grep -q AWL-FORWARD        # exit-node chain installed
+          ./awl cli gateway server disable
+          test "$(nat_state)" = "$NAT_BEFORE"           # disable restored netfilter exactly
+
+          # ---- VPN gateway full-tunnel e2e: client = this runner, exit node = awl-tester ----
+          # Requires the awl-tester peer to have VPN gateway server enabled AND to
+          # permit this CI peer as an exit node (WeAllowUsingAsExitNode); both are
+          # advertised to us via the status protocol. Wait until it shows up as a
+          # connected, available gateway.
+          for i in $(seq 1 15); do
+            if ./awl cli gateway list | grep -E 'awl-tester.*\[connected\]'; then break; fi
+            sleep 2
+          done
+          ./awl cli gateway list | grep -E 'awl-tester.*\[connected\]'   # fail if never became available
+
+          # Probe the egress IP via https://ifconfig.me
+          curl4() { curl -4 -s --max-time 20 --retry 3 --retry-delay 2 https://ifconfig.me/; }
+
+          IP_DIRECT=$(curl4); echo "egress IP (direct): $IP_DIRECT"
+
+          ./awl cli gateway client use --name awl-tester
+          ./awl cli gateway status
+          RULE_ON=$(ip rule show); ROUTE_ON=$(ip route show)
+          # Tolerate a failed curl here so we always reach `client stop` below
+          # (a broken tunnel must not leave the runner black-holed); the
+          # `test -n "$IP_GW"` assertion after teardown turns it into a clean failure.
+          IP_GW=$(curl4 || true); echo "egress IP (via gateway): $IP_GW"
+
+          ./awl cli gateway client stop
+          RULE_OFF=$(ip rule show); ROUTE_OFF=$(ip route show)
+          IP_REVERTED=$(curl4); echo "egress IP (reverted): $IP_REVERTED"
+
+          # Assertions run with the gateway already disabled, so a failure here
+          # can't leave the runner's egress black-holed.
+          echo "$RULE_ON"  | grep -q fwmark                  # client policy route installed
+          echo "$ROUTE_ON" | grep -q 'default dev awl0'      # full-tunnel default via TUN
+          test -n "$IP_GW"                                    # traffic really flowed through the exit node
+          test "$IP_GW" != "$IP_DIRECT"                      # egress changed => full-tunnel works
+          test "$IP_REVERTED" = "$IP_DIRECT"                 # runtime disable reverted egress
+          ! echo "$RULE_OFF"  | grep -q fwmark               # policy route removed on disable
+          ! echo "$ROUTE_OFF" | grep -q 'default dev awl0'   # TUN default removed on disable
+
+          # Re-enable so the SIGINT shutdown path (teardownGatewayAtShutdown) is exercised.
+          ./awl cli gateway client use --name awl-tester
+
           sleep 1
           sudo kill -SIGINT $awl_pid
-          sleep 1
+          sleep 2
+          # awl is gone: its TUN and the default route via it vanished with the
+          # process, but the fwmark ip rule is interface-independent — its absence
+          # proves the shutdown teardown ran. (NAT/ip_forward are server-side only.)
+          ! ip rule show | grep -q fwmark
       - name: Run librespeed-cli, awl, librespeed-cli through awl
         if: matrix.os == 'macos-latest'
         run: |

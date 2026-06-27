@@ -152,6 +152,30 @@ func (c *Client) UpdateMySettings(name string) error {
 	return c.sendPostRequest(api.UpdateMyInfoPath, request, nil)
 }
 
+func (c *Client) EnableVPNGatewayClient(gatewayPeerID string) error {
+	request := entity.EnableVPNGatewayClientRequest{
+		GatewayPeerID: gatewayPeerID,
+	}
+	return c.sendPostRequest(api.EnableVPNGatewayClientPath, request, nil)
+}
+
+func (c *Client) DisableVPNGatewayClient() error {
+	return c.sendPostRequest(api.DisableVPNGatewayClientPath, nil, nil)
+}
+
+func (c *Client) SetVPNGatewayServerEnabled(enabled bool) error {
+	return c.sendPostRequest(api.SetVPNGatewayServerEnabledPath, entity.SetVPNGatewayServerEnabledRequest{Enabled: enabled}, nil)
+}
+
+func (c *Client) ListAvailableVPNGateways() ([]entity.AvailableVPNGateway, error) {
+	resp := entity.ListAvailableVPNGatewaysResponse{}
+	err := c.sendGetRequest(api.ListAvailableVPNGatewaysPath, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp.VPNGateways, nil
+}
+
 func (c *Client) P2pDebugInfo() (*entity.P2pDebugInfo, error) {
 	debugInfo := new(entity.P2pDebugInfo)
 	err := c.sendGetRequest(api.GetP2pDebugInfoPath, debugInfo)

@@ -90,7 +90,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	s.authsLock.Unlock()
 
 	// Sending info
-	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isBlocked)
+	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.NodeName(), isBlocked)
 	err = protocol.SendStatus(stream, myPeerInfo)
 	if err != nil {
 		s.logger.Errorf("sending status info to %s as an answer: %v", peerID, err)
@@ -100,12 +100,8 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	if isBlocked {
 		return
 	}
-	// Processing opposite peer info
 
-	// get the latest peer config to reduce race time between get and upsert (without locking)
-	// TODO: fix race completely
-	knownPeer, _ = s.conf.GetPeer(peerID)
-	s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
+	s.processPeerStatusInfo(peerID, oppositePeerInfo)
 }
 
 func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID peer.ID, knownPeer config.KnownPeer) error {
@@ -129,7 +125,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 	metrics.PeersStatusRequestsSentTotal.Inc()
 
 	_, isBlocked := s.conf.GetBlockedPeer(remotePeerID.String())
-	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.P2pNode.Name, isBlocked)
+	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.NodeName(), isBlocked)
 	timeStarted := time.Now()
 	err = protocol.SendStatus(stream, myPeerInfo)
 	if err != nil {
@@ -147,10 +143,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 		return nil
 	}
 
-	// get the latest peer config to reduce race time between get and upsert (without locking)
-	// TODO: fix race completely
-	knownPeer, _ = s.conf.GetPeer(remotePeerID.String())
-	s.processPeerStatusInfo(knownPeer, oppositePeerInfo)
+	s.processPeerStatusInfo(remotePeerID.String(), oppositePeerInfo)
 
 	return nil
 }
@@ -168,49 +161,64 @@ func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, de
 			Declined: true,
 		}
 	}
+	s.conf.RLock()
+	vpnGatewayServerEnabled := s.conf.VPNGateway.ServerEnabled
+	s.conf.RUnlock()
+
 	myPeerInfo := protocol.PeerStatusInfo{
-		Name:                 myPeerName,
-		AllowUsingAsExitNode: peer.WeAllowUsingAsExitNode,
+		Name:                    myPeerName,
+		AllowUsingAsExitNode:    peer.WeAllowUsingAsExitNode,
+		VPNGatewayServerEnabled: vpnGatewayServerEnabled,
 	}
 
 	return myPeerInfo
 }
 
-func (s *AuthStatus) processPeerStatusInfo(peer config.KnownPeer, peerInfo protocol.PeerStatusInfo) {
-	peer.LastSeen = time.Now()
+// processPeerStatusInfo merges the status info received from peerID into the
+// stored KnownPeer. It touches only the status-owned fields via UpdatePeerFields
+// so that a concurrent settings update (e.g. IPAddr) is not clobbered. No-op if
+// the peer is no longer known.
+func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.PeerStatusInfo) {
 	if peerInfo.Declined {
-		peer.Declined = true
-		s.conf.UpsertPeer(peer)
+		s.conf.UpdatePeerFields(peerID, func(peer *config.KnownPeer) {
+			peer.LastSeen = time.Now()
+			peer.Declined = true
+		})
 
 		s.conf.Lock()
 		defer s.conf.Unlock()
-		if s.conf.SOCKS5.UsingPeerID == peer.PeerID {
+		if s.conf.SOCKS5.UsingPeerID == peerID {
 			s.conf.SOCKS5.UsingPeerID = ""
 		}
 
 		return
 	}
-	peer.Name = peerInfo.Name
-	peer.Confirmed = true
-	peer.Declined = false
-	if peer.DomainName == "" {
-		peer.DomainName = awldns.TrimDomainName(peer.DisplayName())
-	}
-	if peer.Alias == "" {
-		peer.Alias = s.conf.GenUniqPeerAlias(peer.Name, peer.Alias)
-	}
-	peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode
 
-	s.conf.UpsertPeer(peer)
+	var allowedUsingAsExitNode bool
+	s.conf.UpdatePeerFields(peerID, func(peer *config.KnownPeer) {
+		peer.LastSeen = time.Now()
+		peer.Name = peerInfo.Name
+		peer.Confirmed = true
+		peer.Declined = false
+		if peer.DomainName == "" {
+			peer.DomainName = awldns.TrimDomainName(peer.DisplayName())
+		}
+		if peer.Alias == "" {
+			peer.Alias = s.conf.GenUniqPeerAliasUnlocked(peer.Name, peer.Alias)
+		}
+		peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode
+		peer.RemoteVPNGatewayServerEnabled = peerInfo.VPNGatewayServerEnabled
+		allowedUsingAsExitNode = peer.AllowedUsingAsExitNode
+	})
 
 	s.conf.Lock()
 	defer s.conf.Unlock()
 
-	if peer.AllowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == "" {
-		s.conf.SOCKS5.UsingPeerID = peer.PeerID
+	if allowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == "" {
+		s.conf.SOCKS5.UsingPeerID = peerID
 	}
 
-	if !peer.AllowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == peer.PeerID {
+	if !allowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == peerID {
 		s.conf.SOCKS5.UsingPeerID = ""
 	}
 }
@@ -310,27 +318,26 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 
 func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias string, confirmed bool, ipAddr string) error {
 	peerIDStr := peerID.String()
-	_, exist := s.conf.GetPeer(peerIDStr)
-	if exist {
+	alias = strings.TrimSpace(alias)
+
+	s.conf.RemoveBlockedPeer(peerIDStr)
+
+	s.conf.Lock()
+	if _, exist := s.conf.GetPeerUnlocked(peerIDStr); exist {
+		s.conf.Unlock()
 		return fmt.Errorf("peer has already been added")
 	}
-
-	alias = strings.TrimSpace(alias)
-	if !s.conf.IsUniqPeerAlias("", alias) {
+	if !s.conf.IsUniqPeerAliasUnlocked("", alias) {
+		s.conf.Unlock()
 		return fmt.Errorf("peer name is not unique")
 	}
-
 	if ipAddr != "" {
-		s.conf.RLock()
-		err := s.conf.CheckIPUnique(ipAddr, peerIDStr)
-		s.conf.RUnlock()
-		if err != nil {
+		if err := s.conf.CheckIPUnique(ipAddr, peerIDStr); err != nil {
+			s.conf.Unlock()
 			return err
 		}
 	} else {
-		s.conf.RLock()
 		ipAddr = s.conf.GenerateNextIpAddr()
-		s.conf.RUnlock()
 	}
 
 	newPeerConfig := config.KnownPeer{
@@ -342,15 +349,22 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias st
 		CreatedAt: time.Now(),
 	}
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
-	s.conf.RemoveBlockedPeer(peerIDStr)
-	s.conf.UpsertPeer(newPeerConfig)
+	s.conf.UpsertPeerUnlocked(newPeerConfig)
+	s.conf.Unlock()
+
+	// Drop any pending incoming auth request synchronously, so the caller
+	// (e.g. AcceptFriend) observes it cleared on return rather than after the
+	// asynchronous status exchange below happens to run.
+	s.authsLock.Lock()
+	delete(s.ingoingAuths, peerID)
+	s.authsLock.Unlock()
 
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if !confirmed {
 			authPeer := protocol.AuthPeer{
-				Name: s.conf.P2pNode.Name,
+				Name: s.conf.NodeName(),
 			}
 			_ = s.SendAuthRequest(ctx, peerID, authPeer)
 		}

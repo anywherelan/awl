@@ -7,6 +7,7 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	socks5Proxy "github.com/haxii/socks5"
@@ -18,6 +19,7 @@ import (
 	"github.com/anywherelan/awl/metrics"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/socks5"
+	"github.com/anywherelan/awl/vpn/sockmark"
 )
 
 type SOCKS5 struct {
@@ -29,7 +31,7 @@ type SOCKS5 struct {
 	server *socks5.Server
 }
 
-func NewSOCKS5(p2pService P2p, conf *config.Config) (*SOCKS5, error) {
+func NewSOCKS5(p2pService P2p, conf *config.Config, sockMarker sockmark.Marker) (*SOCKS5, error) {
 	logger := log.Logger("awl/service/socks5")
 
 	var client *socks5.Client
@@ -43,7 +45,15 @@ func NewSOCKS5(p2pService P2p, conf *config.Config) (*SOCKS5, error) {
 		logger.Infof("started socks5 proxy on socks5://%s", conf.SOCKS5.ListenAddress)
 	}
 
-	server := socks5.NewServer()
+	// Mark the exit-node's outbound sockets so they bypass our own VPN gateway
+	// default route (if any), mirroring libp2p socket marking. sockMarker is
+	// always set by Application.Init; ControlFunc may still be nil on platforms
+	// without socket marking, which NewServer handles.
+	var dialControl func(network, address string, c syscall.RawConn) error
+	if sockMarker != nil {
+		dialControl = sockMarker.ControlFunc()
+	}
+	server := socks5.NewServer(dialControl)
 	socks := &SOCKS5{
 		logger: logger,
 		p2p:    p2pService,
@@ -69,19 +79,22 @@ func (s *SOCKS5) ListAvailableProxies() []entity.AvailableProxy {
 			continue
 		}
 
-		if !s.p2p.IsConnected(peer.PeerId()) {
-			continue
-		}
-
 		proxy := entity.AvailableProxy{
-			PeerID:   peer.PeerID,
-			PeerName: peer.DisplayName(),
+			PeerID:    peer.PeerID,
+			PeerName:  peer.DisplayName(),
+			Connected: s.p2p.IsConnected(peer.PeerId()),
 		}
 		proxies = append(proxies, proxy)
 	}
 	s.conf.RUnlock()
 
 	slices.SortFunc(proxies, func(a, b entity.AvailableProxy) int {
+		if a.Connected != b.Connected {
+			if a.Connected {
+				return -1
+			}
+			return 1
+		}
 		return strings.Compare(a.PeerName, b.PeerName)
 	})
 

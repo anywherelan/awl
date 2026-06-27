@@ -42,23 +42,24 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 		id := knownPeer.PeerId()
 		netStats := h.p2p.NetworkStatsForPeer(id)
 		kpr := entity.KnownPeersResponse{
-			PeerID:                 peerID,
-			Name:                   knownPeer.DisplayName(),
-			DisplayName:            knownPeer.DisplayName(),
-			Alias:                  knownPeer.Alias,
-			Version:                config.VersionFromUserAgent(h.p2p.PeerUserAgent(id)),
-			IpAddr:                 knownPeer.IPAddr,
-			DomainName:             knownPeer.DomainName,
-			Connected:              h.p2p.IsConnected(id),
-			Confirmed:              knownPeer.Confirmed,
-			Declined:               knownPeer.Declined,
-			WeAllowUsingAsExitNode: knownPeer.WeAllowUsingAsExitNode,
-			AllowedUsingAsExitNode: knownPeer.AllowedUsingAsExitNode,
-			LastSeen:               knownPeer.LastSeen,
-			Connections:            h.p2p.PeerConnectionsInfo(id),
-			NetworkStats:           netStats,
-			NetworkStatsInIECUnits: getStatsInIECUnits(netStats),
-			Ping:                   h.p2p.GetPeerLatency(id),
+			PeerID:                        peerID,
+			Name:                          knownPeer.DisplayName(),
+			DisplayName:                   knownPeer.DisplayName(),
+			Alias:                         knownPeer.Alias,
+			Version:                       config.VersionFromUserAgent(h.p2p.PeerUserAgent(id)),
+			IpAddr:                        knownPeer.IPAddr,
+			DomainName:                    knownPeer.DomainName,
+			Connected:                     h.p2p.IsConnected(id),
+			Confirmed:                     knownPeer.Confirmed,
+			Declined:                      knownPeer.Declined,
+			WeAllowUsingAsExitNode:        knownPeer.WeAllowUsingAsExitNode,
+			AllowedUsingAsExitNode:        knownPeer.AllowedUsingAsExitNode,
+			RemoteVPNGatewayServerEnabled: knownPeer.RemoteVPNGatewayServerEnabled,
+			LastSeen:                      knownPeer.LastSeen,
+			Connections:                   h.p2p.PeerConnectionsInfo(id),
+			NetworkStats:                  netStats,
+			NetworkStatsInIECUnits:        getStatsInIECUnits(netStats),
+			Ping:                          h.p2p.GetPeerLatency(id),
 		}
 		result = append(result, kpr)
 	}
@@ -118,22 +119,21 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage("invalid domain name"))
 	}
 
-	knownPeer, exists := h.conf.GetPeer(req.PeerID)
+	req.Alias = strings.TrimSpace(req.Alias)
+
+	// Read, validate and write under a single critical section so the peer can't
+	// change between the lookup and the write, and so the uniqueness checks stay
+	// consistent with the write.
+	h.conf.Lock()
+	defer h.conf.Unlock()
+	knownPeer, exists := h.conf.GetPeerUnlocked(req.PeerID)
 	if !exists {
 		return c.JSON(http.StatusNotFound, ErrorMessage("peer not found"))
 	}
-	peerID := knownPeer.PeerId()
-
-	req.Alias = strings.TrimSpace(req.Alias)
-	if !h.conf.IsUniqPeerAlias(req.PeerID, req.Alias) {
+	if !h.conf.IsUniqPeerAliasUnlocked(req.PeerID, req.Alias) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
 	}
-
-	h.conf.Lock()
-	defer h.conf.Unlock()
-
-	checkIPErr := h.conf.CheckIPUnique(req.IPAddr, knownPeer.PeerID)
-	if checkIPErr != nil {
+	if checkIPErr := h.conf.CheckIPUnique(req.IPAddr, knownPeer.PeerID); checkIPErr != nil {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(checkIPErr.Error()))
 	}
 
@@ -144,6 +144,7 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 
 	h.conf.UpsertPeerUnlocked(knownPeer)
 
+	peerID := knownPeer.PeerId()
 	go func() {
 		_ = h.authStatus.ExchangeNewStatusInfo(h.ctx, peerID, knownPeer)
 	}()

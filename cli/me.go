@@ -10,6 +10,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 
 	"github.com/anywherelan/awl/api/apiclient"
+	"github.com/anywherelan/awl/entity"
 )
 
 func printStatus(api *apiclient.Client, w io.Writer) error {
@@ -18,8 +19,7 @@ func printStatus(api *apiclient.Client, w io.Writer) error {
 		return err
 	}
 
-	table := tablewriter.NewWriter(w)
-	table.AppendBulk([][]string{
+	rows := [][]string{
 		{"Download rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateIn, stats.NetworkStatsInIECUnits.TotalIn)},
 		{"Upload rate", fmt.Sprintf("%s (%s)", stats.NetworkStatsInIECUnits.RateOut, stats.NetworkStatsInIECUnits.TotalOut)},
 		{"Bootstrap peers", fmt.Sprintf("%d/%d", stats.ConnectedBootstrapPeers, stats.TotalBootstrapPeers)},
@@ -27,10 +27,27 @@ func printStatus(api *apiclient.Client, w io.Writer) error {
 		{"SOCKS5 Proxy", formatWorkingStatus(stats.SOCKS5.ListenerEnabled)},
 		{"SOCKS5 Proxy address", stats.SOCKS5.ListenAddress},
 		{"SOCKS5 Proxy exit node", stats.SOCKS5.UsingPeerName},
-		{"Reachability", strings.ToLower(stats.Reachability)},
-		{"Uptime", stats.Uptime.Round(time.Second).String()},
-		{"Server version", stats.ServerVersion},
-	})
+		{"VPN gateway client", formatVPNGatewayClient(stats.VPNGateway)},
+	}
+	gw := stats.VPNGateway
+	if gw.ClientEnabled {
+		if gw.GatewayPublicIP != "" {
+			rows = append(rows, []string{"VPN gateway public IP", gw.GatewayPublicIP})
+		}
+		if gw.GatewayPing > 0 {
+			rows = append(rows, []string{"VPN gateway ping", gw.GatewayPing.Round(time.Millisecond).String()})
+		}
+		rows = append(rows, []string{"VPN gateway via relay", fmt.Sprintf("%v", gw.GatewayThroughRelay)})
+	}
+	rows = append(rows,
+		[]string{"VPN gateway server", formatWorkingStatus(stats.VPNGateway.ServerEnabled)},
+		[]string{"Reachability", strings.ToLower(stats.Reachability)},
+		[]string{"Uptime", stats.Uptime.Round(time.Second).String()},
+		[]string{"Server version", stats.ServerVersion},
+	)
+
+	table := tablewriter.NewWriter(w)
+	table.AppendBulk(rows)
 
 	table.Render()
 
@@ -42,6 +59,25 @@ func formatWorkingStatus(working bool) string {
 		return "working"
 	}
 	return "not working"
+}
+
+// formatVPNGatewayClient renders the client-side VPN gateway state in a
+// single line: either "off", or the gateway peer's name + connectivity.
+// Mirrors how SOCKS5 status splits across two rows but compresses to one
+// since VPN gateway has fewer knobs to surface.
+func formatVPNGatewayClient(gw entity.VPNGatewayInfo) string {
+	if !gw.ClientEnabled {
+		return "off"
+	}
+	name := gw.GatewayPeerName
+	if name == "" {
+		name = gw.GatewayPeerID
+	}
+	conn := "disconnected"
+	if gw.Connected {
+		conn = "connected"
+	}
+	return fmt.Sprintf("via %s [%s]", name, conn)
 }
 
 func printPeerId(api *apiclient.Client, w io.Writer) error {

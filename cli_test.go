@@ -42,12 +42,15 @@ func TestCLI_Me(t *testing.T) {
 		for _, label := range []string{
 			"Download rate", "Upload rate", "Bootstrap peers",
 			"DNS", "SOCKS5 Proxy", "SOCKS5 Proxy address",
-			"SOCKS5 Proxy exit node", "Reachability", "Uptime", "Server version",
+			"SOCKS5 Proxy exit node",
+			"VPN gateway client", "VPN gateway server",
+			"Reachability", "Uptime", "Server version",
 		} {
 			require.Contains(t, out, label)
 		}
 		require.Contains(t, out, "not working") // DNS disabled in test config
 		require.Contains(t, out, "working")     // SOCKS5 enabled in test config
+		require.Contains(t, out, "off")         // VPN gateway client off by default
 		require.Contains(t, out, "dev")         // config.Version in tests
 	})
 
@@ -369,6 +372,85 @@ func TestCLI_Proxy(t *testing.T) {
 		info, err = peer2.api.PeerInfo()
 		require.NoError(t, err)
 		require.Equal(t, "", info.SOCKS5.UsingPeerID)
+	})
+}
+
+// TestCLI_Gateway covers all `awl peers gateway` subcommands. setupGatewayPeers
+// leaves the client with gateway enabled (Tunnel-side) and the exit node with
+// ServeAsVPNGateway=true, so this exercises every endpoint against a realistic
+// state. Subtests are ordered so DisableGateway runs before re-enabling, and
+// the exit_node toggle runs on the exitNode peer where it makes sense.
+func TestCLI_Gateway(t *testing.T) {
+	skipIfVPNGatewayUnsupported(t)
+	ts := NewTestSuite(t)
+	client, exitNode, _ := setupGatewayPeers(ts)
+
+	t.Run("StatusEnabled", func(t *testing.T) {
+		out, err := runCLI(ts, client, "gateway", "status")
+		require.NoError(t, err)
+		require.Contains(t, out, "VPN gateway client enabled: true")
+		require.Contains(t, out, "Gateway peer:")
+		require.Contains(t, out, exitNode.PeerID())
+		require.Contains(t, out, "Gateway via relay:")
+		require.Contains(t, out, "VPN gateway server enabled: false")
+	})
+
+	t.Run("List", func(t *testing.T) {
+		out, err := runCLI(ts, client, "gateway", "list")
+		require.NoError(t, err)
+		require.Contains(t, out, "Available VPN gateways:")
+		require.Contains(t, out, exitNode.PeerID())
+		require.Contains(t, out, "[connected]")
+	})
+
+	t.Run("ClientStop", func(t *testing.T) {
+		out, err := runCLI(ts, client, "gateway", "client", "stop")
+		require.NoError(t, err)
+		require.Equal(t, "VPN gateway client disabled\n", out)
+
+		info, err := client.api.PeerInfo()
+		require.NoError(t, err)
+		require.False(t, info.VPNGateway.ClientEnabled)
+	})
+
+	t.Run("ClientUseByPid", func(t *testing.T) {
+		out, err := runCLI(ts, client, "gateway", "client", "use", "--pid", exitNode.PeerID())
+		require.NoError(t, err)
+		require.Contains(t, out, "VPN gateway client enabled, routing via ")
+		require.Contains(t, out, exitNode.PeerID())
+
+		info, err := client.api.PeerInfo()
+		require.NoError(t, err)
+		require.True(t, info.VPNGateway.ClientEnabled)
+		require.Equal(t, exitNode.PeerID(), info.VPNGateway.GatewayPeerID)
+
+		// `me status` must reflect the new state on the same row.
+		statusOut, err := runCLI(ts, client, "me", "status")
+		require.NoError(t, err)
+		require.Contains(t, statusOut, "VPN gateway client")
+		require.Contains(t, statusOut, "via ")
+		require.Contains(t, statusOut, "[connected]")
+		require.Contains(t, statusOut, "VPN gateway via relay")
+	})
+
+	t.Run("ServerDisable", func(t *testing.T) {
+		out, err := runCLI(ts, exitNode, "gateway", "server", "disable")
+		require.NoError(t, err)
+		require.Equal(t, "VPN gateway server disabled\n", out)
+
+		info, err := exitNode.api.PeerInfo()
+		require.NoError(t, err)
+		require.False(t, info.VPNGateway.ServerEnabled)
+	})
+
+	t.Run("ServerEnable", func(t *testing.T) {
+		out, err := runCLI(ts, exitNode, "gateway", "server", "enable")
+		require.NoError(t, err)
+		require.Equal(t, "VPN gateway server enabled\n", out)
+
+		info, err := exitNode.api.PeerInfo()
+		require.NoError(t, err)
+		require.True(t, info.VPNGateway.ServerEnabled)
 	})
 }
 

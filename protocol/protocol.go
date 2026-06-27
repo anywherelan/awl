@@ -1,9 +1,7 @@
 package protocol
 
 import (
-	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"io"
 
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -25,6 +23,11 @@ type (
 		Name                 string
 		Declined             bool
 		AllowUsingAsExitNode bool
+		// VPNGatewayServerEnabled mirrors VPNGatewayConfig.ServerEnabled on the
+		// sender. The receiver stores it in KnownPeer.RemoteVPNGatewayServerEnabled
+		// and uses KnownPeer.CanUseAsVPNGateway() to decide whether the
+		// peer is a valid VPN gateway target.
+		VPNGatewayServerEnabled bool
 	}
 )
 
@@ -68,26 +71,4 @@ func ReceiveAuthResponse(stream io.Reader) (AuthPeerResponse, error) {
 func SendAuthResponse(stream io.Writer, response AuthPeerResponse) error {
 	err := json.NewEncoder(stream).Encode(&response)
 	return err
-}
-
-func ReadUint64(stream io.Reader) (uint64, error) {
-	var data [8]byte
-	n, err := io.ReadFull(stream, data[:])
-	if err != nil {
-		return 0, err
-	}
-	if n != 8 {
-		return 0, fmt.Errorf("invalid uint64 data: %v. read %d instead of 8", data, n)
-	}
-
-	value := binary.BigEndian.Uint64(data[:])
-	return value, nil
-}
-
-func AppendPacketToBuf(buf, packet []byte) []byte {
-	var lenHeader [8]byte
-	binary.BigEndian.PutUint64(lenHeader[:], uint64(len(packet)))
-	buf = append(buf, lenHeader[:]...)
-	buf = append(buf, packet...)
-	return buf
 }

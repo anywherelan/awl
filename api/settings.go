@@ -19,9 +19,17 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 	totalBootstraps, connectedBootstraps := h.p2p.BootstrapPeersStats()
 	netStats := h.p2p.NetworkStats()
 
+	// Snapshot the runtime-mutable scalar config fields under the read lock.
+	// P2pNode.Name is mutated by UpdateMySettings; VPNConfig fields may change
+	// once runtime reconfiguration lands — read them under the lock too.
+	h.conf.RLock()
+	p2pNode := h.conf.P2pNode
+	vpnConfig := h.conf.VPNConfig
+	h.conf.RUnlock()
+
 	peerInfo := entity.PeerInfo{
-		PeerID:                  h.conf.P2pNode.PeerID,
-		Name:                    h.conf.P2pNode.Name,
+		PeerID:                  p2pNode.PeerID,
+		Name:                    p2pNode.Name,
 		Uptime:                  h.p2p.Uptime(),
 		ServerVersion:           config.Version,
 		NetworkStats:            netStats,
@@ -33,19 +41,59 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 		IsAwlDNSSetAsSystem:     h.dns.IsAwlDNSSetAsSystem(),
 		VPN: entity.VPNInfo{
 			VPNInterfaceEnabled: h.tunnel != nil,
-			InterfaceName:       h.conf.VPNConfig.InterfaceName,
-			IPNet:               h.conf.VPNConfig.IPNet,
+			InterfaceName:       vpnConfig.InterfaceName,
+			IPNet:               vpnConfig.IPNet,
 		},
-		SOCKS5: entity.SOCKS5Info{
-			ListenAddress:   h.conf.SOCKS5.ListenAddress,
-			ProxyingEnabled: h.conf.SOCKS5.ProxyingEnabled,
-			ListenerEnabled: h.conf.SOCKS5.ListenerEnabled,
-			UsingPeerID:     h.conf.SOCKS5.UsingPeerID,
-			UsingPeerName: func() string {
-				peer, _ := h.conf.GetPeer(h.conf.SOCKS5.UsingPeerID)
-				return peer.DisplayName()
-			}(),
-		},
+		SOCKS5: func() entity.SOCKS5Info {
+			h.conf.RLock()
+			socks5 := h.conf.SOCKS5
+			h.conf.RUnlock()
+
+			info := entity.SOCKS5Info{
+				ListenAddress:   socks5.ListenAddress,
+				ProxyingEnabled: socks5.ProxyingEnabled,
+				ListenerEnabled: socks5.ListenerEnabled,
+				UsingPeerID:     socks5.UsingPeerID,
+			}
+
+			if socks5.UsingPeerID != "" {
+				if peer, ok := h.conf.GetPeer(socks5.UsingPeerID); ok {
+					peerID := peer.PeerId()
+					info.Connected = h.p2p.IsConnected(peerID)
+					info.UsingPeerName = peer.DisplayName()
+					info.UsingPeerPublicIP = h.p2p.PeerPublicIP(peerID)
+					if info.Connected {
+						info.UsingPeerPing = h.p2p.GetPeerLatency(peerID)
+						info.UsingPeerThroughRelay = !h.p2p.HasDirectConnection(peerID)
+					}
+				}
+			}
+
+			return info
+		}(),
+		VPNGateway: func() entity.VPNGatewayInfo {
+			h.conf.RLock()
+			gw := h.conf.VPNGateway
+			h.conf.RUnlock()
+			info := entity.VPNGatewayInfo{
+				ClientEnabled: gw.ClientEnabled,
+				GatewayPeerID: gw.GatewayPeerID,
+				ServerEnabled: gw.ServerEnabled,
+			}
+			if gw.GatewayPeerID != "" {
+				if peer, ok := h.conf.GetPeer(gw.GatewayPeerID); ok {
+					peerID := peer.PeerId()
+					info.GatewayPeerName = peer.DisplayName()
+					info.Connected = h.p2p.IsConnected(peerID)
+					info.GatewayPublicIP = h.p2p.PeerPublicIP(peerID)
+					if info.Connected {
+						info.GatewayPing = h.p2p.GetPeerLatency(peerID)
+						info.GatewayThroughRelay = !h.p2p.HasDirectConnection(peerID)
+					}
+				}
+			}
+			return info
+		}(),
 	}
 
 	return c.JSON(http.StatusOK, peerInfo)

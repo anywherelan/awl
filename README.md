@@ -22,6 +22,7 @@
   - [Linux server (`awl`)](#linux-server-awl)
 - [Connecting devices](#connecting-devices)
 - [Using devices as SOCKS5 proxy](#using-devices-as-socks5-proxy)
+- [VPN gateway (full-tunnel exit node)](#vpn-gateway-full-tunnel-exit-node)
 - [Configuration](#configuration)
   - [Config file location](#config-file-location)
   - [Example config](#example-config)
@@ -45,6 +46,7 @@ Some things people use it for:
 - SSH / RDP / VNC into your home or work laptop from anywhere, without port forwarding or exposing anything to the internet
 - reach selfhosted services (Nextcloud, Home Assistant, Bitwarden, ...) privately
 - route traffic through a remote device as a SOCKS5 proxy — useful for bypassing regional blocks
+- route *all* your traffic through a remote device at the IP layer — a full-tunnel VPN gateway / exit node
 - LAN-style multiplayer gaming across the internet
 - keep an old Android phone accessible for apps that only run there (e.g. with [scrcpy](https://github.com/Genymobile/scrcpy))
 
@@ -64,6 +66,7 @@ Tradeoffs worth knowing about:
 ## Features
 
 - fully peer-to-peer, no coordination server — see [Why Anywherelan](#why-anywherelan) above
+- route **all** your traffic through a device — full-tunnel VPN gateway / exit node
 - route traffic through a device as a SOCKS5 proxy
 - automatic NAT traversal via libp2p; falls back to community relays when a direct path isn't possible
 - TLS 1.3 encryption (QUIC or TCP+TLS)
@@ -114,7 +117,7 @@ awl's transport security comes from [libp2p](https://docs.libp2p.io/).
 
 awl ships in two desktop flavors:
 
-- **`awl-tray`** — desktop build with a system-tray indicator: status at a glance, start/stop/restart, peer list. Use this for regular desktop usage.
+- **`awl-tray`** — desktop build with a system-tray indicator: status at a glance, start/stop/restart, peer list, and quick exit-node selection (SOCKS5 proxy / VPN gateway). Use this for regular desktop usage.
 - **`awl`** — headless server build, no GUI. Use this for servers and embedded devices.
 
 Both share the same web UI and the same [CLI](#terminal-based-client).
@@ -230,6 +233,95 @@ awl cli me set_proxy --name="peer-name"
 On desktop you can also pick the active exit node from the web UI or the system tray menu.
 
 Traffic through a peer has no restrictions beyond the connection between the two of you — direct and relayed paths both work. You can reach the remote peer's LAN, but not the remote peer's `localhost`.
+
+## VPN gateway (full-tunnel exit node)
+
+awl can route **all** of your IPv4 traffic through a remote device at the IP layer — the same model as classic full-tunnel WireGuard/OpenVPN. The remote device becomes your exit node: your traffic reaches the internet from its IP, not yours.
+
+### VPN gateway vs SOCKS5 proxy
+
+awl has two independent ways to send your traffic through another device, and a device can offer either one without the other. The **SOCKS5 proxy** works per-application: you point a specific app (a browser, say) at awl's local proxy, and only that app's traffic goes through the peer — nothing on your system changes. The **VPN gateway** is system-wide: it routes *all* of your IPv4 traffic through the exit node at the IP layer, so every app is covered without configuring anything.
+
+In short: reach for SOCKS5 to send a single app through a peer, and for the VPN gateway when you want the whole device to look like it's at the exit node.
+
+### Status
+
+| Platform | As client | As exit node | Notes |
+| --- | --- | --- | --- |
+| Linux | ✅ | ✅ | fully supported |
+| Android | ✅ | ❌ | exit-node role needs root — not planned |
+| Windows | ⏳ | ⏳ | coming next |
+| macOS | ❌ | ❌ | needs volunteers for testing |
+
+On macOS and Windows awl currently refuses to start with VPN gateway enabled.
+
+> ⚠️ **IPv6 is not tunnelled.** The gateway only carries IPv4. While it's on, all IPv6 traffic is dropped so that your real IPv6 address is never exposed past the exit node:
+> - **Dual-stack (IPv4 + IPv6):** everything automatically uses IPv4 through the tunnel.
+> - **IPv6-only network:** you'll have no internet connectivity until you turn the gateway off.
+
+> **Linux: host network changes mid-session aren't tracked.** If the host switches network (new Wi-Fi, Ethernet or cellular connection) while the gateway is on, restart awl. This will be fixed in a future release.
+
+### Serve as an exit node
+
+This lets your other devices route their internet traffic out through this one. It is **off by default** — see [Why serving as an exit node is opt-in](#why-serving-as-an-exit-node-is-opt-in) below. Two things need to be set: turn the gateway service on, then allow each specific device to use it. Serving as an exit node is Linux-only (see the status table above).
+
+**Desktop (web UI):** open http://admin.awl, go to **Settings** (the gear icon, top-right) and turn on **Serve as VPN Gateway**. Then, for each device you want to permit, open its card on the Overview page, click **Settings**, and set **Allow as exit node** to *Allowed*. On `awl-tray` you can also toggle the service from the tray menu under **VPN Gateway → Serve as VPN Gateway**.
+
+Turning the service on takes effect immediately — no restart. awl enables IP forwarding and sets up firewall rules that let that traffic out while keeping your own LAN private (see [Security and privacy notes](#security-and-privacy-notes) below); everything is reversed when you turn it off or shut awl down.
+
+Once enabled, your permitted devices can pick this one as their exit node. It may take a few minutes to show up on their side — awl exchanges status with each device periodically (≤ 5 minutes) and on every reconnect.
+
+> The "Allow as exit node" permission is shared with SOCKS5. If you need separate permissions for SOCKS5 vs the VPN gateway, [open an issue](https://github.com/anywherelan/awl/issues) and we'll split it.
+
+#### Via the CLI
+
+```bash
+# turn the gateway service on (server disable turns it off)
+awl cli gateway server enable
+# allow a specific device to use this one as an exit node
+awl cli peers allow_exit_node --name="peer-name" --allow=true
+```
+
+### Use a remote device as your exit node (client side)
+
+First make sure you've added the remote device and it has the gateway service enabled on its side (see above).
+
+**Desktop (web UI):** open http://admin.awl; on the Overview page, find the **VPN Gateway** card on the right and pick the peer in the **Exit peer** dropdown. That's it — all your traffic now goes out through that device. Set it back to *None* to turn the gateway off. On `awl-tray` the same picker is in the tray menu, and on Android you use the gateway control in the app.
+
+This takes effect immediately — no restart. Switching to a different peer in the dropdown atomically moves the gateway to the new device.
+
+To confirm it's working, open a "what's my IP" site such as https://ifconfig.co — it should show the exit node's public IP, not yours.
+
+#### Via the CLI
+
+```bash
+# list peers available as exit nodes
+awl cli gateway list
+# route all traffic through a peer (or --pid=<peer-id>)
+awl cli gateway client use --name="peer-name"
+# show status: gateway peer, whether it's connected, its public IP and ping
+awl cli gateway status
+# stop using the gateway
+awl cli gateway client stop
+```
+
+### Why serving as an exit node is opt-in
+
+Unlike the SOCKS5 proxy, serving as a VPN gateway changes global system state on the host: awl turns on `net.ipv4.ip_forward` and installs iptables rules. That can interfere with the host's existing networking or firewall setup, and it isn't something awl can sandbox — so we don't enable it on a routine install. You opt in explicitly, the same way every mainstream VPN (ZeroTier, WireGuard, OpenVPN, ...) keeps exit-node mode opt-in.
+
+The privacy exposure — your IP appearing as the source of another device's traffic — is *not* what this toggle gates: it is the same for SOCKS5 and the VPN gateway, and it's controlled by the per-device **Use as exit** permission (see [Security and privacy notes](#security-and-privacy-notes) below). This toggle only governs the host-level networking changes above.
+
+### Troubleshooting
+
+- **A device isn't available as an exit node.** It hasn't turned on **Serve as VPN Gateway**, or hasn't set **Allow as exit node** to *Allowed* for you, or the status exchange hasn't propagated yet — wait up to ~5 minutes or until the next reconnect.
+- **A "what's my IP" site still shows your own IP after enabling.** Check the gateway status (the **VPN Gateway** card, or `awl cli gateway status`): if it's not connected, awl can't reach the exit node, so nothing is being tunnelled.
+- **A site works over IPv6 but not through the gateway.** Expected — IPv6 isn't tunnelled (see the note above). Dual-stack hosts fall back to IPv4 automatically; anything IPv6-only won't work while the gateway is on.
+
+### Security and privacy notes
+
+- **Your IP is exposed.** Once you serve as an exit node, the public IPs that those devices reach see your IP, not theirs.
+- **Your LAN is not.** awl drops forwarded traffic to RFC 1918 / RFC 6598 / RFC 3927 ranges (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`, `169.254/16`) so a gateway client cannot reach the exit node's home network.
+- **DNS:** in client gateway mode awl forces upstream DNS to a public resolver (`1.1.1.1` by default) so the LAN resolver can't leak queries past the tunnel. If you'd rather use a different resolver, you can change it by hand in the config file (`dns.upstreamDNSAddress`) while awl is stopped.
 
 ## Configuration
 

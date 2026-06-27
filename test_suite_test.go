@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -38,6 +40,17 @@ import (
 )
 
 const TestTUNBatchSize = 100
+
+// noopSockMarker is a sockmark.Marker test double that does nothing. Production
+// wiring sets SocketControlFunc unconditionally; tests run as a non-root user
+// where SO_MARK fails with EPERM, which would break libp2p dials and leave
+// QUIC reuse goroutines hanging past the goleak window.
+type noopSockMarker struct{}
+
+func (noopSockMarker) FWMark() uint32 { return 0 }
+func (noopSockMarker) ControlFunc() func(network, address string, c syscall.RawConn) error {
+	return nil
+}
 
 type TestSuite struct {
 	*require.Assertions
@@ -109,7 +122,7 @@ func (ts *TestSuite) NewTestPeer(disableLogging bool) TestPeer {
 		multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
 		multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
 	}
-	return ts.newTestPeerWithConfig(disableLogging, listenAddrs, nil, nil)
+	return ts.newTestPeerWithConfig(disableLogging, listenAddrs, nil, nil, nil)
 }
 
 type ConfigModifier func(*config.Config)
@@ -119,7 +132,21 @@ func (ts *TestSuite) NewTestPeerWithConfig(configModifier ConfigModifier) TestPe
 		multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
 		multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
 	}
-	return ts.newTestPeerWithConfig(true, listenAddrs, nil, configModifier)
+	return ts.newTestPeerWithConfig(true, listenAddrs, nil, configModifier, nil)
+}
+
+// AppModifier is a test hook for tweaking the Application before Init runs.
+// Use NewTestPeerWithAppConfig when a test needs to inject a custom SockMarker
+// (e.g. a no-op marker so a Gateway.Enabled=true config does not cause libp2p
+// dials to fail on SO_MARK EPERM in a non-root test environment).
+type AppModifier func(*Application)
+
+func (ts *TestSuite) NewTestPeerWithAppConfig(configModifier ConfigModifier, appModifier AppModifier) TestPeer {
+	listenAddrs := []multiaddr.Multiaddr{
+		multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
+		multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
+	}
+	return ts.newTestPeerWithConfig(true, listenAddrs, nil, configModifier, appModifier)
 }
 
 // SOCKS5PeerConfig configures SOCKS5 settings for test peers
@@ -138,10 +165,31 @@ func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []mu
 				UsingPeerID:     "",
 			}
 		}
-	})
+	}, nil)
 }
 
-func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, configModifier ConfigModifier) TestPeer {
+func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, configModifier ConfigModifier, appModifier AppModifier) TestPeer {
+	tp, err := ts.buildTestPeer(disableLogging, listenAddrs, extraLibp2pOpts, configModifier, appModifier)
+	ts.NoError(err)
+	return tp
+}
+
+// NewTestPeerExpectingInitError builds a peer with the same defaults as
+// NewTestPeerWithAppConfig but does NOT assert that Init succeeded — it
+// returns the Init error to the caller. The Application is registered for
+// cleanup either way, so callers do not need to call Close themselves.
+//
+// Use this when a test needs to exercise the failure path of Application.Init
+// (e.g. a malformed config that must propagate, not be silently fixed).
+func (ts *TestSuite) NewTestPeerExpectingInitError(configModifier ConfigModifier, appModifier AppModifier) (TestPeer, error) {
+	listenAddrs := []multiaddr.Multiaddr{
+		multiaddr.StringCast("/ip4/127.0.0.1/tcp/0"),
+		multiaddr.StringCast("/ip4/127.0.0.1/udp/0/quic-v1"),
+	}
+	return ts.buildTestPeer(true, listenAddrs, nil, configModifier, appModifier)
+}
+
+func (ts *TestSuite) buildTestPeer(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, configModifier ConfigModifier, appModifier AppModifier) (TestPeer, error) {
 	tempDir := ts.t.TempDir()
 	ts.t.Setenv(config.AppDataDirEnvKey, tempDir)
 	tempConf := config.NewConfig(eventbus.NewBus())
@@ -153,6 +201,10 @@ func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []mu
 
 	app := New()
 	app.AllowEmptyBootstrapPeers = ts.isSimnet
+	app.DisableGatewayOSSetup = true
+	// SocketControlFunc is now wired unconditionally in production; tests
+	// run as a non-root user where SO_MARK fails with EPERM, which breaks libp2p dials.
+	app.SockMarker = noopSockMarker{}
 	app.ExtraLibp2pOpts = extraLibp2pOpts
 
 	app.SetupLoggerAndConfig()
@@ -190,21 +242,26 @@ func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []mu
 		configModifier(app.Conf)
 	}
 
+	if appModifier != nil {
+		appModifier(app)
+	}
+
 	testTUN := NewTestTUN()
-	err := app.Init(context.Background(), testTUN.TUN())
-	ts.NoError(err)
+	initErr := app.Init(context.Background(), testTUN.TUN())
 
 	tp := TestPeer{
 		app: app,
-		api: apiclient.NewWithAuth(app.Api.Address(), app.Conf.HttpBasicAuth.Username, app.Conf.HttpBasicAuth.Password),
 		tun: testTUN,
+	}
+	if initErr == nil {
+		tp.api = apiclient.NewWithAuth(app.Api.Address(), app.Conf.HttpBasicAuth.Username, app.Conf.HttpBasicAuth.Password)
 	}
 
 	ts.t.Cleanup(func() {
 		tp.Close()
 	})
 
-	return tp
+	return tp, initErr
 }
 
 // TODO: rewrite bootstrap node using newTestPeer
@@ -264,8 +321,15 @@ func (ts *TestSuite) ensurePeersAvailableInDHT(peer1, peer2 TestPeer) {
 }
 
 func (ts *TestSuite) makeFriends(peer1, peer2 TestPeer) {
+	ts.makeFriendsWithAliases(peer1, peer2, "peer_1", "peer_2")
+}
+
+// makeFriendsWithAliases is the same as makeFriends but lets the caller pick
+// the per-side aliases. Tests that wire up more than two peers per Application
+// need distinct aliases — awl rejects duplicate names.
+func (ts *TestSuite) makeFriendsWithAliases(peer1, peer2 TestPeer, alias1, alias2 string) {
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
-	ts.sendAndAcceptFriendRequest(peer1, peer2)
+	ts.sendAndAcceptFriendRequest(peer1, peer2, alias1, alias2)
 }
 
 func (ts *TestSuite) makeFriendsSimnet(peer1, peer2 TestPeer) {
@@ -281,7 +345,7 @@ func (ts *TestSuite) makeFriendsSimnet(peer1, peer2 TestPeer) {
 	err := peer1.app.P2p.Host().Connect(ctx, p2Info)
 	ts.NoError(err)
 
-	ts.sendAndAcceptFriendRequest(peer1, peer2)
+	ts.sendAndAcceptFriendRequest(peer1, peer2, "peer_1", "peer_2")
 }
 
 // NewSimnetPeerPair creates two peers connected over a simulated network with configurable
@@ -317,8 +381,11 @@ func (ts *TestSuite) NewSimnetPeerPair(latency time.Duration, bandwidthBps int, 
 	return peer1, peer2
 }
 
-func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer) {
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
+// sendAndAcceptFriendRequest drives the auth handshake from peer1's side.
+// alias1 is how peer2 will know peer1 (set in the reply); alias2 is how peer1
+// will know peer2 (set in the outbound friend request).
+func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer, alias1, alias2 string) {
+	err := peer1.api.SendFriendRequest(peer2.PeerID(), alias2, "")
 	ts.NoError(err)
 
 	var authRequests []entity.AuthRequest
@@ -327,30 +394,51 @@ func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer) {
 		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", false, "")
+	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, alias1, false, "")
 	ts.NoError(err)
 
-	time.Sleep(500 * time.Millisecond)
+	ts.Eventually(func() bool {
+		knownPeer, exists := peer1.app.Conf.GetPeer(peer2.PeerID())
+		return exists && knownPeer.Confirmed
+	}, time.Second, 20*time.Millisecond)
+
 	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 	knownPeer, exists := peer2.app.Conf.GetPeer(peer1.PeerID())
-	ts.True(exists)
-	ts.True(knownPeer.Confirmed)
-
-	knownPeer, exists = peer1.app.Conf.GetPeer(peer2.PeerID())
 	ts.True(exists)
 	ts.True(knownPeer.Confirmed)
 }
 
 type TestTUN struct {
-	Outbound                  chan [][]byte
-	outboundBuf               [][]byte
-	ReferenceInboundPacketLen int
+	Outbound    chan [][]byte
+	outboundBuf [][]byte
+
+	// mu protects referenceInboundPacketLen and inboundPackets from concurrent access
+	// between test setup goroutines and backgroundInboundHandler goroutines calling Write().
+	mu                        sync.Mutex
+	referenceInboundPacketLen int
+	inboundPackets            chan []byte
 
 	inboundCount  int64
 	outboundCount int64
 	isClosed      atomic.Bool
 	events        chan tun.Event
 	tun           *testTun
+}
+
+// SetInboundCapture configures the TestTUN to capture inbound packets for content verification.
+// It must be called before injecting packets that will trigger inbound writes.
+func (c *TestTUN) SetInboundCapture(referenceLen int, ch chan []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.referenceInboundPacketLen = referenceLen
+	c.inboundPackets = ch
+}
+
+// GetInboundPackets returns the channel set by SetInboundCapture.
+func (c *TestTUN) GetInboundPackets() chan []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.inboundPackets
 }
 
 func NewTestTUN() *TestTUN {
@@ -418,10 +506,24 @@ func (t *testTun) Write(bufs [][]byte, offset int) (n int, err error) {
 		return 0, os.ErrClosed
 	}
 
+	t.t.mu.Lock()
+	refLen := t.t.referenceInboundPacketLen
+	ch := t.t.inboundPackets
+	t.t.mu.Unlock()
+
 	for _, buf := range bufs {
 		msg := buf[offset:]
-		if len(msg) != t.t.ReferenceInboundPacketLen {
+		if refLen != 0 && len(msg) != refLen {
 			return n, errors.New("packets length mismatch")
+		}
+
+		if ch != nil {
+			packetCopy := make([]byte, len(msg))
+			copy(packetCopy, msg)
+			select {
+			case ch <- packetCopy:
+			default:
+			}
 		}
 
 		atomic.AddInt64(&t.t.inboundCount, 1)
@@ -462,7 +564,7 @@ func testPacket(length int) []byte {
 	return testPacketWithDest(length, "10.66.0.2")
 }
 
-func testPacketWithDest(length int, destIP string) []byte {
+func testPacketWithSrcDest(length int, srcIP, destIP string) []byte {
 	data, err := hex.DecodeString("4500002828f540004011fd490a4200010a420002a9d0238200148bfd68656c6c6f20776f726c6421")
 	if err != nil {
 		panic(err)
@@ -485,6 +587,12 @@ func testPacketWithDest(length int, destIP string) []byte {
 	}
 	vpnPacket.Parse()
 
+	srcIPParsed := net.ParseIP(srcIP).To4()
+	if srcIPParsed == nil {
+		panic(fmt.Sprintf("invalid source IP: %s", srcIP))
+	}
+	copy(vpnPacket.Src, srcIPParsed)
+
 	destIPParsed := net.ParseIP(destIP).To4()
 	if destIPParsed == nil {
 		panic(fmt.Sprintf("invalid destination IP: %s", destIP))
@@ -494,4 +602,18 @@ func testPacketWithDest(length int, destIP string) []byte {
 	vpnPacket.RecalculateChecksum()
 
 	return vpnPacket.Packet
+}
+
+func testPacketWithDest(length int, destIP string) []byte {
+	return testPacketWithSrcDest(length, "10.66.0.1", destIP)
+}
+
+// parsePacketIPs extracts src and dst IPs from a raw IPv4 packet.
+func parsePacketIPs(rawPacket []byte) (src, dst net.IP) {
+	pkt := vpn.Packet{}
+	pkt.Packet = rawPacket
+	if !pkt.Parse() {
+		return nil, nil
+	}
+	return append([]byte{}, pkt.Src...), append([]byte{}, pkt.Dst...)
 }
