@@ -568,7 +568,7 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 			{"different network", "192.168.1.1"},
 			{"next network up", "10.67.0.5"},
 			{"next network down", "10.65.255.255"},
-			{"same class B different C", "10.66.1.1"},
+			{"same class B different C", "10.67.1.1"},
 		}
 
 		for _, tc := range testCases {
@@ -581,7 +581,7 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 					AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
 				})
 				ts.Error(err)
-				ts.ErrorContains(err, "IP "+tc.ip+" does not belong to subnet 10.66.0.0/24")
+				ts.ErrorContains(err, "IP "+tc.ip+" does not belong to subnet 10.66.0.0/16")
 			})
 		}
 	})

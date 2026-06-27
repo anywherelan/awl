@@ -32,13 +32,6 @@ type UpdateService struct {
 	logger     *log.ZapEventLogger
 }
 
-type ApplicationType int
-
-const (
-	AppTypeAwl ApplicationType = iota
-	AppTypeAwlTray
-)
-
 var (
 	goos = func() string {
 		if config.IsWindows7 == "true" {
@@ -50,7 +43,7 @@ var (
 	awlTrayFilenamesRegex = regexp.MustCompile(fmt.Sprintf("awl-tray-%s-%s.*", goos, runtime.GOARCH))
 )
 
-func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType ApplicationType) (UpdateService, error) {
+func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType config.AppType) (UpdateService, error) {
 	if config.IsDevVersion() {
 		return UpdateService{}, errors.New("updates are unsupported for dev version")
 	}
@@ -74,9 +67,9 @@ func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType Appl
 
 	filenamesRegex := make([]*regexp.Regexp, 0, 1)
 	switch appType {
-	case AppTypeAwl:
+	case config.AppTypeAwl:
 		filenamesRegex = append(filenamesRegex, awlFilenamesRegex)
-	case AppTypeAwlTray:
+	case config.AppTypeAwlTray:
 		filenamesRegex = append(filenamesRegex, awlTrayFilenamesRegex)
 	default:
 		return UpdateService{}, fmt.Errorf("unknown application type: %v", appType)

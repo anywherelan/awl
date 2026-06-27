@@ -16,6 +16,8 @@ import (
 	"github.com/anywherelan/awl/vpn/sockmark"
 )
 
+const appType = config.AppTypeAwlAndroid
+
 var (
 	globalApp     *awl.Application
 	globalDataDir string
@@ -37,9 +39,9 @@ func GetConfig() string {
 		panic("call to GetConfig before Setup")
 	}
 
-	conf, loadConfigErr := config.LoadConfig(eventbus.NewBus())
+	conf, loadConfigErr := config.LoadConfig(appType, eventbus.NewBus())
 	if loadConfigErr != nil {
-		conf = config.NewConfig(eventbus.NewBus())
+		conf = config.NewConfig(appType, eventbus.NewBus())
 	}
 
 	data := conf.Export()
@@ -77,7 +79,7 @@ func StartServer(tunFD int32, protector SocketProtector) (err error) {
 	}()
 
 	globalApp = awl.New()
-	globalApp.SetupLoggerAndConfig()
+	globalApp.SetupLoggerAndConfig(appType)
 	globalApp.SockMarker = sockmark.NewAndroid(protectorToFunc(protector))
 
 	// A tunFD of 0 means the host did not establish a VPN interface (VPN

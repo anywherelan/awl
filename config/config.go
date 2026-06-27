@@ -43,6 +43,7 @@ type (
 		sync.RWMutex `swaggerignore:"true"`
 		dataDir      string
 		emitter      awlevent.Emitter
+		appType      AppType
 
 		Version               string                 `json:"version"`
 		LoggerLevel           string                 `json:"loggerLevel"`

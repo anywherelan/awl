@@ -67,8 +67,8 @@ func TestGetIPv4BroadcastAddress(t *testing.T) {
 	}{
 		{
 			name:  "awl-default",
-			ipNet: getIPNet("10.66.0.1/24"),
-			want:  net.IPv4(10, 66, 0, 255).To4(),
+			ipNet: getIPNet("10.66.0.1/16"),
+			want:  net.IPv4(10, 66, 255, 255).To4(),
 		},
 		{
 			name:  "local-network",

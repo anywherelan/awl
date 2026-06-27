@@ -10,7 +10,7 @@ import (
 const (
 	DefaultVPNInterfaceName = "awl0"
 	// TODO: generate subnets if this has already taken
-	DefaultVPNNetworkSubnet = "10.66.0.1/24"
+	DefaultVPNNetworkSubnet = "10.66.0.1/16"
 )
 
 func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {

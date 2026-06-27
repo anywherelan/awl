@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/anywherelan/awl/cli"
+	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
-	"github.com/anywherelan/awl/update"
 )
 
 // runCLIAddr runs a CLI command against the given API address and returns stdout output.
 func runCLIAddr(addr string, args ...string) (string, error) {
-	app := cli.New(update.AppTypeAwl)
+	app := cli.New(config.AppTypeAwl)
 	var buf bytes.Buffer
 	fullArgs := append([]string{"cli", "--api_addr", addr}, args...)
 	err := app.RunWithWriter(fullArgs, &buf)

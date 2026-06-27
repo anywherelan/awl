@@ -43,8 +43,8 @@ func init() {
 		"/ip6/2607:5300:201:3100::6b5f/tcp/7250/p2p/12D3KooWQeAvoyVnRm6T5XzWpKD8AzM1buzBL6o95iCodCZVQAsV",
 		"/ip6/2607:5300:201:3100::6b5f/udp/7250/quic-v1/p2p/12D3KooWQeAvoyVnRm6T5XzWpKD8AzM1buzBL6o95iCodCZVQAsV",
 		// copy of rus-2 in case dns does not work
-		"/ip4/45.67.230.223/tcp/6150/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
-		"/ip4/45.67.230.223/udp/6150/quic-v1/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
+		"/ip4/193.124.131.112/tcp/6150/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
+		"/ip4/193.124.131.112/udp/6150/quic-v1/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 
 		// community relay server from pftmclub - location at Vietnam - Hosting Provided by VPSMMO.vn
 		"/ip4/103.77.242.85/tcp/6150/p2p/12D3KooWFdFV4ZcwMhNQuQnzNCp1K1aaQAsAnr8sXJnj7vehtCFW",
@@ -99,13 +99,13 @@ func CalcAppDataDir() string {
 	return userDataDir
 }
 
-func NewConfig(bus awlevent.Bus) *Config {
-	conf := &Config{}
+func NewConfig(appType AppType, bus awlevent.Bus) *Config {
+	conf := &Config{appType: appType}
 	setDefaults(conf, bus)
 	return conf
 }
 
-func LoadConfig(bus awlevent.Bus) (*Config, error) {
+func LoadConfig(appType AppType, bus awlevent.Bus) (*Config, error) {
 	dataDir := CalcAppDataDir()
 	configPath := filepath.Join(dataDir, AppConfigFilename)
 	data, err := os.ReadFile(configPath)
@@ -113,7 +113,7 @@ func LoadConfig(bus awlevent.Bus) (*Config, error) {
 		return nil, err
 	}
 	// TODO: config migration
-	conf := new(Config)
+	conf := &Config{appType: appType}
 	err = json.Unmarshal(data, conf)
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.HttpListenAddress == "" {
 		conf.HttpListenAddress = "127.0.0.1:" + strconv.Itoa(DefaultHTTPPort)
 	}
-	if isEmptyConfig {
+	if isEmptyConfig && conf.appType == AppTypeAwlTray {
 		conf.HttpListenOnAdminHost = true
 	}
 
@@ -188,6 +188,8 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.SOCKS5 == (SOCKS5Config{}) {
 		conf.SOCKS5.ListenerEnabled = true
 		conf.SOCKS5.ProxyingEnabled = true
+		// TODO: generate proxy username/password
+		//  we also need to display it in API and in UI, and pass from Android
 	}
 	if conf.SOCKS5.ListenAddress == "" {
 		conf.SOCKS5.ListenAddress = defaultSOCKS5ListenAddress
