@@ -17,6 +17,14 @@ var (
 	IsWindows7 = ""
 )
 
+type AppType int
+
+const (
+	AppTypeAwl AppType = iota
+	AppTypeAwlTray
+	AppTypeAwlAndroid
+)
+
 // IsDevVersion
 // Possible duplicate of *Config.DevMode()
 // Based on build version (unchangeable after build, could be used only by developers)

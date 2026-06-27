@@ -49,7 +49,7 @@ import (
 
 const (
 	testTunIf     = "awl0"
-	testAwlSubnet = "10.66.0.0/24"
+	testAwlSubnet = "10.66.0.0/16"
 	ipForwardPath = "/proc/sys/net/ipv4/ip_forward"
 )
 

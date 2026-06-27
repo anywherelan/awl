@@ -402,7 +402,7 @@ func onClickUpdateMenu() error {
 	if err != nil {
 		return fmt.Errorf("update: read config: %v", err)
 	}
-	updService, err := update.NewUpdateService(conf, logger, update.AppTypeAwlTray)
+	updService, err := update.NewUpdateService(conf, logger, appType)
 	if err != nil {
 		return fmt.Errorf("update: create update service: %v", err)
 	}
@@ -438,7 +438,7 @@ func checkForUpdatesWithDesktopNotification() {
 		logger.Errorf("update auto check: load config: %v", err)
 		return
 	}
-	updService, err := update.NewUpdateService(conf, logger, update.AppTypeAwlTray)
+	updService, err := update.NewUpdateService(conf, logger, appType)
 	if err != nil {
 		logger.Errorf("update auto check: creating update service: %v", err)
 		return

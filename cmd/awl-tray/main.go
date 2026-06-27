@@ -23,8 +23,9 @@ import (
 	"github.com/anywherelan/awl/cli"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/embeds"
-	"github.com/anywherelan/awl/update"
 )
+
+const appType = config.AppTypeAwlTray
 
 var (
 	app    *awl.Application
@@ -35,11 +36,11 @@ func getConfig() (*config.Config, error) {
 	if app != nil {
 		return app.Conf, nil
 	}
-	return config.LoadConfig(eventbus.NewBus())
+	return config.LoadConfig(appType, eventbus.NewBus())
 }
 
 func main() {
-	cli.New(update.AppTypeAwlTray).Run()
+	cli.New(appType).Run()
 
 	initOSSpecificHacks()
 
@@ -105,7 +106,7 @@ func InitServer() (err error) {
 	app = awl.New()
 	// TODO: setup logger in main(), before systray and others
 	//  now we can have panics because of this
-	logger = app.SetupLoggerAndConfig()
+	logger = app.SetupLoggerAndConfig(appType)
 
 	err = app.Init(context.Background(), nil)
 	if err != nil {

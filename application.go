@@ -201,12 +201,12 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	return nil
 }
 
-func (a *Application) SetupLoggerAndConfig() *log.ZapEventLogger {
+func (a *Application) SetupLoggerAndConfig(appType config.AppType) *log.ZapEventLogger {
 	a.Eventbus = eventbus.NewBus()
 	// Config
-	conf, loadConfigErr := config.LoadConfig(a.Eventbus)
+	conf, loadConfigErr := config.LoadConfig(appType, a.Eventbus)
 	if loadConfigErr != nil {
-		conf = config.NewConfig(a.Eventbus)
+		conf = config.NewConfig(appType, a.Eventbus)
 	}
 
 	// Logger

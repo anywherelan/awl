@@ -192,7 +192,7 @@ func (ts *TestSuite) NewTestPeerExpectingInitError(configModifier ConfigModifier
 func (ts *TestSuite) buildTestPeer(disableLogging bool, listenAddrs []multiaddr.Multiaddr, extraLibp2pOpts []libp2p.Option, configModifier ConfigModifier, appModifier AppModifier) (TestPeer, error) {
 	tempDir := ts.t.TempDir()
 	ts.t.Setenv(config.AppDataDirEnvKey, tempDir)
-	tempConf := config.NewConfig(eventbus.NewBus())
+	tempConf := config.NewConfig(config.AppTypeAwl, eventbus.NewBus())
 	if disableLogging {
 		tempConf.LoggerLevel = "fatal"
 		log.SetAllLoggers(log.LevelFatal)
@@ -207,7 +207,7 @@ func (ts *TestSuite) buildTestPeer(disableLogging bool, listenAddrs []multiaddr.
 	app.SockMarker = noopSockMarker{}
 	app.ExtraLibp2pOpts = extraLibp2pOpts
 
-	app.SetupLoggerAndConfig()
+	app.SetupLoggerAndConfig(config.AppTypeAwl)
 	if disableLogging {
 		log.SetupLogging(zapcore.NewNopCore(), func(string) zapcore.Level {
 			return zapcore.FatalLevel

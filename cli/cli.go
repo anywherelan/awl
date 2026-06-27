@@ -32,16 +32,16 @@ var defaultApiAddr = "127.0.0.1:" + strconv.Itoa(config.DefaultHTTPPort)
 var binaryName = path.Base(os.Args[0])
 
 type Application struct {
-	logger     *log.ZapEventLogger
-	api        *apiclient.Client
-	cliapp     *cli.App
-	updateType update.ApplicationType
+	logger  *log.ZapEventLogger
+	api     *apiclient.Client
+	cliapp  *cli.App
+	appType config.AppType
 }
 
-func New(updateType update.ApplicationType) *Application {
+func New(appType config.AppType) *Application {
 	app := new(Application)
 	app.logger = log.Logger("awl/cli")
-	app.updateType = updateType
+	app.appType = appType
 	app.init()
 
 	return app
@@ -518,12 +518,12 @@ func (a *Application) init() {
 				Action: func(c *cli.Context) error {
 					_, _ = fmt.Fprintf(a.cliapp.Writer, "current version: %s\n", config.Version)
 
-					conf, err := config.LoadConfig(eventbus.NewBus())
+					conf, err := config.LoadConfig(a.appType, eventbus.NewBus())
 					if err != nil {
 						return fmt.Errorf("update: read config: %v", err)
 					}
 
-					updService, err := update.NewUpdateService(conf, a.logger, a.updateType)
+					updService, err := update.NewUpdateService(conf, a.logger, a.appType)
 					if err != nil {
 						return fmt.Errorf("update: create update service: %v", err)
 					}
@@ -570,7 +570,7 @@ func (a *Application) initApiConnection(c *cli.Context) error {
 		return a.initApiFromAddr(apiAddr, username, password)
 	}
 
-	conf, errConfig := config.LoadConfig(eventbus.NewBus())
+	conf, errConfig := config.LoadConfig(a.appType, eventbus.NewBus())
 	if errConfig == nil {
 		if username == "" && password == "" {
 			username = conf.HttpBasicAuth.Username

@@ -9,15 +9,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ipfs/go-log/v2"
+
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/cli"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/update"
-	"github.com/ipfs/go-log/v2"
 )
 
+const appType = config.AppTypeAwl
+
 func main() {
-	cli.New(update.AppTypeAwl).Run()
+	cli.New(appType).Run()
 
 	uid := os.Geteuid()
 	if uid == 0 {
@@ -30,7 +33,7 @@ func main() {
 	}
 
 	app := awl.New()
-	logger := app.SetupLoggerAndConfig()
+	logger := app.SetupLoggerAndConfig(appType)
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
 	err := app.Init(ctx, nil)
@@ -82,7 +85,7 @@ func main() {
 }
 
 func checkForUpdates(conf *config.Config, logger *log.ZapEventLogger) {
-	updService, err := update.NewUpdateService(conf, logger, update.AppTypeAwl)
+	updService, err := update.NewUpdateService(conf, logger, appType)
 	if err != nil {
 		logger.Errorf("update auto check: creating update service: %v", err)
 		return

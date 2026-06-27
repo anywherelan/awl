@@ -106,7 +106,7 @@ func TestGenerateNextIpAddrExcept(t *testing.T) {
 func TestCheckIPUnique(t *testing.T) {
 	conf := &Config{
 		VPNConfig: VPNConfig{
-			IPNet: "10.66.0.0/24",
+			IPNet: "10.66.0.0/16",
 		},
 		KnownPeers: map[string]KnownPeer{
 			"p1": {PeerID: "p1", IPAddr: "10.66.0.1", Alias: "peer1"},
@@ -124,7 +124,7 @@ func TestCheckIPUnique(t *testing.T) {
 		{"ExistingIP", "10.66.0.1", "", "ip 10.66.0.1 is already used by peer peer1"},
 		{"SamePeerIP", "10.66.0.1", "p1", ""},
 		{"InvalidIPFormat", "invalid", "", "invalid IP invalid"},
-		{"OutsideSubnet", "192.168.1.1", "", "IP 192.168.1.1 does not belong to subnet 10.66.0.0/24"},
+		{"OutsideSubnet", "192.168.1.1", "", "IP 192.168.1.1 does not belong to subnet 10.66.0.0/16"},
 	}
 
 	for _, tt := range tests {
