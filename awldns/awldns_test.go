@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"runtime"
 	"testing"
 	"time"
 
@@ -57,15 +56,62 @@ func TestDNS(t *testing.T) {
 	assertAddr(name2+".awl", addr2)
 	assertAddr(name2Capitalized+".awl", addr2)
 
-	addrs, err := client.LookupHost(ctx, "unknown.awl")
+	addrs, err := client.LookupHost(ctx, "unknown.awl.")
 	a.Error(err)
 	a.Empty(addrs)
 	dnsErr := err.(*net.DNSError)
-	// TODO: investigate why macos and linux in CI return `lookup unknown.awl on 127.0.0.53:53: server misbehaving`
-	//  it should use only our resolver, but somehow it tries to use system resolver afterwards
-	if runtime.GOOS == "windows" {
-		a.Equalf(true, dnsErr.IsNotFound, "actual error: %v", err)
+	a.Equalf(true, dnsErr.IsNotFound, "actual error: %v", err)
+}
+
+// TestLocalDomainQueryTypes verifies the per-qtype behaviour of the .awl
+// handler at the DNS message level (which net.Resolver.LookupHost hides):
+//   - A     for a known name -> NOERROR + one A record
+//   - AAAA  for a known name -> NODATA (NOERROR + empty answer), so IPv6-first
+//     clients fall back to A instead of failing. Regression test for #150.
+//   - A/AAAA for an unknown name -> NXDOMAIN
+func TestLocalDomainQueryTypes(t *testing.T) {
+	a := require.New(t)
+	port := FindFreePort()
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	resolver := NewResolver(addr)
+	defer resolver.Close()
+	// TODO: remove sleep. We need it because NewResolver starts servers in goroutines
+	time.Sleep(50 * time.Millisecond)
+
+	const knownIP = "127.0.0.66"
+	resolver.ReceiveConfiguration("", map[string]string{"admin": knownIP})
+
+	query := func(name string, qtype uint16) *dns.Msg {
+		m := new(dns.Msg)
+		m.SetQuestion(dns.CanonicalName(name), qtype)
+		client := &dns.Client{Net: "udp"}
+		resp, _, err := client.Exchange(m, addr)
+		a.NoError(err)
+		return resp
 	}
+
+	// A for a known name -> single A record
+	respA := query("admin.awl", dns.TypeA)
+	a.Equal(dns.RcodeSuccess, respA.Rcode)
+	a.Len(respA.Answer, 1)
+	aRec, ok := respA.Answer[0].(*dns.A)
+	a.True(ok, "expected an A record, got %T", respA.Answer[0])
+	a.Equal(knownIP, aRec.A.String())
+
+	// AAAA for a known name -> NODATA (NOERROR, empty answer)
+	respAAAA := query("admin.awl", dns.TypeAAAA)
+	a.Equal(dns.RcodeSuccess, respAAAA.Rcode)
+	a.Empty(respAAAA.Answer)
+
+	// unknown name -> NXDOMAIN for both A and AAAA
+	respUnknownA := query("nope.awl", dns.TypeA)
+	a.Equal(dns.RcodeNameError, respUnknownA.Rcode)
+	a.Empty(respUnknownA.Answer)
+
+	respUnknownAAAA := query("nope.awl", dns.TypeAAAA)
+	a.Equal(dns.RcodeNameError, respUnknownAAAA.Rcode)
+	a.Empty(respUnknownAAAA.Answer)
 }
 
 func NewResolverClient(address string) *net.Resolver {
