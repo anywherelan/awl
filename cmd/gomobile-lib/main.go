@@ -164,3 +164,35 @@ func GetApiAddress() string {
 	}
 	return ""
 }
+
+// DnsServerIP returns the in-tunnel IP the host app must pass to
+// VpnService.Builder.addDnsServer when DNS is enabled in the config. Call
+// after Setup; normally before StartServer (establishTun runs first), in
+// which case the address is computed from the saved config. When the server
+// is already running (the reconfigure_vpn flow), the address of the active
+// interceptor is returned instead, so the host cannot diverge from the core.
+// An empty string means DNS must not be configured: no free IP in the VPN
+// subnet, or the running server has no active interceptor.
+func DnsServerIP() string {
+	if globalApp != nil && globalApp.Dns != nil {
+		ip := globalApp.Dns.NetstackDNSServerIP()
+		if ip == nil {
+			return ""
+		}
+		return ip.String()
+	}
+
+	if globalDataDir == "" {
+		panic("call to DnsServerIP before Setup")
+	}
+
+	conf, loadConfigErr := config.LoadConfig(appType, eventbus.NewBus())
+	if loadConfigErr != nil {
+		conf = config.NewConfig(appType, eventbus.NewBus())
+	}
+	ip := conf.NetstackDNSIP()
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
+}

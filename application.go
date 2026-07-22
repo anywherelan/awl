@@ -32,6 +32,7 @@ import (
 
 	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/awldns"
+	"github.com/anywherelan/awl/awldns/dnsbridge"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/metrics"
@@ -194,12 +195,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	go a.SOCKS5.ServeConns(a.ctx)
 
 	if !a.Conf.DNS.DisableDNS && !a.Conf.VPNConfig.DisableVPNInterface {
-		interfaceName, err := a.vpnDevice.InterfaceName()
-		if err != nil {
-			a.logger.Errorf("failed to get TUN interface name: %v", err)
-		} else {
-			a.Dns.initDNS(interfaceName)
-		}
+		a.setupDNS()
 	}
 
 	// Metrics
@@ -216,6 +212,23 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.logger.Info("Application initialized successfully")
 
 	return nil
+}
+
+// setupDNS picks the platform DNS path. On Android there are no OS sockets
+// and no OS DNS configurator: DNS packets are intercepted from the TUN read
+// path into a netstack bridge instead.
+func (a *Application) setupDNS() {
+	if runtime.GOOS == "android" {
+		a.Dns.initDNSAndroid(a.vpnDevice, a.Tunnel)
+		return
+	}
+
+	interfaceName, err := a.vpnDevice.InterfaceName()
+	if err != nil {
+		a.logger.Errorf("failed to get TUN interface name: %v", err)
+		return
+	}
+	a.Dns.initDNS(interfaceName)
 }
 
 func (a *Application) SetupLoggerAndConfig(appType config.AppType) *log.ZapEventLogger {
@@ -373,15 +386,17 @@ type DNSService struct {
 
 	mu                  sync.Mutex
 	dnsHost             string
-	dnsFQDN             dnsname.FQDN
 	dnsOsConfigurator   dns.OSConfigurator
 	dnsResolver         *awldns.Resolver
+	dnsBridge           *dnsbridge.Bridge
 	upstreamDNS         string
 	isAwlDNSSetAsSystem bool
 	// forceUpstream forces the awl resolver to capture all queries
 	// (MatchDomains=nil) and forward them to the configured public upstream so
 	// DNS traverses the tunnel instead of leaking to the system resolver. Set
-	// in VPN gateway client mode.
+	// in VPN gateway client mode. Desktop only: the Android netstack bridge has
+	// no split-DNS choice to make (it already captures all device DNS), so it
+	// leaves this at zero and ForceUpstreamDNS is a no-op there.
 	forceUpstream bool
 }
 
@@ -401,20 +416,6 @@ func (a *DNSService) initDNS(interfaceName string) {
 	}
 	a.dnsHost = dnsHost
 
-	fqdn, err := dnsname.ToFQDN(awldns.LocalDomain)
-	if err != nil {
-		panic(err)
-	}
-	a.dnsFQDN = fqdn
-
-	// TODO(android awldns): on Android this NewResolver cannot bind :53 (needs
-	// root) and dnsOsConfigurator.SetDNS below fails (no writable resolv.conf),
-	// so awldns is effectively inert there and .awl names do not resolve. The
-	// Android host instead points VpnService at DNS.UpstreamDNSAddress directly
-	// (see awl-flutter MainActivity.establishTun), which prevents leaks but
-	// gives no .awl resolution. A full fix would intercept :53 to a magic awl
-	// IP inside the tunnel read-path (userspace netstack),
-	// rather than binding an OS socket.
 	a.dnsResolver = awldns.NewResolver(dnsAddr)
 	a.upstreamDNS = a.conf.DNS.UpstreamDNSAddress
 	a.forceUpstream = a.conf.VPNGateway.ClientEnabled
@@ -436,6 +437,60 @@ func (a *DNSService) initDNS(interfaceName string) {
 	}
 
 	a.applyOSDNSConfigLocked()
+}
+
+// initDNSAndroid sets up the Android DNS path: no OS sockets and no OS DNS
+// configurator. A netstack bridge (awldns/dnsbridge) owns the in-subnet DNS
+// IP, the Tunnel feeds it packets intercepted from the TUN read path, and the
+// resolver serves on the bridge's listeners. The Android host passes the same
+// IP to VpnService.Builder.addDnsServer, so all device DNS arrives there. On
+// any failure DNS stays off with a log; VPN keeps working.
+func (a *DNSService) initDNSAndroid(vpnDevice *vpn.Device, tunnel *service.Tunnel) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	dnsIP := a.conf.NetstackDNSIP()
+	if dnsIP == nil {
+		a.logger.Errorf("no free IP for the DNS server in VPN subnet %s, DNS is disabled", a.conf.VPNConfig.IPNet)
+		return
+	}
+	dnsAddr, ok := netip.AddrFromSlice(dnsIP.To4())
+	if !ok {
+		a.logger.Errorf("invalid DNS server IP %v, DNS is disabled", dnsIP)
+		return
+	}
+
+	bridge, err := dnsbridge.New(dnsAddr, vpn.InterfaceMTU, vpnDevice.WriteRawPacket)
+	if err != nil {
+		a.logger.Errorf("create DNS netstack bridge, DNS is disabled: %v", err)
+		return
+	}
+	a.dnsBridge = bridge
+	a.dnsResolver = awldns.NewResolverFromListeners(bridge.UDPConn(), bridge.TCPListener(),
+		net.JoinHostPort(dnsIP.String(), awldns.DefaultDNSPort))
+
+	// TODO(android awldns): use the system DNS servers reported by the Android
+	// layer (ConnectivityManager network callback) as upstream, so LAN names
+	// keep resolving; for now non-.awl queries always go to the configured
+	// public upstream. In VPN gateway client mode the resolver's upstream
+	// socket is deliberately unprotected: its traffic loops back into the TUN
+	// and leaves through the gateway peer — no DNS leak.
+	a.upstreamDNS = a.conf.DNS.UpstreamDNSAddress
+	a.refreshDNSConfigLocked()
+
+	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.refreshDNSConfigLocked()
+	}, a.eventbus, new(awlevent.KnownPeerChanged))
+
+	tunnel.SetDNSHandler(dnsIP, bridge)
+	// The interceptor now handles all device DNS — the host sets the same IP
+	// via addDnsServer — which is exactly what this flag means to the UI.
+	// (dnsIP is config.NetstackDNSIP, reserved from peers since setDefaults.)
+	a.isAwlDNSSetAsSystem = true
+
+	a.logger.Infof("DNS interceptor is set up on %s (upstream %s)", dnsAddr, a.upstreamDNS)
 }
 
 // applyOSDNSConfigLocked (re)computes the OS DNS takeover config from the
@@ -544,7 +599,12 @@ func (a *DNSService) refreshDNSConfigLocked() {
 		return
 	}
 	dnsNamesMapping := a.conf.DNSNamesMapping()
-	dnsNamesMapping[config.AdminHttpServerDomainName] = config.AdminHttpServerIP
+	// TODO(android awldns): make admin.awl work on Android. The admin server is
+	// not reachable on AdminHttpServerIP there (the API listens elsewhere and
+	// port 80 cannot be bound), so don't advertise a dead name.
+	if runtime.GOOS != "android" {
+		dnsNamesMapping[config.AdminHttpServerDomainName] = config.AdminHttpServerIP
+	}
 	a.dnsResolver.ReceiveConfiguration(a.upstreamDNS, dnsNamesMapping)
 }
 
@@ -560,8 +620,14 @@ func (a *DNSService) Close() {
 	if a.dnsResolver != nil {
 		a.dnsResolver.Close()
 	}
+	if a.dnsBridge != nil {
+		a.dnsBridge.Close()
+	}
 }
 
+// AwlDNSAddress returns the resolver address (ip:port) to display in the
+// status API/UI/CLI, empty until both resolver servers are up. Not the
+// host-wiring IP — for that see NetstackDNSServerIP.
 func (a *DNSService) AwlDNSAddress() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -575,6 +641,17 @@ func (a *DNSService) IsAwlDNSSetAsSystem() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.isAwlDNSSetAsSystem
+}
+
+// NetstackDNSServerIP returns the in-tunnel IP owned by the running DNS
+// interceptor (Android), nil when the interceptor is not set up.
+func (a *DNSService) NetstackDNSServerIP() net.IP {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.dnsBridge == nil {
+		return nil
+	}
+	return a.dnsBridge.DNSIP().AsSlice()
 }
 
 // configMetricsAdapter implements metrics.ConfigMetrics by combining Config and AuthStatus.

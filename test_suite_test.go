@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -591,6 +592,35 @@ func testPacketWithSrcDest(length int, srcIP, destIP string) []byte {
 
 func testPacketWithDest(length int, destIP string) []byte {
 	return testPacketWithSrcDest(length, "10.66.0.1", destIP)
+}
+
+// testUDPPacket builds an IPv4/UDP packet with the given payload and correct
+// checksums (e.g. a DNS query for the interceptor tests).
+func testUDPPacket(srcIP, dstIP net.IP, srcPort, dstPort uint16, payload []byte) []byte {
+	const ipHeaderLen = 20
+	const udpHeaderLen = 8
+	raw := make([]byte, ipHeaderLen+udpHeaderLen+len(payload))
+	raw[0] = 0x45 // IPv4, IHL 5
+	binary.BigEndian.PutUint16(raw[2:], uint16(len(raw)))
+	raw[8] = 64 // TTL
+	raw[9] = vpn.IPProtocolUDP
+	copy(raw[12:16], srcIP.To4())
+	copy(raw[16:20], dstIP.To4())
+	binary.BigEndian.PutUint16(raw[20:], srcPort)
+	binary.BigEndian.PutUint16(raw[22:], dstPort)
+	binary.BigEndian.PutUint16(raw[24:], uint16(udpHeaderLen+len(payload)))
+	copy(raw[28:], payload)
+
+	pkt := vpn.Packet{}
+	if _, err := pkt.ReadFrom(bytes.NewReader(raw)); err != nil {
+		panic(err)
+	}
+	if !pkt.Parse() {
+		panic("failed to parse built UDP packet")
+	}
+	pkt.RecalculateChecksum()
+
+	return append([]byte{}, pkt.Packet...)
 }
 
 // parsePacketIPs extracts src and dst IPs from a raw IPv4 packet.

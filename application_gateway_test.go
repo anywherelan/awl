@@ -1145,3 +1145,32 @@ func TestGatewayUnknownPeerIDAtStartupFailsBoot(t *testing.T) {
 	ts.Equal(unknownPeerID, tp.app.Conf.VPNGateway.GatewayPeerID,
 		"unknown peer at startup must NOT auto-wipe GatewayPeerID")
 }
+
+// TestGatewayDNSInterception verifies the DNS interceptor filter runs before
+// the gateway-client branch in HandleReadPackets: a packet to the in-tunnel
+// DNS IP is diverted to the handler instead of being dropped as in-subnet
+// traffic (or forwarded to the exit node).
+func TestGatewayDNSInterception(t *testing.T) {
+	skipIfVPNGatewayUnsupported(t)
+	ts := NewTestSuite(t)
+
+	client, _, _ := setupGatewayPeers(ts)
+
+	dnsIP := client.app.Conf.NetstackDNSIP()
+	ts.NotNil(dnsIP)
+
+	intercepted := make(chan []byte, 16)
+	client.app.Tunnel.SetDNSHandler(dnsIP, dnsHandlerFunc(func(packet []byte) {
+		intercepted <- append([]byte{}, packet...)
+	}))
+
+	dnsPacket := testPacketWithDest(0, dnsIP.String())
+	client.tun.Outbound <- [][]byte{dnsPacket}
+
+	select {
+	case got := <-intercepted:
+		ts.Equal(dnsPacket, got)
+	case <-time.After(5 * time.Second):
+		ts.FailNow("dns packet was not intercepted in gateway client mode")
+	}
+}

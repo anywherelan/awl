@@ -206,6 +206,11 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.KnownPeers == nil {
 		conf.KnownPeers = make(map[string]KnownPeer)
 	}
+
+	// Reserve the netstack DNS IP before assigning peer IPs below, so a peer cannot be handed it.
+	// Computed once here, fixed for the session, recomputed on every load.
+	conf.netstackDNSIP = conf.computeNetstackDNSIP()
+
 	for peerID := range conf.KnownPeers {
 		peer := conf.KnownPeers[peerID]
 		newAlias := conf.genUniqPeerAlias(peer.Name, peer.Alias, uniqAliases)
