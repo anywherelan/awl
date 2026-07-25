@@ -194,11 +194,7 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 			peer.Declined = true
 		})
 
-		s.conf.Lock()
-		defer s.conf.Unlock()
-		if s.conf.SOCKS5.UsingPeerID == peerID {
-			s.conf.SOCKS5.UsingPeerID = ""
-		}
+		s.clearSelectedExitNode(peerID)
 
 		return
 	}
@@ -223,16 +219,24 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 		allowedUsingAsExitNode = peer.AllowedUsingAsExitNode
 	})
 
+	if !allowedUsingAsExitNode {
+		s.clearSelectedExitNode(peerID)
+	}
+}
+
+// clearSelectedExitNode drops peerID as our SOCKS5 exit node if it is the one
+// currently selected. Called when the peer declines us or revokes the
+// permission: we never select an exit node on the peer's behalf, but we do stop
+// using one that no longer allows it.
+func (s *AuthStatus) clearSelectedExitNode(peerID string) {
 	s.conf.Lock()
 	defer s.conf.Unlock()
 
-	if allowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == "" {
-		s.conf.SOCKS5.UsingPeerID = peerID
+	if s.conf.SOCKS5.UsingPeerID != peerID {
+		return
 	}
-
-	if !allowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == peerID {
-		s.conf.SOCKS5.UsingPeerID = ""
-	}
+	s.conf.SOCKS5.UsingPeerID = ""
+	s.conf.Save()
 }
 
 func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {

@@ -317,13 +317,21 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		return peer2Config.AllowedUsingAsExitNode
 	}, 15*time.Second, 100*time.Millisecond)
 
+	// peer2 allowing us does NOT select it as our exit node — the choice is always explicit
 	info, err = peer1.api.PeerInfo()
 	ts.NoError(err)
-	ts.Equal(peer2.PeerID(), info.SOCKS5.UsingPeerID)
+	ts.Equal("", info.SOCKS5.UsingPeerID)
 
 	availableProxies, err = peer1.api.ListAvailableProxies()
 	ts.NoError(err)
 	ts.Len(availableProxies, 1)
+
+	err = peer1.api.UpdateProxySettings(peer2.PeerID())
+	ts.NoError(err)
+
+	info, err = peer1.api.PeerInfo()
+	ts.NoError(err)
+	ts.Equal(peer2.PeerID(), info.SOCKS5.UsingPeerID)
 
 	// allow from peer1, check that peer2 got our config
 	err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
@@ -342,6 +350,11 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		return peer1Config.AllowedUsingAsExitNode && peer1Config.WeAllowUsingAsExitNode
 	}, 15*time.Second, 100*time.Millisecond)
 
+	ts.Equal("", peer2.app.SOCKS5.GetProxyPeerID())
+
+	// peer2 has to pick peer1 explicitly too; the checks below proxy through it.
+	err = peer2.api.UpdateProxySettings(peer1.PeerID())
+	ts.NoError(err)
 	ts.Equal(peer1.PeerID(), peer2.app.SOCKS5.GetProxyPeerID())
 
 	// disallow from peer2, check that peer1 got our new config
