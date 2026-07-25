@@ -93,13 +93,13 @@ func TestSendFriendRequest_ErrorCases(t *testing.T) {
 	peer1 := ts.NewTestPeer(false)
 
 	t.Run("SelfAdd", func(t *testing.T) {
-		err := peer1.api.SendFriendRequest(peer1.PeerID(), "self", "")
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "self"})
 		ts.Error(err)
 		ts.ErrorContains(err, "You can't add yourself")
 	})
 
 	t.Run("InvalidPeerID", func(t *testing.T) {
-		err := peer1.api.SendFriendRequest("not-a-valid-peer-id", "alias", "")
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: "not-a-valid-peer-id", Alias: "alias"})
 		ts.Error(err)
 		ts.ErrorContains(err, "Invalid hex-encoded multihash")
 	})
@@ -112,19 +112,19 @@ func TestAcceptFriend_ErrorCases(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 
 	t.Run("NoPendingRequest", func(t *testing.T) {
-		err := peer1.api.ReplyFriendRequest(peer2.PeerID(), "peer_2", false, "")
+		err := peer1.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: peer2.PeerID(), Alias: "peer_2"})
 		ts.Error(err)
 		ts.ErrorContains(err, "Peer did not send you friend request")
 	})
 
 	t.Run("SelfAdd", func(t *testing.T) {
-		err := peer1.api.ReplyFriendRequest(peer1.PeerID(), "self", false, "")
+		err := peer1.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: peer1.PeerID(), Alias: "self"})
 		ts.Error(err)
 		ts.ErrorContains(err, "You can't add yourself")
 	})
 
 	t.Run("InvalidPeerID", func(t *testing.T) {
-		err := peer1.api.ReplyFriendRequest("bad-peer-id", "alias", false, "")
+		err := peer1.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: "bad-peer-id", Alias: "alias"})
 		ts.Error(err)
 		ts.ErrorContains(err, "Invalid hex-encoded multihash")
 	})

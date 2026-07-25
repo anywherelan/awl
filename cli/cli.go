@@ -244,10 +244,15 @@ func (a *Application) init() {
 								Usage:    "override peer IP address",
 								Required: false,
 							},
+							&cli.BoolFlag{
+								Name:     "allow-exit-node",
+								Usage:    "allow this peer to use your device as exit node (as socks5 proxy)",
+								Required: false,
+							},
 						},
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return addPeer(a.api, c.String("pid"), c.String("name"), c.String("ip"), c.App.Writer)
+							return addPeer(a.api, c.String("pid"), c.String("name"), c.String("ip"), c.Bool("allow-exit-node"), c.App.Writer)
 						},
 					},
 					{

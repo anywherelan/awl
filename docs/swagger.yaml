@@ -276,6 +276,9 @@ definitions:
     properties:
       alias:
         type: string
+      allowUsingAsExitNode:
+        description: 'optional: allow the peer to use us as an exit node'
+        type: boolean
       ipaddr:
         description: 'optional: specific IP address for the peer'
         type: string
@@ -289,6 +292,9 @@ definitions:
     properties:
       alias:
         type: string
+      allowUsingAsExitNode:
+        description: 'optional: allow the peer to use us as an exit node'
+        type: boolean
       decline:
         type: boolean
       ipaddr:

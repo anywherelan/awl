@@ -171,7 +171,7 @@ func getPeerIdByAlias(api *apiclient.Client, alias string) (string, error) {
 	return "", fmt.Errorf("can't find peer with name \"%s\"", alias)
 }
 
-func addPeer(api *apiclient.Client, peerID, alias, ipAddr string, w io.Writer) error {
+func addPeer(api *apiclient.Client, peerID, alias, ipAddr string, allowUsingAsExitNode bool, w io.Writer) error {
 	authRequests, err := api.AuthRequests()
 	if err != nil {
 		return err
@@ -184,7 +184,12 @@ func addPeer(api *apiclient.Client, peerID, alias, ipAddr string, w io.Writer) e
 		}
 	}
 	if hasRequest {
-		err := api.ReplyFriendRequest(peerID, alias, false, ipAddr)
+		err := api.ReplyFriendRequest(entity.FriendRequestReply{
+			PeerID:               peerID,
+			Alias:                alias,
+			IPAddr:               ipAddr,
+			AllowUsingAsExitNode: allowUsingAsExitNode,
+		})
 		if err != nil {
 			return err
 		}
@@ -193,7 +198,12 @@ func addPeer(api *apiclient.Client, peerID, alias, ipAddr string, w io.Writer) e
 		return nil
 	}
 
-	err = api.SendFriendRequest(peerID, alias, ipAddr)
+	err = api.SendFriendRequest(entity.FriendRequest{
+		PeerID:               peerID,
+		Alias:                alias,
+		IPAddr:               ipAddr,
+		AllowUsingAsExitNode: allowUsingAsExitNode,
+	})
 	if err != nil {
 		return err
 	}

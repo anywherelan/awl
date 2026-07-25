@@ -66,7 +66,7 @@ func TestRemovePeer(t *testing.T) {
 	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 
 	// Add peer2 from peer1 - should succeed
-	err = peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
+	err = peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
 	ts.NoError(err)
 	time.Sleep(500 * time.Millisecond)
 
@@ -103,7 +103,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
 	ts.NoError(err)
 
 	var authRequests []entity.AuthRequest
@@ -112,7 +112,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", true, "")
+	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Alias: "peer_1", Decline: true})
 	ts.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)
@@ -142,7 +142,7 @@ func TestAutoAcceptFriendRequest(t *testing.T) {
 	peer2.app.Conf.P2pNode.AutoAcceptAuthRequests = true
 	peer2.app.Conf.Unlock()
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
 	ts.NoError(err)
 
 	ts.Eventually(func() bool {
@@ -174,7 +174,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 
 	t.Run("InviteWithCustomIP", func(t *testing.T) {
 		customIP := "10.66.0.222"
-		err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", customIP)
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2", IPAddr: customIP})
 		ts.NoError(err)
 
 		// Check immediate state on peer1
@@ -184,7 +184,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 	})
 
 	t.Run("RespondWithCustomIP", func(t *testing.T) {
-		err := peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+		err := peer3.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
 		ts.NoError(err)
 
 		var authRequests []entity.AuthRequest
@@ -195,7 +195,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 		}, 15*time.Second, 50*time.Millisecond)
 
 		customIP := "10.66.0.223"
-		err = peer1.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_3", false, customIP)
+		err = peer1.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Alias: "peer_3", IPAddr: customIP})
 		ts.NoError(err)
 
 		p3, exists := peer1.app.Conf.GetPeer(peer3.PeerID())
@@ -207,7 +207,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 		peer4 := ts.NewTestPeer(false)
 		ts.ensurePeersAvailableInDHT(peer1, peer4)
 
-		err := peer1.api.SendFriendRequest(peer4.PeerID(), "peer_4", "invalid-ip")
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer4.PeerID(), Alias: "peer_4", IPAddr: "invalid-ip"})
 		ts.Error(err)
 		ts.ErrorContains(err, "Field validation for 'IPAddr' failed")
 	})
@@ -217,7 +217,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 		ts.ensurePeersAvailableInDHT(peer1, peer5)
 
 		// Try to use peer2's IP which is 10.66.0.222
-		err := peer1.api.SendFriendRequest(peer5.PeerID(), "peer_5", "10.66.0.222")
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer5.PeerID(), Alias: "peer_5", IPAddr: "10.66.0.222"})
 		ts.Error(err)
 		ts.ErrorContains(err, "ip 10.66.0.222 is already used by peer")
 	})
@@ -232,11 +232,11 @@ func TestGetAuthRequestsSuggestedIP(t *testing.T) {
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 	ts.ensurePeersAvailableInDHT(peer1, peer3)
 
-	err := peer2.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+	err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
 	ts.NoError(err)
 	time.Sleep(200 * time.Millisecond)
 
-	err = peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+	err = peer3.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
 	ts.NoError(err)
 
 	ts.Eventually(func() bool {
@@ -270,12 +270,12 @@ func TestUniquePeerAlias(t *testing.T) {
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 	ts.ensurePeersAvailableInDHT(peer2, peer3)
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer", "")
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer"})
 	ts.NoError(err)
 
 	time.Sleep(200 * time.Millisecond)
 
-	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer", "")
+	err = peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer3.PeerID(), Alias: "peer"})
 	ts.EqualError(err, "status code: 400, error: "+api.ErrorPeerAliasIsNotUniq)
 }
 
@@ -408,6 +408,96 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	info, err = peer2.api.PeerInfo()
 	ts.NoError(err)
 	ts.Equal("", info.SOCKS5.UsingPeerID)
+}
+
+// TestAddPeerWithExitNodePermission covers granting AllowUsingAsExitNode at add
+// time — in the outgoing invite and in the reply to an incoming one — instead of
+// a follow-up update_settings call. The permission has to reach the other side
+// through the regular status exchange.
+func TestAddPeerWithExitNodePermission(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	peer3 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	ts.ensurePeersAvailableInDHT(peer1, peer3)
+
+	t.Run("InviteWithExitNode", func(t *testing.T) {
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                "peer_2",
+			AllowUsingAsExitNode: true,
+		})
+		ts.NoError(err)
+
+		peer2OnPeer1, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		ts.True(peer2OnPeer1.WeAllowUsingAsExitNode)
+
+		var authRequests []entity.AuthRequest
+		ts.Eventually(func() bool {
+			authRequests, err = peer2.api.AuthRequests()
+			ts.NoError(err)
+			return len(authRequests) == 1
+		}, 15*time.Second, 50*time.Millisecond)
+		err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{
+			PeerID: authRequests[0].PeerID,
+			Alias:  "peer_1",
+		})
+		ts.NoError(err)
+
+		// peer2 learns the permission from the status exchange, without anyone
+		// calling update_settings.
+		ts.Eventually(func() bool {
+			peer1OnPeer2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+			ts.NoError(err)
+			return peer1OnPeer2.AllowedUsingAsExitNode
+		}, 15*time.Second, 100*time.Millisecond)
+
+		peer1OnPeer2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+		ts.NoError(err)
+		ts.False(peer1OnPeer2.WeAllowUsingAsExitNode, "the permission is one-way")
+
+		// Being allowed is not the same as being selected, see clearSelectedExitNode.
+		availableProxies, err := peer2.api.ListAvailableProxies()
+		ts.NoError(err)
+		ts.Len(availableProxies, 1)
+		info, err := peer2.api.PeerInfo()
+		ts.NoError(err)
+		ts.Equal("", info.SOCKS5.UsingPeerID)
+	})
+
+	t.Run("AcceptWithExitNode", func(t *testing.T) {
+		err := peer3.api.SendFriendRequest(entity.FriendRequest{
+			PeerID: peer1.PeerID(),
+			Alias:  "peer_1",
+		})
+		ts.NoError(err)
+
+		var authRequests []entity.AuthRequest
+		ts.Eventually(func() bool {
+			authRequests, err = peer1.api.AuthRequests()
+			ts.NoError(err)
+			return len(authRequests) == 1
+		}, 15*time.Second, 50*time.Millisecond)
+		err = peer1.api.ReplyFriendRequest(entity.FriendRequestReply{
+			PeerID:               authRequests[0].PeerID,
+			Alias:                "peer_3",
+			AllowUsingAsExitNode: true,
+		})
+		ts.NoError(err)
+
+		peer3OnPeer1, err := peer1.api.KnownPeerConfig(peer3.PeerID())
+		ts.NoError(err)
+		ts.True(peer3OnPeer1.WeAllowUsingAsExitNode)
+
+		ts.Eventually(func() bool {
+			peer1OnPeer3, err := peer3.api.KnownPeerConfig(peer1.PeerID())
+			ts.NoError(err)
+			return peer1OnPeer3.AllowedUsingAsExitNode
+		}, 15*time.Second, 100*time.Millisecond)
+	})
 }
 
 func TestSOCKS5ProxyFallbackToOldProtocol(t *testing.T) {

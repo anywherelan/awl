@@ -167,7 +167,7 @@ func TestCLI_PeersRequests_WithRequest(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 
-	err := peer2.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+	err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
 	ts.NoError(err)
 
 	ts.Eventually(func() bool {
@@ -189,6 +189,8 @@ func TestCLI_PeersRequests_WithRequest(t *testing.T) {
 
 // TestCLI_PeersAdd covers the two branches of "peers add": sending a new request,
 // and accepting an existing one. Each subtest creates independent peers.
+// --allow-exit-node has to work in both branches — they call different API
+// endpoints — and the bare form (no "=true") has to set it.
 func TestCLI_PeersAdd(t *testing.T) {
 	t.Run("SendRequest", func(t *testing.T) {
 		ts := NewTestSuite(t)
@@ -199,6 +201,25 @@ func TestCLI_PeersAdd(t *testing.T) {
 		out, err := runCLI(ts, peer1, "peers", "add", "--pid", peer2.PeerID(), "--name", "peer_2")
 		require.NoError(t, err)
 		require.Equal(t, "friend request sent successfully\n", out)
+
+		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.False(t, pcfg.WeAllowUsingAsExitNode)
+	})
+
+	t.Run("SendRequestAllowingExitNode", func(t *testing.T) {
+		ts := NewTestSuite(t)
+		peer1 := ts.NewTestPeer(false)
+		peer2 := ts.NewTestPeer(false)
+		ts.ensurePeersAvailableInDHT(peer1, peer2)
+
+		out, err := runCLI(ts, peer1, "peers", "add", "--pid", peer2.PeerID(), "--name", "peer_2", "--allow-exit-node")
+		require.NoError(t, err)
+		require.Equal(t, "friend request sent successfully\n", out)
+
+		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.True(t, pcfg.WeAllowUsingAsExitNode)
 	})
 
 	t.Run("AcceptRequest", func(t *testing.T) {
@@ -208,7 +229,7 @@ func TestCLI_PeersAdd(t *testing.T) {
 		ts.ensurePeersAvailableInDHT(peer1, peer2)
 
 		// peer2 sends to peer1 first; CLI add from peer1 should detect and accept it
-		err := peer2.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+		err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
 		ts.NoError(err)
 
 		ts.Eventually(func() bool {
@@ -219,6 +240,39 @@ func TestCLI_PeersAdd(t *testing.T) {
 		out, err := runCLI(ts, peer1, "peers", "add", "--pid", peer2.PeerID(), "--name", "peer_2")
 		require.NoError(t, err)
 		require.Equal(t, "user added to friends list successfully\n", out)
+
+		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.False(t, pcfg.WeAllowUsingAsExitNode)
+	})
+
+	t.Run("AcceptRequestAllowingExitNode", func(t *testing.T) {
+		ts := NewTestSuite(t)
+		peer1 := ts.NewTestPeer(false)
+		peer2 := ts.NewTestPeer(false)
+		ts.ensurePeersAvailableInDHT(peer1, peer2)
+
+		err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+		ts.NoError(err)
+
+		ts.Eventually(func() bool {
+			reqs, err := peer1.api.AuthRequests()
+			return err == nil && len(reqs) == 1
+		}, 15*time.Second, 50*time.Millisecond)
+
+		out, err := runCLI(ts, peer1, "peers", "add", "--pid", peer2.PeerID(), "--name", "peer_2", "--allow-exit-node")
+		require.NoError(t, err)
+		require.Equal(t, "user added to friends list successfully\n", out)
+
+		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.True(t, pcfg.WeAllowUsingAsExitNode)
+
+		// The permission reaches peer2 through the regular status exchange.
+		ts.Eventually(func() bool {
+			peer1OnPeer2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+			return err == nil && peer1OnPeer2.AllowedUsingAsExitNode
+		}, 15*time.Second, 100*time.Millisecond)
 	})
 }
 

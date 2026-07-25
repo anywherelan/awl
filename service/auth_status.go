@@ -270,7 +270,12 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	}
 	if !confirmed && !isBlocked && autoAccept {
 		defer func() {
-			_ = s.AddPeer(context.Background(), remotePeer, authPeer.Name, s.conf.GenUniqPeerAlias(authPeer.Name, ""), true, "")
+			_ = s.AddPeer(context.Background(), AddPeerParams{
+				PeerID:    remotePeer,
+				Name:      authPeer.Name,
+				Alias:     s.conf.GenUniqPeerAlias(authPeer.Name, ""),
+				Confirmed: true,
+			})
 		}()
 	}
 
@@ -330,9 +335,31 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	return nil
 }
 
-func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias string, confirmed bool, ipAddr string) error {
+// AddPeerParams describes a peer about to be added to KnownPeers. It is a
+// struct rather than a positional argument list because the callers set
+// different subsets of it (an outgoing invite, an accepted request, an
+// auto-accepted one), and because it keeps growing.
+type AddPeerParams struct {
+	PeerID peer.ID
+	// Name is how the peer calls itself; empty when we invite it first and
+	// learn the name later from the status exchange.
+	Name string
+	// Alias is the local name for the peer, chosen by us.
+	Alias string
+	// Confirmed reports whether the peer has already confirmed us, i.e. we are
+	// accepting its request rather than sending our own.
+	Confirmed bool
+	// IPAddr is the VPN address for the peer. Generated when empty.
+	IPAddr string
+	// AllowUsingAsExitNode lets the peer use us as a SOCKS5 / VPN Gateway exit node.
+	// Announced to it by the status exchange, see createPeerInfo.
+	AllowUsingAsExitNode bool
+}
+
+func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
+	peerID := params.PeerID
 	peerIDStr := peerID.String()
-	alias = strings.TrimSpace(alias)
+	alias := strings.TrimSpace(params.Alias)
 
 	s.conf.RemoveBlockedPeer(peerIDStr)
 
@@ -345,6 +372,7 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias st
 		s.conf.Unlock()
 		return fmt.Errorf("peer name is not unique")
 	}
+	ipAddr := params.IPAddr
 	if ipAddr != "" {
 		if err := s.conf.CheckIPUnique(ipAddr, peerIDStr); err != nil {
 			s.conf.Unlock()
@@ -355,12 +383,13 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias st
 	}
 
 	newPeerConfig := config.KnownPeer{
-		PeerID:    peerIDStr,
-		Name:      name,
-		Alias:     alias,
-		IPAddr:    ipAddr,
-		Confirmed: confirmed,
-		CreatedAt: time.Now(),
+		PeerID:                 peerIDStr,
+		Name:                   params.Name,
+		Alias:                  alias,
+		IPAddr:                 ipAddr,
+		Confirmed:              params.Confirmed,
+		CreatedAt:              time.Now(),
+		WeAllowUsingAsExitNode: params.AllowUsingAsExitNode,
 	}
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
 	s.conf.UpsertPeerUnlocked(newPeerConfig)
@@ -376,7 +405,7 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias st
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if !confirmed {
+		if !params.Confirmed {
 			authPeer := protocol.AuthPeer{
 				Name: s.conf.NodeName(),
 			}

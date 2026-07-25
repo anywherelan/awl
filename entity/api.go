@@ -21,6 +21,8 @@ type (
 		Alias  string `validate:"required,trimmed_str_not_empty"`
 		// optional: specific IP address for the peer
 		IPAddr string `validate:"omitempty,ipv4"`
+		// optional: allow the peer to use us as an exit node
+		AllowUsingAsExitNode bool
 	}
 	FriendRequestReply struct {
 		PeerID  string `validate:"required"`
@@ -28,6 +30,8 @@ type (
 		Decline bool
 		// optional: specific IP address for the peer
 		IPAddr string `validate:"omitempty,ipv4"`
+		// optional: allow the peer to use us as an exit node
+		AllowUsingAsExitNode bool
 	}
 	PeerIDRequest struct {
 		PeerID string `validate:"required"`
