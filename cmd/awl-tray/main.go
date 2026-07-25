@@ -15,7 +15,6 @@ import (
 	"github.com/gen2brain/beeep"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 
 	"github.com/anywherelan/awl"
 	"github.com/anywherelan/awl/awldns"
@@ -36,7 +35,7 @@ func getConfig() (*config.Config, error) {
 	if app != nil {
 		return app.Conf, nil
 	}
-	return config.LoadConfig(appType, eventbus.NewBus())
+	return config.LoadConfigReadOnly(appType)
 }
 
 func main() {

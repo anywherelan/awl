@@ -185,7 +185,7 @@ func (ts *TestSuite) buildTestPeer(disableLogging bool, listenAddrs []multiaddr.
 		tempConf.LoggerLevel = "fatal"
 		log.SetAllLoggers(log.LevelFatal)
 	}
-	tempConf.Save()
+	tempConf.Close()
 
 	app := New()
 	app.AllowEmptyBootstrapPeers = ts.isSimnet

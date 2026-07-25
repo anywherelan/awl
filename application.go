@@ -3,6 +3,7 @@ package awl
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -276,8 +277,16 @@ func (a *Application) SetupLoggerAndConfig(appType config.AppType) *log.ZapEvent
 	a.logger = log.Logger("awl")
 	a.Conf = conf
 
-	if loadConfigErr != nil {
-		a.logger.Warnf("failed to read config file, creating new one: %v", loadConfigErr)
+	if errors.Is(loadConfigErr, fs.ErrNotExist) {
+		// First run: there is simply no config yet.
+		a.logger.Infof("no config file found, creating new one")
+	} else if loadConfigErr != nil {
+		// The file is there but unusable. We are about to run with a new
+		// identity and no known peers, and the first save will overwrite the
+		// old file, so this is data loss and must not read as a routine
+		// warning. LoadConfig has already copied a corrupted config aside.
+		a.logger.Errorf("failed to read existing config file, starting with a new one "+
+			"(previous identity and known peers will not be used): %v", loadConfigErr)
 	}
 	a.logger.Infof("Anywherelan %s (%s %s-%s)", config.Version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	a.logger.Infof("Initializing app in %s directory", conf.DataDir())
@@ -329,7 +338,7 @@ func (a *Application) Close() {
 			a.logger.Errorf("closing vpn: %v", err)
 		}
 	}
-	a.Conf.Save()
+	a.Conf.Close()
 }
 
 func (a *Application) makeP2pHostConfig() p2p.HostConfig {

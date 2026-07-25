@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/anywherelan/awl"
@@ -39,9 +38,9 @@ func GetConfig() string {
 		panic("call to GetConfig before Setup")
 	}
 
-	conf, loadConfigErr := config.LoadConfig(appType, eventbus.NewBus())
+	conf, loadConfigErr := config.LoadConfigReadOnly(appType)
 	if loadConfigErr != nil {
-		conf = config.NewConfig(appType, eventbus.NewBus())
+		conf = config.NewConfigReadOnly(appType)
 	}
 
 	data := conf.Export()
@@ -186,9 +185,9 @@ func DnsServerIP() string {
 		panic("call to DnsServerIP before Setup")
 	}
 
-	conf, loadConfigErr := config.LoadConfig(appType, eventbus.NewBus())
+	conf, loadConfigErr := config.LoadConfigReadOnly(appType)
 	if loadConfigErr != nil {
-		conf = config.NewConfig(appType, eventbus.NewBus())
+		conf = config.NewConfigReadOnly(appType)
 	}
 	ip := conf.NetstackDNSIP()
 	if ip == nil {
