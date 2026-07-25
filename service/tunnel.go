@@ -582,7 +582,7 @@ func (t *Tunnel) SetVPNGatewayServerEnabled(enabled bool) {
 	t.vpnGatewayServerEnabled = enabled
 	t.conf.Lock()
 	t.conf.VPNGateway.ServerEnabled = enabled
-	t.conf.SaveLocked()
+	t.conf.Save()
 	t.conf.Unlock()
 	t.peersLock.Unlock()
 }
@@ -622,7 +622,7 @@ func (t *Tunnel) SetVPNGatewayPeer(gatewayPeerID peer.ID) error {
 	t.conf.Lock()
 	t.conf.VPNGateway.ClientEnabled = true
 	t.conf.VPNGateway.GatewayPeerID = gatewayPeerID.String()
-	t.conf.SaveLocked()
+	t.conf.Save()
 	t.conf.Unlock()
 
 	// Seed connectivity from the current state and emit it, so the UI gets an
@@ -650,7 +650,7 @@ func (t *Tunnel) ClearVPNGatewayPeer() {
 	t.conf.Lock()
 	t.conf.VPNGateway.ClientEnabled = false
 	t.conf.VPNGateway.GatewayPeerID = ""
-	t.conf.SaveLocked()
+	t.conf.Save()
 	t.conf.Unlock()
 }
 

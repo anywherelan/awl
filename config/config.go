@@ -54,6 +54,17 @@ type (
 		// desktop for a future userspace-netstack path.
 		netstackDNSIP net.IP
 
+		// saveTrigger carries save requests to the writer goroutine. Capacity
+		// one, so a request that finds it full is simply dropped: a write is
+		// already queued and marshals at write time, which is what makes a
+		// burst of saves collapse into a single write of the newest state.
+		//
+		// nil on a config from NewConfigReadOnly/LoadConfigReadOnly, which has no writer.
+		saveTrigger chan struct{}
+		closeCh     chan struct{}
+		writerDone  chan struct{}
+		closeOnce   sync.Once
+
 		Version               string                 `json:"version"`
 		LoggerLevel           string                 `json:"loggerLevel"`
 		HttpListenAddress     string                 `json:"httpListenAddress"`
@@ -171,17 +182,22 @@ type (
 	}
 )
 
+// Save schedules a write of the config and returns immediately; the writer
+// goroutine performs it. It is safe to call with or without the config lock
+// held, because it touches no config state — only saveTrigger.
 func (c *Config) Save() {
-	c.RLock()
-	c.save()
-	c.RUnlock()
-}
+	if c.saveTrigger == nil {
+		// A read-only config has no writer. Reaching here means something
+		// mutated a snapshot and expected it to persist.
+		logger.DPanicf("Save called on a read-only config")
+		return
+	}
 
-// SaveLocked persists the config without taking the lock. The caller must
-// already hold c.Lock(). Use this when atomically batching mutations and
-// persistence under a single critical section.
-func (c *Config) SaveLocked() {
-	c.save()
+	select {
+	case c.saveTrigger <- struct{}{}:
+	default:
+		// a write is already queued and will pick up the newest state
+	}
 }
 
 func (c *Config) IsUniqPeerAlias(excludePeerID, alias string) bool {
@@ -251,12 +267,12 @@ func (c *Config) RemovePeer(peerID string) (KnownPeer, bool) {
 	knownPeer, exists := c.KnownPeers[peerID]
 	if exists {
 		delete(c.KnownPeers, peerID)
-		c.save()
+		c.Save()
 	}
 	c.Unlock()
 
 	if exists {
-		_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
+		c.emitKnownPeerChanged()
 	}
 
 	return knownPeer, exists
@@ -265,21 +281,21 @@ func (c *Config) RemovePeer(peerID string) (KnownPeer, bool) {
 func (c *Config) UpsertPeer(peer KnownPeer) {
 	c.Lock()
 	c.KnownPeers[peer.PeerID] = peer
-	c.save()
+	c.Save()
 	c.Unlock()
 
-	_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
+	c.emitKnownPeerChanged()
 }
 
 func (c *Config) UpsertPeerUnlocked(peer KnownPeer) {
 	c.KnownPeers[peer.PeerID] = peer
-	c.save()
+	c.Save()
 
-	_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
+	c.emitKnownPeerChanged()
 }
 
 // UpdatePeerFields atomically applies mutate to the stored KnownPeer under the
-// write lock and persists the change. It returns false if the peer is unknown.
+// write lock. It returns false if the peer is unknown.
 //
 // mutate must only change the fields it owns and must NOT replace the struct
 // wholesale, so that fields updated concurrently by other callers are not
@@ -288,17 +304,30 @@ func (c *Config) UpsertPeerUnlocked(peer KnownPeer) {
 func (c *Config) UpdatePeerFields(peerID string, mutate func(*KnownPeer)) bool {
 	c.Lock()
 	knownPeer, ok := c.KnownPeers[peerID]
+	changed := false
 	if ok {
-		mutate(&knownPeer)
-		c.KnownPeers[peerID] = knownPeer
-		c.save()
+		updated := knownPeer
+		mutate(&updated)
+		c.KnownPeers[peerID] = updated
+
+		changed = peerChangedIgnoringLastSeen(knownPeer, updated)
+		if changed {
+			c.Save()
+		}
 	}
 	c.Unlock()
 
-	if ok {
-		_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
+	if changed {
+		c.emitKnownPeerChanged()
 	}
 	return ok
+}
+
+// peerChangedIgnoringLastSeen reports whether anything except LastSeen differs.
+func peerChangedIgnoringLastSeen(before, after KnownPeer) bool {
+	before.LastSeen = time.Time{}
+	after.LastSeen = time.Time{}
+	return before != after
 }
 
 func (c *Config) UpdatePeerLastSeen(peerID string) {
@@ -323,7 +352,7 @@ func (c *Config) RemoveBlockedPeer(peerID string) {
 	_, exists := c.BlockedPeers[peerID]
 	if exists {
 		delete(c.BlockedPeers, peerID)
-		c.save()
+		c.Save()
 	}
 	c.Unlock()
 }
@@ -337,7 +366,7 @@ func (c *Config) UpsertBlockedPeer(peerID, displayName string) {
 	blockedPeer.PeerID = peerID
 	blockedPeer.DisplayName = displayName
 	c.BlockedPeers[peerID] = blockedPeer
-	c.save()
+	c.Save()
 	c.Unlock()
 }
 
@@ -348,7 +377,7 @@ func (c *Config) SetIdentity(key crypto.PrivKey, id peer.ID) {
 
 	c.P2pNode.Identity = identity
 	c.P2pNode.PeerID = id.String()
-	c.save()
+	c.Save()
 	c.Unlock()
 }
 
@@ -474,18 +503,75 @@ func (c *Config) Export() []byte {
 	return data
 }
 
-func (c *Config) save() {
+// Close stops the writer goroutine after a final flush and releases the event
+// emitter. It is idempotent and safe on a read-only config, which has neither.
+//
+// Callers of NewConfig and LoadConfig must call it, otherwise the writer
+// goroutine and the emitter's slot on the event bus outlive the config.
+func (c *Config) Close() {
+	c.closeOnce.Do(func() {
+		if c.saveTrigger != nil {
+			close(c.closeCh)
+			<-c.writerDone
+		}
+		if c.emitter != nil {
+			if err := c.emitter.Close(); err != nil {
+				logger.Errorf("Close config emitter: %v", err)
+			}
+		}
+	})
+}
+
+// startWriter launches the goroutine that owns writing this config to disk.
+// Called by the constructors that hand out a config someone will mutate; the
+// read-only ones skip it, which is what leaves saveTrigger nil.
+func (c *Config) startWriter() {
+	c.saveTrigger = make(chan struct{}, 1)
+	c.closeCh = make(chan struct{})
+	c.writerDone = make(chan struct{})
+
+	go c.writer()
+}
+
+func (c *Config) writer() {
+	defer close(c.writerDone)
+
+	for {
+		select {
+		case <-c.saveTrigger:
+			c.writeNow()
+		case <-c.closeCh:
+			// final flush
+			c.writeNow()
+			return
+		}
+	}
+}
+
+// writeNow is only ever called from the writer goroutine.
+func (c *Config) writeNow() {
+	c.RLock()
 	data, err := json.MarshalIndent(c, "", "  ")
+	c.RUnlock()
 	if err != nil {
+		// A marshal failure is a bug in the config structs, not an
+		// environmental problem, so it stays a DPanic.
 		logger.DPanicf("Marshal config: %v", err)
 		return
 	}
-	path := c.path()
-	err = os.WriteFile(path, data, filesPerm)
-	if err != nil {
+
+	if err = writeFileAtomic(c.path(), data); err != nil {
 		logger.DPanicf("Save config: %v", err)
 	}
-	ChownFileIfNeeded(path)
+}
+
+// emitKnownPeerChanged announces a change to the known peers.
+func (c *Config) emitKnownPeerChanged() {
+	// The emitter is nil on a read-only config.
+	if c.emitter == nil {
+		return
+	}
+	_ = c.emitter.Emit(awlevent.KnownPeerChanged{})
 }
 
 func (c *Config) path() string {

@@ -14,7 +14,6 @@ import (
 
 	"github.com/GrigoryKrasnochub/updaterini"
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/urfave/cli/v2"
 
 	"github.com/anywherelan/awl/api/apiclient"
@@ -518,7 +517,7 @@ func (a *Application) init() {
 				Action: func(c *cli.Context) error {
 					_, _ = fmt.Fprintf(a.cliapp.Writer, "current version: %s\n", config.Version)
 
-					conf, err := config.LoadConfig(a.appType, eventbus.NewBus())
+					conf, err := config.LoadConfigReadOnly(a.appType)
 					if err != nil {
 						return fmt.Errorf("update: read config: %v", err)
 					}
@@ -570,7 +569,7 @@ func (a *Application) initApiConnection(c *cli.Context) error {
 		return a.initApiFromAddr(apiAddr, username, password)
 	}
 
-	conf, errConfig := config.LoadConfig(a.appType, eventbus.NewBus())
+	conf, errConfig := config.LoadConfigReadOnly(a.appType)
 	if errConfig == nil {
 		if username == "" && password == "" {
 			username = conf.HttpBasicAuth.Username
