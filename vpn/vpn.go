@@ -77,30 +77,25 @@ func (d *Device) PutTempPacket(data *Packet) {
 	d.packetsPool.Put(data)
 }
 
-func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
-	if data.IsIPv6 {
-		// TODO: implement. We need to set Device.localIP ipv6 instead of ipv4
-		return nil
-	} else {
-		copy(data.Src, senderIP)
-		copy(data.Dst, d.localIP)
-	}
-	data.RecalculateChecksum()
-
-	bufs := [][]byte{data.Buf()}
-	packetsCount, err := d.tun.Write(bufs, tunPacketOffset)
-	if err != nil {
-		return fmt.Errorf("write packet to tun: %v", err)
-	} else if packetsCount < len(bufs) {
-		d.logger.Warnf("wrote %d packets, len(bufs): %d", packetsCount, len(bufs))
-	}
-
-	return nil
-}
-
 // LocalIP returns the awl IP assigned to this device. Set once in NewDevice.
 func (d *Device) LocalIP() net.IP {
 	return d.localIP
+}
+
+// WriteRawPacket writes a single ready-made IP packet (raw bytes, not a
+// *Packet) to the TUN device, framing it with the internal TUN header offset.
+// The slice is not retained. Used by the DNS bridge to inject netstack-emitted packets.
+func (d *Device) WriteRawPacket(packet []byte) error {
+	if len(packet) > MaxPacketBodySize {
+		return fmt.Errorf("packet exceeds max body size: %d > %d", len(packet), MaxPacketBodySize)
+	}
+
+	data := d.GetTempPacket()
+	defer d.PutTempPacket(data)
+	n := copy(data.Buffer[tunPacketOffset:], packet)
+	data.Packet = data.Buffer[tunPacketOffset : tunPacketOffset+n]
+
+	return d.WriteBufs([][]byte{data.Buf()})
 }
 
 // WriteBufs writes a prepared batch of TUN packets in a single tun.Write

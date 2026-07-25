@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -44,6 +45,14 @@ type (
 		dataDir      string
 		emitter      awlevent.Emitter
 		appType      AppType
+		// netstackDNSIP is the in-subnet IP reserved for the awl DNS server:
+		// broadcast−1 shifted down past taken addresses. Computed once in
+		// setDefaults from the config snapshot (not serialized), fixed for the
+		// session. Reserved on every platform so it is never handed to a peer
+		// (see CheckIPUnique), though only the Android netstack DNS interceptor
+		// (awldns/dnsbridge) actually serves on it today; kept reserved on
+		// desktop for a future userspace-netstack path.
+		netstackDNSIP net.IP
 
 		Version               string                 `json:"version"`
 		LoggerLevel           string                 `json:"loggerLevel"`

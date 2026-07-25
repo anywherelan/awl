@@ -139,6 +139,47 @@ func TestDNSUnknownAddressReturnsNameError(t *testing.T) {
 	a.Empty(resp.Answer)
 }
 
+func TestResolverFromListeners(t *testing.T) {
+	a := require.New(t)
+
+	udpConn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	a.NoError(err)
+	tcpListener, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+
+	// The reported address is decoupled from the listeners — on Android it is
+	// the in-tunnel DNS IP, while the listeners live inside netstack.
+	const dnsAddress = "10.66.255.254:53"
+	resolver := NewResolverFromListeners(udpConn, tcpListener, dnsAddress)
+	defer resolver.Close()
+
+	resolver.ReceiveConfiguration("", map[string]string{
+		"admin": "127.0.0.66",
+	})
+
+	// DNSAddress reports the passed address once both servers are serving.
+	a.Eventually(func() bool { return resolver.DNSAddress() == dnsAddress },
+		5*time.Second, 10*time.Millisecond)
+
+	req := new(dns.Msg)
+	req.SetQuestion("admin.awl.", dns.TypeA)
+
+	resp, _, err := new(dns.Client).Exchange(req, udpConn.LocalAddr().String())
+	a.NoError(err)
+	a.Len(resp.Answer, 1)
+	a.Equal("127.0.0.66", resp.Answer[0].(*dns.A).A.String())
+
+	tcpClient := &dns.Client{Net: "tcp"}
+	resp, _, err = tcpClient.Exchange(req, tcpListener.Addr().String())
+	a.NoError(err)
+	a.Len(resp.Answer, 1)
+	a.Equal("127.0.0.66", resp.Answer[0].(*dns.A).A.String())
+
+	resolver.Close()
+	a.Eventually(func() bool { return resolver.DNSAddress() == "" },
+		5*time.Second, 10*time.Millisecond)
+}
+
 func NewResolverClient(address string) *net.Resolver {
 	dialer := &net.Dialer{Timeout: time.Second}
 	return &net.Resolver{

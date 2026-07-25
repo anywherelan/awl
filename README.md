@@ -32,6 +32,7 @@
 - [Terminal-based client](#terminal-based-client)
   - [Common examples](#common-examples)
 - [Upgrading](#upgrading)
+- [Platform notes & known limitations](#platform-notes--known-limitations)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -195,8 +196,6 @@ For testing, there is a public peer that auto-accepts invitations, so you don't 
 Open the web UI at http://admin.awl (or the Android app). On the Status / Overview page, click the QR icon next to your device name to show your own `peer_id`. To invite someone, click *Add peer* (on Android, the **+** floating button on the Peers tab).
 
 To try the public tester: enter `12D3KooWJMUjt9b5T1umzgzjLv5yG2ViuuF4qjmN65tsRXZGS1p8` as peer id, name it `awl-tester`, save. After a few seconds it will appear in your peer list. Open http://awl-tester.awl/ — you should see a network speed-test page.
-
-> `.awl` DNS is not yet available on Android ([#17](https://github.com/anywherelan/awl/issues/17)); on Android you access peers by IP.
 
 When someone invites you, a notification will appear; accept or block in the admin UI.
 
@@ -495,6 +494,24 @@ systemctl restart awl
 ```
 
 As an alternative on desktop or server: download the new build from the [releases page](https://github.com/anywherelan/awl/releases) and replace the files manually.
+
+## Platform notes & known limitations
+
+### `.awl` name resolution
+
+`.awl` names resolve on every platform, but the mechanism differs:
+
+- **Desktop (Linux / Windows / macOS):** awl runs a local resolver and registers it with the OS. Where the OS supports split-DNS only the `.awl` zone is captured; the rest of your DNS is left untouched, so LAN names keep working.
+- **Android:** the app resolves `.awl` inside the tunnel — `.awl` is answered locally, everything else is forwarded to the configured upstream resolver (`1.1.1.1` by default, `dns.upstreamDNSAddress` in the config). This has a few consequences:
+  - **Private DNS in strict mode** (a hostname set under Android's *Private DNS* setting) bypasses the VPN's DNS entirely, so `.awl` names won't resolve. The default *Automatic* mode works fine.
+  - While DNS is enabled, all queries go to the configured upstream instead of your network's own resolver, so LAN-only names handed out by your router (e.g. `printer.lan`) won't resolve.
+  - `admin.awl` is not reachable on Android — use the app's own UI instead.
+  - `dns.disableDNS: true` in the config turns awl's DNS handling off entirely: `.awl` stops resolving and queries go straight to the system resolver again.
+
+### Other limitations
+
+- **IPv6 inside the tunnel is not supported** — IPv6 packets are dropped, only IPv4 is carried.
+- **Serving as a VPN gateway / exit node** is not available on every platform — see the [support table](#vpn-gateway-full-tunnel-exit-node).
 
 # Contributing
 

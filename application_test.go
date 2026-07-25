@@ -2,6 +2,7 @@ package awl
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go/integrationtests/tools/israce"
 	"golang.org/x/net/proxy"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/anywherelan/awl/protocol"
+	"github.com/anywherelan/awl/vpn"
 )
 
 func TestMakeFriends(t *testing.T) {
@@ -1081,5 +1084,120 @@ func TestChooseDNSPolicy(t *testing.T) {
 				t.Errorf("upstream = %q, want %q", upstream, tt.wantUpstream)
 			}
 		})
+	}
+}
+
+// dnsHandlerFunc adapts a function to service.DNSPacketHandler.
+type dnsHandlerFunc func(packet []byte)
+
+func (f dnsHandlerFunc) HandlePacket(packet []byte) { f(packet) }
+
+// TestDNSHandlerTunnelFilter checks the Tunnel-side interceptor filter alone:
+// only packets addressed to the DNS IP reach the installed handler.
+func TestDNSHandlerTunnelFilter(t *testing.T) {
+	ts := NewTestSuite(t)
+	peer1 := ts.NewTestPeer(true)
+
+	dnsIP := peer1.app.Conf.NetstackDNSIP()
+	ts.NotNil(dnsIP)
+
+	intercepted := make(chan []byte, 16)
+	peer1.app.Tunnel.SetDNSHandler(dnsIP, dnsHandlerFunc(func(packet []byte) {
+		intercepted <- append([]byte{}, packet...)
+	}))
+
+	dnsPacket := testPacketWithDest(0, dnsIP.String())
+	// Must not reach the handler: unknown peer IP and broadcast.
+	otherPacket := testPacketWithDest(0, "10.66.0.50")
+	broadcastPacket := testPacketWithDest(0, "10.66.255.255")
+	peer1.tun.Outbound <- [][]byte{dnsPacket, otherPacket, broadcastPacket}
+
+	select {
+	case got := <-intercepted:
+		ts.Equal(dnsPacket, got)
+	case <-time.After(5 * time.Second):
+		ts.FailNow("dns packet was not intercepted")
+	}
+
+	select {
+	case got := <-intercepted:
+		_, dst := parsePacketIPs(got)
+		ts.FailNowf("unexpected packet reached dns handler", "dst %s", dst)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestDNSAndroidInterceptor runs the Android DNS path end-to-end over the
+// TestTUN: a raw UDP DNS query for a peer name goes into the TUN read path,
+// through the interceptor into the netstack bridge and the awldns resolver,
+// and the response packet comes back out of the TUN write path.
+func TestDNSAndroidInterceptor(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(true)
+	peer2 := ts.NewTestPeer(true)
+	ts.makeFriends(peer2, peer1)
+
+	// In production Application.Init wires this behind runtime.GOOS ==
+	// "android"; the test drives the same code path directly.
+	peer1.app.Dns.initDNSAndroid(peer1.app.vpnDevice, peer1.app.Tunnel)
+
+	dnsIP := peer1.app.Conf.NetstackDNSIP()
+	ts.NotNil(dnsIP)
+	dnsAddress := net.JoinHostPort(dnsIP.String(), awldns.DefaultDNSPort)
+	ts.Eventually(func() bool {
+		return peer1.app.Dns.AwlDNSAddress() == dnsAddress
+	}, 5*time.Second, 10*time.Millisecond)
+	ts.True(peer1.app.Dns.IsAwlDNSSetAsSystem())
+	// The running interceptor reports the same IP the config computes
+	// (what gomobile's DnsServerIP relies on in the reconfigure_vpn flow).
+	ts.Equal(dnsIP, peer1.app.Dns.NetstackDNSServerIP())
+
+	knownPeer, exists := peer1.app.Conf.GetPeer(peer2.PeerID())
+	ts.True(exists)
+	ts.NotEmpty(knownPeer.DomainName)
+
+	inbound := make(chan []byte, 100)
+	peer1.tun.SetInboundCapture(0, inbound)
+
+	query := new(dns.Msg)
+	query.SetQuestion(knownPeer.DomainName+".awl.", dns.TypeA)
+	payload, err := query.Pack()
+	ts.NoError(err)
+
+	localIP, _ := peer1.app.Conf.VPNLocalIPMask()
+	const clientPort = 40000
+	queryPacket := testUDPPacket(localIP, dnsIP, clientPort, 53, payload)
+	peer1.tun.Outbound <- [][]byte{queryPacket}
+
+	timeout := time.After(10 * time.Second)
+	for {
+		var raw []byte
+		select {
+		case raw = <-inbound:
+		case <-timeout:
+			ts.FailNow("no DNS response arrived in TUN")
+		}
+
+		// Skip anything that is not a UDP packet from dnsIP:53 back to us.
+		const udpHeaderLen = 8
+		src, dst := parsePacketIPs(raw)
+		ipHeaderLen := int(raw[0]&0x0f) << 2
+		if raw[9] != vpn.IPProtocolUDP || len(raw) < ipHeaderLen+udpHeaderLen ||
+			!src.Equal(dnsIP) || !dst.Equal(localIP) {
+			continue
+		}
+		udpHeader := raw[ipHeaderLen:]
+		ts.Equal(uint16(53), binary.BigEndian.Uint16(udpHeader[0:2]))
+		ts.Equal(uint16(clientPort), binary.BigEndian.Uint16(udpHeader[2:4]))
+
+		resp := new(dns.Msg)
+		ts.NoError(resp.Unpack(udpHeader[udpHeaderLen:]))
+		ts.Equal(query.Id, resp.Id)
+		ts.Len(resp.Answer, 1)
+		aRecord, ok := resp.Answer[0].(*dns.A)
+		ts.True(ok)
+		ts.Equal(knownPeer.IPAddr, aRecord.A.String())
+		return
 	}
 }

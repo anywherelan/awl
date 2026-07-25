@@ -20,6 +20,9 @@ const (
 )
 
 const (
+	netUDP = "udp"
+	netTCP = "tcp"
+
 	LocalDomain               = "awl"
 	DefaultDNSAddress         = "127.0.0.66:53"
 	DefaultDNSPort            = "53"
@@ -34,8 +37,8 @@ type Resolver struct {
 	cfg       atomic.Pointer[config]
 	logger    *log.ZapEventLogger
 
-	udpServerWorking bool
-	tcpServerWorking bool
+	udpServerWorking atomic.Bool
+	tcpServerWorking atomic.Bool
 
 	dnsAddress string
 }
@@ -46,14 +49,41 @@ type config struct {
 	reverseMapping map[string]string
 }
 
+// NewResolver creates a resolver that binds its own UDP and TCP sockets on
+// dnsAddress (host:port).
 func NewResolver(dnsAddress string) *Resolver {
+	r := newResolver(dnsAddress)
+	r.udpServer.Addr = dnsAddress
+	r.udpServer.Net = netUDP
+	r.tcpServer.Addr = dnsAddress
+	r.tcpServer.Net = netTCP
+	r.startServers()
+
+	return r
+}
+
+// NewResolverFromListeners creates a resolver serving on already-open
+// listeners instead of binding sockets itself — used on Android, where :53
+// cannot be bound and the listeners live inside a netstack bridge
+// (awldns/dnsbridge). dnsAddress is what DNSAddress reports once both
+// servers are up; nothing is bound to it here.
+func NewResolverFromListeners(udpConn net.PacketConn, tcpListener net.Listener, dnsAddress string) *Resolver {
+	r := newResolver(dnsAddress)
+	r.udpServer.PacketConn = udpConn
+	r.tcpServer.Listener = tcpListener
+	r.startServers()
+
+	return r
+}
+
+func newResolver(dnsAddress string) *Resolver {
 	r := &Resolver{
 		logger: log.Logger("awl/dns"),
 		udpClient: &dns.Client{
-			Net: "udp",
+			Net: netUDP,
 		},
 		tcpClient: &dns.Client{
-			Net: "tcp",
+			Net: netTCP,
 		},
 		dnsAddress: dnsAddress,
 	}
@@ -65,39 +95,47 @@ func NewResolver(dnsAddress string) *Resolver {
 	mux.HandleFunc(".", r.dnsProxyHandler)
 
 	r.udpServer = &dns.Server{
-		Addr:    dnsAddress,
-		Net:     "udp",
 		Handler: mux,
 		NotifyStartedFunc: func() {
 			r.logger.Infof("udp server has started on %s", dnsAddress)
-			r.udpServerWorking = true
+			r.udpServerWorking.Store(true)
 		},
 	}
 	r.tcpServer = &dns.Server{
-		Addr:    dnsAddress,
-		Net:     "tcp",
 		Handler: mux,
 		NotifyStartedFunc: func() {
 			r.logger.Infof("tcp server has started on %s", dnsAddress)
-			r.tcpServerWorking = true
+			r.tcpServerWorking.Store(true)
 		},
 	}
+
+	return r
+}
+
+func (r *Resolver) startServers() {
 	go func() {
-		err := r.udpServer.ListenAndServe()
+		err := serveDNSServer(r.udpServer)
 		if err != nil {
 			r.logger.Errorf("serve udp server: %v", err)
 		}
-		r.udpServerWorking = false
+		r.udpServerWorking.Store(false)
 	}()
 	go func() {
-		err := r.tcpServer.ListenAndServe()
+		err := serveDNSServer(r.tcpServer)
 		if err != nil {
 			r.logger.Errorf("serve tcp server: %v", err)
 		}
-		r.tcpServerWorking = false
+		r.tcpServerWorking.Store(false)
 	}()
+}
 
-	return r
+// serveDNSServer serves srv either on a provided listener (PacketConn or
+// Listener set) or on a socket it binds itself (Addr and Net set).
+func serveDNSServer(srv *dns.Server) error {
+	if srv.PacketConn != nil || srv.Listener != nil {
+		return srv.ActivateAndServe()
+	}
+	return srv.ListenAndServe()
 }
 
 func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[string]string) {
@@ -125,7 +163,7 @@ func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[str
 }
 
 func (r *Resolver) DNSAddress() string {
-	if !r.tcpServerWorking || !r.udpServerWorking {
+	if !r.tcpServerWorking.Load() || !r.udpServerWorking.Load() {
 		return ""
 	}
 
@@ -278,7 +316,7 @@ func (r *Resolver) loadConfig() config {
 
 func processOwnResponse(req *dns.Msg, respWriter dns.ResponseWriter, resp *dns.Msg) {
 	maxSize := dns.MinMsgSize
-	if respWriter.LocalAddr().Network() == "tcp" {
+	if respWriter.LocalAddr().Network() == netTCP {
 		maxSize = dns.MaxMsgSize
 	} else {
 		if optRR := req.IsEdns0(); optRR != nil {
