@@ -162,51 +162,51 @@ func (t *Tunnel) RefreshPeersList() {
 		newLocalIPv6 := net.ParseIP(knownPeer.IPAddrV6)
 
 		prevPeer, exists := t.peerIDToPeer[peerID]
-		if exists {
-			oldLocalIP := *prevPeer.localIP.Load()
-			var oldLocalIPv6 net.IP
-			if p := prevPeer.localIPv6.Load(); p != nil {
-				oldLocalIPv6 = *p
+		if !exists {
+			// add new peer
+			vpnPeer := NewVpnPeer(peerID, newLocalIP, newLocalIPv6)
+			t.peerIDToPeer[peerID] = vpnPeer
+			t.netIPToPeer[newLocalIP.String()] = vpnPeer
+			if newLocalIPv6 != nil {
+				t.netIPToPeer[newLocalIPv6.String()] = vpnPeer
+				t.logger.Debugf("mapping peer %s (%s) to IPv6 %s", peerID, newLocalIP, newLocalIPv6)
 			}
-
-			ipChanged := !oldLocalIP.Equal(newLocalIP)
-			ipv6Changed := !oldLocalIPv6.Equal(newLocalIPv6)
-
-			if !ipChanged && !ipv6Changed {
-				// no changes
-				continue
-			}
-
-			// IP changed: update both IPv4 and IPv6 mappings
-			if ipChanged {
-				delete(t.netIPToPeer, oldLocalIP.String())
-				prevPeer.localIP.Store(&newLocalIP)
-				t.netIPToPeer[newLocalIP.String()] = prevPeer
-			}
-
-			if ipv6Changed {
-				if oldLocalIPv6 != nil {
-					delete(t.netIPToPeer, oldLocalIPv6.String())
-				}
-				if newLocalIPv6 != nil {
-					prevPeer.localIPv6.Store(&newLocalIPv6)
-					t.netIPToPeer[newLocalIPv6.String()] = prevPeer
-				} else {
-					prevPeer.localIPv6.Store(nil)
-				}
-			}
+			vpnPeer.Start(t)
 			continue
 		}
 
-		// add new peer
-		vpnPeer := NewVpnPeer(peerID, newLocalIP, newLocalIPv6)
-		t.peerIDToPeer[peerID] = vpnPeer
-		t.netIPToPeer[newLocalIP.String()] = vpnPeer
-		if newLocalIPv6 != nil {
-			t.netIPToPeer[newLocalIPv6.String()] = vpnPeer
-			t.logger.Debugf("mapping peer %s (%s) to IPv6 %s", peerID, newLocalIP, newLocalIPv6)
+		oldLocalIP := *prevPeer.localIP.Load()
+		var oldLocalIPv6 net.IP
+		if p := prevPeer.localIPv6.Load(); p != nil {
+			oldLocalIPv6 = *p
 		}
-		vpnPeer.Start(t)
+
+		ipChanged := !oldLocalIP.Equal(newLocalIP)
+		ipv6Changed := !oldLocalIPv6.Equal(newLocalIPv6)
+
+		if !ipChanged && !ipv6Changed {
+			// no changes
+			continue
+		}
+
+		// IP changed: update both IPv4 and IPv6 mappings
+		if ipChanged {
+			delete(t.netIPToPeer, oldLocalIP.String())
+			prevPeer.localIP.Store(&newLocalIP)
+			t.netIPToPeer[newLocalIP.String()] = prevPeer
+		}
+
+		if ipv6Changed {
+			if oldLocalIPv6 != nil {
+				delete(t.netIPToPeer, oldLocalIPv6.String())
+			}
+			if newLocalIPv6 != nil {
+				prevPeer.localIPv6.Store(&newLocalIPv6)
+				t.netIPToPeer[newLocalIPv6.String()] = prevPeer
+			} else {
+				prevPeer.localIPv6.Store(nil)
+			}
+		}
 	}
 
 	// delete unknown peers

@@ -940,38 +940,20 @@ func TestTunnelPackets(t *testing.T) {
 
 	// --- IPv6 Routing Test ---
 	peer2ConfigInPeer1, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
-	peer2IPv4 := net.ParseIP(peer2ConfigInPeer1.IPAddr).To4()
-
 	peer1ConfigInPeer2, _ := peer2.app.Conf.GetPeer(peer1.PeerID())
-	peer1IPv4 := net.ParseIP(peer1ConfigInPeer2.IPAddr).To4()
 
-	awlSubnet4, _ := netip.ParsePrefix(peer1.app.Conf.VPNConfig.IPNet)
-	awlSubnet6, _ := netip.ParsePrefix(peer1.app.Conf.VPNConfig.IPNetV6)
-	v4Mask := net.CIDRMask(awlSubnet4.Bits(), 32)
-	awlNet6 := &net.IPNet{IP: awlSubnet6.Addr().AsSlice(), Mask: net.CIDRMask(awlSubnet6.Bits(), 128)}
-	baseV6 := awlNet6.IP.Mask(awlNet6.Mask).To16()
-
-	peer1IPv6 := make(net.IP, net.IPv6len)
-	copy(peer1IPv6, baseV6)
-	for i := 0; i < net.IPv4len; i++ {
-		peer1IPv6[12+i] |= peer1IPv4[i] &^ v4Mask[i]
-	}
-
-	peer2IPv6 := make(net.IP, net.IPv6len)
-	copy(peer2IPv6, baseV6)
-	for i := 0; i < net.IPv4len; i++ {
-		peer2IPv6[12+i] |= peer2IPv4[i] &^ v4Mask[i]
-	}
+	peer1IPv6Str := peer1ConfigInPeer2.IPAddrV6
+	peer2IPv6Str := peer2ConfigInPeer1.IPAddrV6
 
 	ts.t.Logf("DEBUG: peer1 IPNetV6: %v", peer1.app.Conf.VPNConfig.IPNetV6)
-	ts.t.Logf("DEBUG: peer1IPv6 calculated: %s, peer2IPv6 calculated: %s", peer1IPv6.String(), peer2IPv6.String())
+	ts.t.Logf("DEBUG: peer1IPv6 calculated: %s, peer2IPv6 calculated: %s", peer1IPv6Str, peer2IPv6Str)
 
 	peer1.tun.ClearInboundCount()
 	peer2.tun.ClearInboundCount()
 
 	// Send IPv6 packets from peer1 to peer2
 	const ipv6PacketsCount = 10
-	ipv6Packet := testPacketWithSrcDestV6(packetSize, peer1IPv6.String(), peer2IPv6.String())
+	ipv6Packet := testPacketWithSrcDestV6(packetSize, peer1IPv6Str, peer2IPv6Str)
 
 	for i := 0; i < ipv6PacketsCount; i++ {
 		peer1.tun.Outbound <- [][]byte{ipv6Packet}
