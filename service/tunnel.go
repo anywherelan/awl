@@ -54,6 +54,22 @@ type Tunnel struct {
 	// on real transitions (they run on every libp2p per-stream event).
 	gatewayConnEmitter  awlevent.Emitter
 	vpnGatewayConnected atomic.Bool
+
+	// dnsHandler, when set, receives packets addressed to the in-tunnel DNS IP
+	// (the Android DNS interceptor). atomic.Pointer because the Tunnel is
+	// created before the DNS service that installs the handler.
+	dnsHandler atomic.Pointer[dnsHandler]
+}
+
+// DNSPacketHandler receives IP packets addressed to the in-tunnel DNS IP.
+// HandlePacket must copy the packet data: the caller reuses the buffer.
+type DNSPacketHandler interface {
+	HandlePacket(packet []byte)
+}
+
+type dnsHandler struct {
+	ip      net.IP
+	handler DNSPacketHandler
 }
 
 func NewTunnel(p2pService P2p, device *vpn.Device, conf *config.Config, eventbus awlevent.Bus) *Tunnel {
@@ -89,6 +105,12 @@ func NewTunnel(p2pService P2p, device *vpn.Device, conf *config.Config, eventbus
 	p2pService.SubscribeConnectionEvents(tunnel.onPeerConnected, tunnel.onPeerDisconnected)
 
 	return tunnel
+}
+
+// SetDNSHandler installs h as the receiver of packets addressed to dnsIP.
+// Safe to call concurrently with HandleReadPackets.
+func (t *Tunnel) SetDNSHandler(dnsIP net.IP, h DNSPacketHandler) {
+	t.dnsHandler.Store(&dnsHandler{ip: dnsIP, handler: h})
 }
 
 func (t *Tunnel) StreamHandler(stream network.Stream) {
@@ -282,9 +304,17 @@ func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
 	if t.isClosed.Load() {
 		return
 	}
+	dnsIntercept := t.dnsHandler.Load()
 
 	for i, packet := range packets {
 		if packet == nil {
+			continue
+		}
+
+		// DNS queries to the in-tunnel DNS IP (Android interceptor). Must come
+		// before the broadcast and gateway branches.
+		if dnsIntercept != nil && packet.Dst.Equal(dnsIntercept.ip) {
+			dnsIntercept.handler.HandlePacket(packet.Packet)
 			continue
 		}
 
@@ -600,7 +630,7 @@ func (t *Tunnel) SetVPNGatewayServerEnabled(enabled bool) {
 	t.vpnGatewayServerEnabled = enabled
 	t.conf.Lock()
 	t.conf.VPNGateway.ServerEnabled = enabled
-	t.conf.SaveLocked()
+	t.conf.Save()
 	t.conf.Unlock()
 	t.peersLock.Unlock()
 }
@@ -640,7 +670,7 @@ func (t *Tunnel) SetVPNGatewayPeer(gatewayPeerID peer.ID) error {
 	t.conf.Lock()
 	t.conf.VPNGateway.ClientEnabled = true
 	t.conf.VPNGateway.GatewayPeerID = gatewayPeerID.String()
-	t.conf.SaveLocked()
+	t.conf.Save()
 	t.conf.Unlock()
 
 	// Seed connectivity from the current state and emit it, so the UI gets an
@@ -668,7 +698,7 @@ func (t *Tunnel) ClearVPNGatewayPeer() {
 	t.conf.Lock()
 	t.conf.VPNGateway.ClientEnabled = false
 	t.conf.VPNGateway.GatewayPeerID = ""
-	t.conf.SaveLocked()
+	t.conf.Save()
 	t.conf.Unlock()
 }
 

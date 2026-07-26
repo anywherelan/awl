@@ -53,8 +53,8 @@ type TestSuite struct {
 
 func NewTestSuite(t testing.TB) *TestSuite {
 	// Snapshot goroutine state before anything starts. Because t.Cleanup is LIFO,
-	// registering here means this check runs last — after all peers and bootstrap
-	// nodes have been closed — so it reliably detects goroutine leaks.
+	// registering here means this check runs last   ?after all peers and bootstrap
+	// nodes have been closed   ?so it reliably detects goroutine leaks.
 	//
 	// libp2p.NATPortMap() spawns a short-lived UPnP SSDP discovery goroutine
 	// (koron/go-ssdp.Search) with a 5-second timeout. It exits on its own and
@@ -163,7 +163,7 @@ func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []mu
 }
 
 // NewTestPeerExpectingInitError builds a peer with the same defaults as
-// NewTestPeerWithAppConfig but does NOT assert that Init succeeded — it
+// NewTestPeerWithAppConfig but does NOT assert that Init succeeded   ?it
 // returns the Init error to the caller. The Application is registered for
 // cleanup either way, so callers do not need to call Close themselves.
 //
@@ -185,7 +185,7 @@ func (ts *TestSuite) buildTestPeer(disableLogging bool, listenAddrs []multiaddr.
 		tempConf.LoggerLevel = "fatal"
 		log.SetAllLoggers(log.LevelFatal)
 	}
-	tempConf.Save()
+	tempConf.Close()
 
 	app := New()
 	app.AllowEmptyBootstrapPeers = ts.isSimnet
@@ -312,7 +312,7 @@ func (ts *TestSuite) makeFriends(peer1, peer2 TestPeer) {
 
 // makeFriendsWithAliases is the same as makeFriends but lets the caller pick
 // the per-side aliases. Tests that wire up more than two peers per Application
-// need distinct aliases — awl rejects duplicate names.
+// need distinct aliases   ?awl rejects duplicate names.
 func (ts *TestSuite) makeFriendsWithAliases(peer1, peer2 TestPeer, alias1, alias2 string) {
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 	ts.sendAndAcceptFriendRequest(peer1, peer2, alias1, alias2)
@@ -623,6 +623,35 @@ func testPacketWithSrcDestV6(length int, srcIP, destIP string) []byte {
 		}
 	}
 	return packet
+}
+
+// testUDPPacket builds an IPv4/UDP packet with the given payload and correct
+// checksums (e.g. a DNS query for the interceptor tests).
+func testUDPPacket(srcIP, dstIP net.IP, srcPort, dstPort uint16, payload []byte) []byte {
+	const ipHeaderLen = 20
+	const udpHeaderLen = 8
+	raw := make([]byte, ipHeaderLen+udpHeaderLen+len(payload))
+	raw[0] = 0x45 // IPv4, IHL 5
+	binary.BigEndian.PutUint16(raw[2:], uint16(len(raw)))
+	raw[8] = 64 // TTL
+	raw[9] = vpn.IPProtocolUDP
+	copy(raw[12:16], srcIP.To4())
+	copy(raw[16:20], dstIP.To4())
+	binary.BigEndian.PutUint16(raw[20:], srcPort)
+	binary.BigEndian.PutUint16(raw[22:], dstPort)
+	binary.BigEndian.PutUint16(raw[24:], uint16(udpHeaderLen+len(payload)))
+	copy(raw[28:], payload)
+
+	pkt := vpn.Packet{}
+	if _, err := pkt.ReadFrom(bytes.NewReader(raw)); err != nil {
+		panic(err)
+	}
+	if !pkt.Parse() {
+		panic("failed to parse built UDP packet")
+	}
+	pkt.RecalculateChecksum()
+
+	return append([]byte{}, pkt.Packet...)
 }
 
 // parsePacketIPs extracts src and dst IPs from a raw IPv4 packet.

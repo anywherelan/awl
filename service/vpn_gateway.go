@@ -196,7 +196,7 @@ func (g *VPNGateway) DisableClient() {
 	g.conf.Lock()
 	g.conf.VPNGateway.ClientEnabled = false
 	g.conf.VPNGateway.GatewayPeerID = ""
-	g.conf.SaveLocked()
+	g.conf.Save()
 	g.conf.Unlock()
 }
 
@@ -218,7 +218,7 @@ func (g *VPNGateway) SetServerEnabled(enabled bool) error {
 		} else {
 			g.conf.Lock()
 			g.conf.VPNGateway.ServerEnabled = true
-			g.conf.SaveLocked()
+			g.conf.Save()
 			g.conf.Unlock()
 		}
 		return nil
@@ -229,7 +229,7 @@ func (g *VPNGateway) SetServerEnabled(enabled bool) error {
 	} else {
 		g.conf.Lock()
 		g.conf.VPNGateway.ServerEnabled = false
-		g.conf.SaveLocked()
+		g.conf.Save()
 		g.conf.Unlock()
 	}
 	g.teardownServer()

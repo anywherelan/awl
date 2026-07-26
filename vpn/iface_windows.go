@@ -64,10 +64,10 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask, localIPv6
 	if err := setInterfaceMTU(logger, luid, winipcfg.AddressFamily(windows.AF_INET), uint32(mtu)); err != nil {
 		return nil, fmt.Errorf("set IPv4 MTU on tun: %v", err)
 	}
-	// TODO: support ipv6. Forwarding still ignores IPv6 packets (see Device.WritePacket),
-	// but we set the system MTU best-effort so the interface is configured correctly once
-	// IPv6 lands. On hosts with IPv6 disabled on the interface this Set() fails — that's
-	// expected, not fatal.
+	// TODO: support ipv6. Forwarding still ignores IPv6 packets (dropped in
+	// Tunnel.HandleReadPackets), but we set the system MTU best-effort so the
+	// interface is configured correctly once IPv6 lands. On hosts with IPv6
+	// disabled on the interface this Set() fails — that's expected, not fatal.
 	if err := setInterfaceMTU(logger, luid, winipcfg.AddressFamily(windows.AF_INET6), uint32(mtu)); err != nil {
 		logger.Warnf("set IPv6 MTU on tun (best-effort, ipv6 unused by awl): %v", err)
 	}

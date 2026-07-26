@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 
-	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/anywherelan/awl"
@@ -40,9 +39,9 @@ func GetConfig() string {
 		panic("call to GetConfig before Setup")
 	}
 
-	conf, loadConfigErr := config.LoadConfig(appType, eventbus.NewBus())
+	conf, loadConfigErr := config.LoadConfigReadOnly(appType)
 	if loadConfigErr != nil {
-		conf = config.NewConfig(appType, eventbus.NewBus())
+		conf = config.NewConfigReadOnly(appType)
 	}
 
 	data := conf.Export()
@@ -215,4 +214,36 @@ func GetApiAddress() string {
 		return globalApp.Api.Address()
 	}
 	return ""
+}
+
+// DnsServerIP returns the in-tunnel IP the host app must pass to
+// VpnService.Builder.addDnsServer when DNS is enabled in the config. Call
+// after Setup; normally before StartServer (establishTun runs first), in
+// which case the address is computed from the saved config. When the server
+// is already running (the reconfigure_vpn flow), the address of the active
+// interceptor is returned instead, so the host cannot diverge from the core.
+// An empty string means DNS must not be configured: no free IP in the VPN
+// subnet, or the running server has no active interceptor.
+func DnsServerIP() string {
+	if globalApp != nil && globalApp.Dns != nil {
+		ip := globalApp.Dns.NetstackDNSServerIP()
+		if ip == nil {
+			return ""
+		}
+		return ip.String()
+	}
+
+	if globalDataDir == "" {
+		panic("call to DnsServerIP before Setup")
+	}
+
+	conf, loadConfigErr := config.LoadConfigReadOnly(appType)
+	if loadConfigErr != nil {
+		conf = config.NewConfigReadOnly(appType)
+	}
+	ip := conf.NetstackDNSIP()
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
 }

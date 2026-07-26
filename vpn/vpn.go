@@ -115,6 +115,22 @@ func (d *Device) LocalIP6() net.IP {
 	return d.localIP6
 }
 
+// WriteRawPacket writes a single ready-made IP packet (raw bytes, not a
+// *Packet) to the TUN device, framing it with the internal TUN header offset.
+// The slice is not retained. Used by the DNS bridge to inject netstack-emitted packets.
+func (d *Device) WriteRawPacket(packet []byte) error {
+	if len(packet) > MaxPacketBodySize {
+		return fmt.Errorf("packet exceeds max body size: %d > %d", len(packet), MaxPacketBodySize)
+	}
+
+	data := d.GetTempPacket()
+	defer d.PutTempPacket(data)
+	n := copy(data.Buffer[tunPacketOffset:], packet)
+	data.Packet = data.Buffer[tunPacketOffset : tunPacketOffset+n]
+
+	return d.WriteBufs([][]byte{data.Buf()})
+}
+
 // WriteBufs writes a prepared batch of TUN packets in a single tun.Write
 // syscall. The caller is responsible for IP rewrites and checksum recalculation
 // on the underlying *Packet objects before building bufs via Packet.Buf.

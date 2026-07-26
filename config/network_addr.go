@@ -61,6 +61,47 @@ func (c *Config) VPNLocalIPMaskV6Unlocked() (net.IP, net.IPMask) {
 	return localIP.To16(), ipNet.Mask
 }
 
+// NetstackDNSIP returns the in-subnet IP reserved for the awl DNS server,
+// computed once in setDefaults and fixed for the session (see the
+// netstackDNSIP field). nil when the subnet has no free address, in which case
+// DNS is disabled. Used on Android, where DNS queries to it are intercepted
+// inside the tunnel.
+func (c *Config) NetstackDNSIP() net.IP {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.netstackDNSIP
+}
+
+// computeNetstackDNSIP derives the reserved DNS server IP from the current
+// config snapshot: broadcast — shifted down until an address is free to
+// assign (CheckIPUnique rejects our own IP, the broadcast address and peers).
+// Deterministic; returns nil when the subnet has no free address. Not thread
+// safe — called from setDefaults at construction only, where netstackDNSIP is
+// still nil, so CheckIPUnique's own DNS-reservation check is a no-op here and
+// cannot recurse. The result is cached in netstackDNSIP and read everywhere
+// else via NetstackDNSIP.
+func (c *Config) computeNetstackDNSIP() net.IP {
+	localIP, netMask := c.VPNLocalIPMaskUnlocked()
+	if localIP == nil {
+		return nil
+	}
+	ipNet := &net.IPNet{
+		IP:   localIP.Mask(netMask),
+		Mask: netMask,
+	}
+	network, broadcast := subnetBounds(ipNet)
+
+	for candidate := broadcast - 1; candidate > network; candidate-- {
+		ip := uint32ToIPAddr(candidate)
+		if c.CheckIPUnique(ip.String(), "") == nil {
+			return ip
+		}
+	}
+
+	return nil
+}
+
 // GenerateNextIpAddr is not thread safe.
 func (c *Config) GenerateNextIpAddr() string {
 	return c.GenerateNextIpAddrExcept(nil)
@@ -93,12 +134,17 @@ func (c *Config) GenerateNextIpAddrExcept(except []string) string {
 		exceptMap[ip] = struct{}{}
 	}
 
-	// Find next available IP that is not in exceptMap
+	// Reserved addresses that must never be handed out to a peer.
+	_, broadcast := subnetBounds(ipNet)
+
+	// Find next available IP that is not in exceptMap and not reserved
 	for {
 		newIp := incrementIPAddr(maxIp)
 		newIpStr := newIp.String()
 
-		if _, excluded := exceptMap[newIpStr]; !excluded {
+		_, excluded := exceptMap[newIpStr]
+		reserved := binary.BigEndian.Uint32(newIp) == broadcast || newIp.Equal(c.netstackDNSIP)
+		if !excluded && !reserved {
 			return newIpStr
 		}
 
@@ -128,6 +174,16 @@ func (c *Config) CheckIPUnique(checkIP string, exceptPeerID string) error {
 		return fmt.Errorf("IP %s does not belong to subnet %s", checkIP, ipNet)
 	}
 
+	if _, broadcast := subnetBounds(ipNet); binary.BigEndian.Uint32(ip) == broadcast {
+		return fmt.Errorf("IP %s is the broadcast address of subnet %s", checkIP, ipNet)
+	}
+	if ip.Equal(localIP) {
+		return fmt.Errorf("IP %s is the local node's own address", checkIP)
+	}
+	if ip.Equal(c.netstackDNSIP) {
+		return fmt.Errorf("IP %s is reserved for the awl DNS server", checkIP)
+	}
+
 	for _, peer := range c.KnownPeers {
 		if peer.IPAddr != checkIP {
 			continue
@@ -143,12 +199,19 @@ func (c *Config) CheckIPUnique(checkIP string, exceptPeerID string) error {
 }
 
 func incrementIPAddr(ip net.IP) net.IP {
-	i := binary.BigEndian.Uint32(ip)
-	i++
+	return uint32ToIPAddr(binary.BigEndian.Uint32(ip) + 1)
+}
 
+func uint32ToIPAddr(i uint32) net.IP {
 	bs := make([]byte, 4)
 	binary.BigEndian.PutUint32(bs, i)
 
-	ipNew := net.IP(bs)
-	return ipNew
+	return bs
+}
+
+// subnetBounds returns the IPv4 network and broadcast addresses of ipNet.
+func subnetBounds(ipNet *net.IPNet) (network, broadcast uint32) {
+	network = binary.BigEndian.Uint32(ipNet.IP.Mask(ipNet.Mask))
+	broadcast = network | ^binary.BigEndian.Uint32(ipNet.Mask)
+	return network, broadcast
 }

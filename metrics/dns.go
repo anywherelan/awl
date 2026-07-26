@@ -27,4 +27,18 @@ var (
 		Help:      "DNS query duration in seconds.",
 		Buckets:   []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 10},
 	})
+
+	DNSInterceptPacketsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: "dns",
+		Name:      "intercept_packets_total",
+		Help:      "Total IP packets intercepted from the tunnel into the DNS netstack bridge.",
+	})
+
+	DNSInterceptDroppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: "dns",
+		Name:      "intercept_dropped_total",
+		Help:      "Total DNS bridge packets dropped, by reason.",
+	}, []string{"reason"})
 )

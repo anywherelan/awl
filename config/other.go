@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
+	"github.com/moby/sys/atomicwriter"
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/anywherelan/awl/awldns"
@@ -46,9 +48,9 @@ func init() {
 		"/ip4/193.124.131.112/tcp/6150/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 		"/ip4/193.124.131.112/udp/6150/quic-v1/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 
-		// community relay server from pftmclub - location at Vietnam - Hosting Provided by VPSMMO.vn
-		"/ip4/103.77.242.85/tcp/6150/p2p/12D3KooWFdFV4ZcwMhNQuQnzNCp1K1aaQAsAnr8sXJnj7vehtCFW",
-		"/ip4/103.77.242.85/udp/6150/quic-v1/p2p/12D3KooWFdFV4ZcwMhNQuQnzNCp1K1aaQAsAnr8sXJnj7vehtCFW",
+		// community relay server from pftmclub - location at Vietnam - Hosting Provided by VPSSIEUTOC.VN
+		"/ip4/180.93.113.217/tcp/6150/p2p/12D3KooWNgQ5xRFxwq17MF6JkZWZWuikdWrnQQ65NNrtFfXCbwcu",
+		"/ip4/180.93.113.217/udp/6150/quic-v1/p2p/12D3KooWNgQ5xRFxwq17MF6JkZWZWuikdWrnQQ65NNrtFfXCbwcu",
 	} {
 		ma, err := multiaddr.NewMultiaddr(s)
 		if err != nil {
@@ -99,28 +101,80 @@ func CalcAppDataDir() string {
 	return userDataDir
 }
 
+// NewConfig returns a config with defaults applied. The caller must call Close.
+// Use NewConfigReadOnly when the config is only going to be read.
 func NewConfig(appType AppType, bus awlevent.Bus) *Config {
 	conf := &Config{appType: appType}
 	setDefaults(conf, bus)
+	conf.startWriter()
 	return conf
 }
 
+// NewConfigReadOnly returns a defaults-only config for inspection.
+// Save on it is a no-op that DPanics in dev mode.
+func NewConfigReadOnly(appType AppType) *Config {
+	conf := &Config{appType: appType}
+	setDefaults(conf, nil)
+	return conf
+}
+
+// LoadConfig reads the config from disk. The caller must call Close.
+// Use LoadConfigReadOnly when the config is only going to be read.
+// A missing file is reported as fs.ErrNotExist, which callers use to tell an
+// ordinary first run apart from a real failure.
 func LoadConfig(appType AppType, bus awlevent.Bus) (*Config, error) {
+	conf, err := loadConfig(appType, bus)
+	if err != nil {
+		return nil, err
+	}
+	conf.startWriter()
+	return conf, nil
+}
+
+// LoadConfigReadOnly reads the config from disk for inspection.
+// Save on it is a no-op that DPanics in dev mode.
+func LoadConfigReadOnly(appType AppType) (*Config, error) {
+	return loadConfig(appType, nil)
+}
+
+func loadConfig(appType AppType, bus awlevent.Bus) (*Config, error) {
 	dataDir := CalcAppDataDir()
 	configPath := filepath.Join(dataDir, AppConfigFilename)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
+		// Includes the ordinary first-run case (no config yet). Callers tell
+		// it apart from a real failure with errors.Is(err, fs.ErrNotExist).
 		return nil, err
 	}
 	// TODO: config migration
 	conf := &Config{appType: appType}
 	err = json.Unmarshal(data, conf)
 	if err != nil {
+		// The file exists but does not parse. Callers fall back to a default
+		// config, which will overwrite this file with a new identity, so
+		// preserve the bytes first — see backupCorruptedFile.
+		backupPath, backupErr := backupCorruptedFile(configPath, data)
+		if backupErr != nil {
+			logger.Errorf("config '%s' is corrupted and could not be backed up: %v (parse error: %v)",
+				configPath, backupErr, err)
+		} else {
+			logger.Errorf("config '%s' is corrupted, a copy was saved to '%s': %v", configPath, backupPath, err)
+		}
 		return nil, err
 	}
 	conf.dataDir = dataDir
 	setDefaults(conf, bus)
 	return conf, nil
+}
+
+// backupCorruptedFile saves data (the unparseable contents just read from
+// path) next to it under a timestamped name, and returns that name.
+func backupCorruptedFile(path string, data []byte) (string, error) {
+	backupPath := fmt.Sprintf("%s.corrupt-%s", path, time.Now().UTC().Format("20060102-150405"))
+	if err := writeFileAtomic(backupPath, data); err != nil {
+		return "", err
+	}
+	return backupPath, nil
 }
 
 func ImportConfig(data []byte, directory string) error {
@@ -131,7 +185,7 @@ func ImportConfig(data []byte, directory string) error {
 	}
 
 	path := filepath.Join(directory, AppConfigFilename)
-	err = os.WriteFile(path, data, filesPerm)
+	err = writeFileAtomic(path, data)
 	if err != nil {
 		return fmt.Errorf("save file: %v", err)
 	}
@@ -140,6 +194,9 @@ func ImportConfig(data []byte, directory string) error {
 	return nil
 }
 
+// setDefaults fills in unset fields and wires up the event emitter. A nil bus
+// marks a read-only config, which is left without one; see NewConfigReadOnly.
+//
 //nolint:gocyclo
 func setDefaults(conf *Config, bus awlevent.Bus) {
 	isEmptyConfig := conf.Version == ""
@@ -215,6 +272,11 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.KnownPeers == nil {
 		conf.KnownPeers = make(map[string]KnownPeer)
 	}
+
+	// Reserve the netstack DNS IP before assigning peer IPs below, so a peer cannot be handed it.
+	// Computed once here, fixed for the session, recomputed on every load.
+	conf.netstackDNSIP = conf.computeNetstackDNSIP()
+
 	for peerID := range conf.KnownPeers {
 		peer := conf.KnownPeers[peerID]
 		newAlias := conf.genUniqPeerAlias(peer.Name, peer.Alias, uniqAliases)
@@ -248,11 +310,14 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	// }
 	// ChownFileIfNeeded(peerstoreDir)
 
-	emitter, err := bus.Emitter(new(awlevent.KnownPeerChanged), eventbus.Stateful)
-	if err != nil {
-		panic(err)
+	// A nil bus marks a read-only config: nobody can subscribe to it
+	if bus != nil {
+		emitter, err := bus.Emitter(new(awlevent.KnownPeerChanged), eventbus.Stateful)
+		if err != nil {
+			panic(err)
+		}
+		conf.emitter = emitter
 	}
-	conf.emitter = emitter
 
 	if u := conf.Update.UpdateServerURL; u == "" || u == "http://example/example.json" {
 		conf.Update.UpdateServerURL = "https://build.anywherelan.com/repository/releases.json"
@@ -277,4 +342,16 @@ func ChownFileIfNeeded(path string) {
 	if err != nil {
 		logger.Errorf("Chown file '%s': %v", path, err)
 	}
+}
+
+// writeFileAtomic writes data to path so that a reader sees either the
+// complete old contents or the complete new contents, never a truncated mix.
+// atomicwriter stages the data in a temp file next to the target, fsyncs and
+// chmods it, then renames it over the target.
+func writeFileAtomic(path string, data []byte) error {
+	if err := atomicwriter.WriteFile(path, data, filesPerm); err != nil {
+		return err
+	}
+	ChownFileIfNeeded(path)
+	return nil
 }
