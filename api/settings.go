@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -94,6 +95,14 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 			}
 			return info
 		}(),
+	}
+
+	ipV6, maskV6 := h.conf.VPNLocalIPMaskV6()
+	if ipV6 != nil && maskV6 != nil {
+		ipNetV6 := &net.IPNet{IP: ipV6.Mask(maskV6), Mask: maskV6}
+		if ipv6 := config.DeriveIPv6FromPeerID(h.p2p.PeerID(), ipNetV6); ipv6 != nil {
+			peerInfo.VPN.IPv6Addr = ipv6.String()
+		}
 	}
 
 	return c.JSON(http.StatusOK, peerInfo)

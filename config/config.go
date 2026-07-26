@@ -126,6 +126,8 @@ type (
 		Alias string `json:"alias"`
 		// IPAddr used for forwarding
 		IPAddr string `json:"ipAddr"`
+		// IPAddrV6 used for IPv6 overlay forwarding (derived from peerID)
+		IPAddrV6 string `json:"ipAddrV6"`
 		// DomainName without zone suffix (.awl)
 		DomainName string `json:"domainName"`
 		// Time of adding to config (accept/invite)
@@ -423,6 +425,24 @@ func (c *Config) DNSNamesMapping() map[string]string {
 		mapping[knownPeer.PeerID] = knownPeer.IPAddr
 		if knownPeer.DomainName != "" {
 			mapping[knownPeer.DomainName] = knownPeer.IPAddr
+		}
+	}
+
+	return mapping
+}
+
+func (c *Config) DNSNamesMappingV6() map[string]string {
+	mapping := make(map[string]string)
+	c.RLock()
+	defer c.RUnlock()
+
+	for _, knownPeer := range c.KnownPeers {
+		if knownPeer.IPAddrV6 == "" {
+			continue
+		}
+		mapping[knownPeer.PeerID] = knownPeer.IPAddrV6
+		if knownPeer.DomainName != "" {
+			mapping[knownPeer.DomainName] = knownPeer.IPAddrV6
 		}
 	}
 

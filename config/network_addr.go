@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 const (
@@ -46,6 +48,16 @@ func (c *Config) VPNLocalIPMaskV6Unlocked() (net.IP, net.IPMask) {
 		logger.Errorf("parse CIDR %s: %v", c.VPNConfig.IPNetV6, err)
 		return nil, nil
 	}
+
+	if c.P2pNode.PeerID != "" {
+		pid, err := peer.Decode(c.P2pNode.PeerID)
+		if err == nil {
+			if derived := DeriveIPv6FromPeerID(pid, ipNet); derived != nil {
+				return derived, ipNet.Mask
+			}
+		}
+	}
+
 	return localIP.To16(), ipNet.Mask
 }
 

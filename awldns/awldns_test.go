@@ -34,7 +34,7 @@ func TestDNS(t *testing.T) {
 		name1: addr1,
 		name2: addr2,
 	}
-	resolver.ReceiveConfiguration("", namesMapping)
+	resolver.ReceiveConfiguration("", namesMapping, nil)
 
 	client := NewResolverClient(addr)
 
@@ -80,7 +80,7 @@ func TestDNSAAAAQueryDoesNotReturnARecord(t *testing.T) {
 
 	resolver.ReceiveConfiguration("", map[string]string{
 		"admin": "127.0.0.66",
-	})
+	}, nil)
 
 	req := new(dns.Msg)
 	req.SetQuestion("admin.awl.", dns.TypeAAAA)
@@ -102,7 +102,7 @@ func TestDNSAQueryReturnsARecord(t *testing.T) {
 
 	resolver.ReceiveConfiguration("", map[string]string{
 		"admin": "127.0.0.66",
-	})
+	}, nil)
 
 	req := new(dns.Msg)
 	req.SetQuestion("admin.awl.", dns.TypeA)
@@ -129,7 +129,7 @@ func TestDNSUnknownAddressReturnsNameError(t *testing.T) {
 
 	resolver.ReceiveConfiguration("", map[string]string{
 		"admin": "127.0.0.66",
-	})
+	}, nil)
 
 	req := new(dns.Msg)
 	req.SetQuestion("unknown.awl.", dns.TypeA)

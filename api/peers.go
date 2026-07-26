@@ -48,6 +48,7 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 			Alias:                         knownPeer.Alias,
 			Version:                       config.VersionFromUserAgent(h.p2p.PeerUserAgent(id)),
 			IpAddr:                        knownPeer.IPAddr,
+			IpAddrV6:                      knownPeer.IPAddrV6,
 			DomainName:                    knownPeer.DomainName,
 			Connected:                     h.p2p.IsConnected(id),
 			Confirmed:                     knownPeer.Confirmed,

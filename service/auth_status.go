@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ const (
 
 type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
+	PeerID() peer.ID
 	IsConnected(peerID peer.ID) bool
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	NewStreamMulti(ctx context.Context, id peer.ID, protos ...libp2pProtocol.ID) (network.Stream, error)
@@ -171,6 +173,14 @@ func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, de
 		VPNGatewayServerEnabled: vpnGatewayServerEnabled,
 	}
 
+	ipV6, maskV6 := s.conf.VPNLocalIPMaskV6()
+	if ipV6 != nil && maskV6 != nil {
+		ipNetV6 := &net.IPNet{IP: ipV6.Mask(maskV6), Mask: maskV6}
+		if ipv6 := config.DeriveIPv6FromPeerID(s.p2p.PeerID(), ipNetV6); ipv6 != nil {
+			myPeerInfo.IPv6Addr = ipv6.String()
+		}
+	}
+
 	return myPeerInfo
 }
 
@@ -209,6 +219,9 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 		}
 		if peer.Alias == "" {
 			peer.Alias = s.conf.GenUniqPeerAliasUnlocked(peer.Name, peer.Alias)
+		}
+		if peerInfo.IPv6Addr != "" && peer.IPAddrV6 == "" {
+			peer.IPAddrV6 = peerInfo.IPv6Addr
 		}
 		peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode
 		peer.RemoteVPNGatewayServerEnabled = peerInfo.VPNGatewayServerEnabled

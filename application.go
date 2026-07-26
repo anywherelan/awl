@@ -549,7 +549,8 @@ func (a *DNSService) refreshDNSConfigLocked() {
 	}
 	dnsNamesMapping := a.conf.DNSNamesMapping()
 	dnsNamesMapping[config.AdminHttpServerDomainName] = config.AdminHttpServerIP
-	a.dnsResolver.ReceiveConfiguration(a.upstreamDNS, dnsNamesMapping)
+	dnsNamesMappingV6 := a.conf.DNSNamesMappingV6()
+	a.dnsResolver.ReceiveConfiguration(a.upstreamDNS, dnsNamesMapping, dnsNamesMappingV6)
 }
 
 func (a *DNSService) Close() {

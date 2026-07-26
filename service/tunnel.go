@@ -92,13 +92,19 @@ func NewTunnel(p2pService P2p, device *vpn.Device, conf *config.Config, eventbus
 }
 
 func (t *Tunnel) StreamHandler(stream network.Stream) {
+	peerID := stream.Conn().RemotePeer()
+
 	defer func() {
+		if r := recover(); r != nil {
+			// This typically happens if vpnPeer.inboundCh is closed concurrently
+			// during a tunnel restart or peer removal.
+			t.logger.Debugf("StreamHandler recovered from panic (likely channel closed) for peer %s: %v", peerID, r)
+		}
 		_ = stream.Close()
 	}()
 
-	peerID := stream.Conn().RemotePeer()
 	t.peersLock.RLock()
-	_, ok := t.peerIDToPeer[peerID]
+	vpnPeer, ok := t.peerIDToPeer[peerID]
 	t.peersLock.RUnlock()
 	if !ok {
 		t.logger.Infof("Unknown peer %s tried to tunnel packet", peerID)
@@ -126,14 +132,6 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 		}
 		packet.GatewayDir = dir
 
-		t.peersLock.RLock()
-		vpnPeer, ok := t.peerIDToPeer[peerID]
-		if !ok {
-			t.device.PutTempPacket(packet)
-			t.peersLock.RUnlock()
-			return
-		}
-
 		select {
 		case vpnPeer.inboundCh <- packet:
 		default:
@@ -141,7 +139,6 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 			t.logger.Warnf("inbound reader dropped packet for peer %s", peerID)
 			t.device.PutTempPacket(packet)
 		}
-		t.peersLock.RUnlock()
 	}
 }
 
@@ -162,32 +159,47 @@ func (t *Tunnel) RefreshPeersList() {
 			t.logger.Errorf("Known peer %q has invalid IP %s in conf", knownPeer.DisplayName(), knownPeer.IPAddr)
 			continue
 		}
-		newLocalIPv6 := peerIPv6FromIPv4(newLocalIP, t.awlSubnet, t.awlSubnet6)
+		newLocalIPv6 := net.ParseIP(knownPeer.IPAddrV6)
 
 		prevPeer, exists := t.peerIDToPeer[peerID]
 		if exists {
 			oldLocalIP := *prevPeer.localIP.Load()
-			if oldLocalIP.Equal(newLocalIP) {
+			var oldLocalIPv6 net.IP
+			if p := prevPeer.localIPv6.Load(); p != nil {
+				oldLocalIPv6 = *p
+			}
+
+			ipChanged := !oldLocalIP.Equal(newLocalIP)
+			ipv6Changed := !oldLocalIPv6.Equal(newLocalIPv6)
+
+			if !ipChanged && !ipv6Changed {
 				// no changes
 				continue
 			}
 
 			// IP changed: update both IPv4 and IPv6 mappings
-			delete(t.netIPToPeer, oldLocalIP.String())
-			if oldLocalIPv6 := peerIPv6FromIPv4(oldLocalIP, t.awlSubnet, t.awlSubnet6); oldLocalIPv6 != nil {
-				delete(t.netIPToPeer, oldLocalIPv6.String())
+			if ipChanged {
+				delete(t.netIPToPeer, oldLocalIP.String())
+				prevPeer.localIP.Store(&newLocalIP)
+				t.netIPToPeer[newLocalIP.String()] = prevPeer
 			}
 
-			prevPeer.localIP.Store(&newLocalIP)
-			t.netIPToPeer[newLocalIP.String()] = prevPeer
-			if newLocalIPv6 != nil {
-				t.netIPToPeer[newLocalIPv6.String()] = prevPeer
+			if ipv6Changed {
+				if oldLocalIPv6 != nil {
+					delete(t.netIPToPeer, oldLocalIPv6.String())
+				}
+				if newLocalIPv6 != nil {
+					prevPeer.localIPv6.Store(&newLocalIPv6)
+					t.netIPToPeer[newLocalIPv6.String()] = prevPeer
+				} else {
+					prevPeer.localIPv6.Store(nil)
+				}
 			}
 			continue
 		}
 
 		// add new peer
-		vpnPeer := NewVpnPeer(peerID, newLocalIP)
+		vpnPeer := NewVpnPeer(peerID, newLocalIP, newLocalIPv6)
 		t.peerIDToPeer[peerID] = vpnPeer
 		t.netIPToPeer[newLocalIP.String()] = vpnPeer
 		if newLocalIPv6 != nil {
@@ -204,7 +216,10 @@ func (t *Tunnel) RefreshPeersList() {
 			continue
 		}
 		localIP := *vpnPeer.localIP.Load()
-		localIPv6 := peerIPv6FromIPv4(localIP, t.awlSubnet, t.awlSubnet6)
+		var localIPv6 net.IP
+		if p := vpnPeer.localIPv6.Load(); p != nil {
+			localIPv6 = *p
+		}
 		vpnPeer.Close(t)
 		delete(t.peerIDToPeer, vpnPeer.peerID)
 		delete(t.netIPToPeer, localIP.String())
@@ -246,7 +261,10 @@ func (t *Tunnel) Close() {
 
 	for _, vpnPeer := range t.peerIDToPeer {
 		localIP := *vpnPeer.localIP.Load()
-		localIPv6 := peerIPv6FromIPv4(localIP, t.awlSubnet, t.awlSubnet6)
+		var localIPv6 net.IP
+		if p := vpnPeer.localIPv6.Load(); p != nil {
+			localIPv6 = *p
+		}
 		vpnPeer.Close(t)
 		delete(t.peerIDToPeer, vpnPeer.peerID)
 		delete(t.netIPToPeer, localIP.String())
@@ -361,6 +379,7 @@ func (t *Tunnel) isAWLSubnet(ip net.IP, isIPv6 bool) bool {
 type VpnPeer struct {
 	peerID                 peer.ID
 	localIP                atomic.Pointer[net.IP]
+	localIPv6              atomic.Pointer[net.IP]
 	weAllowUsingAsExitNode atomic.Bool
 
 	inboundCh  chan *vpn.Packet // from remote peer to us
@@ -370,7 +389,7 @@ type VpnPeer struct {
 	ctxCancel context.CancelFunc
 }
 
-func NewVpnPeer(peerID peer.ID, localIP net.IP) *VpnPeer {
+func NewVpnPeer(peerID peer.ID, localIP net.IP, localIPv6 net.IP) *VpnPeer {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &VpnPeer{
 		peerID:     peerID,
@@ -381,6 +400,9 @@ func NewVpnPeer(peerID peer.ID, localIP net.IP) *VpnPeer {
 	}
 
 	p.localIP.Store(&localIP)
+	if localIPv6 != nil {
+		p.localIPv6.Store(&localIPv6)
+	}
 
 	return p
 }
@@ -739,7 +761,9 @@ func (t *Tunnel) writeInboundBatch(packets []*vpn.Packet, bufs [][]byte, senderI
 		var senderIPv6 net.IP
 		if packet.IsIPv6 {
 			localIP = localIPv6
-			senderIPv6 = peerIPv6FromIPv4(senderIP, t.awlSubnet, t.awlSubnet6)
+			if p := vp.localIPv6.Load(); p != nil {
+				senderIPv6 = *p
+			}
 		} else {
 			localIP = localIPv4
 		}
@@ -819,65 +843,4 @@ func readBatchFromChan(ch chan *vpn.Packet, buf []*vpn.Packet, offset int) []*vp
 			return buf[:i]
 		}
 	}
-}
-
-// peerIPv6FromIPv4 derives a peer's IPv6 address from their IPv4 address
-// by taking the host portion of the IPv4 address (unmasked by the IPv4 subnet)
-// and mapping it into the custom IPv6 subnet.
-// Returns nil if subnets are invalid, if peerIPv4 is out of bounds,
-// or if the IPv6 subnet capacity is smaller than the IPv4 subnet capacity.
-func peerIPv6FromIPv4(peerIPv4 net.IP, awlSubnet4 *net.IPNet, awlSubnet6 *net.IPNet) net.IP {
-	if awlSubnet4 == nil || awlSubnet6 == nil {
-		return nil
-	}
-	v4 := peerIPv4.To4()
-	if v4 == nil {
-		return nil
-	}
-
-	// Get and validate subnet mask lengths (IPv4: 0-32, IPv6: 0-128)
-	v4MaskLen, v4Bits := awlSubnet4.Mask.Size()
-	v6MaskLen, v6Bits := awlSubnet6.Mask.Size()
-	if v4Bits != 32 || v6Bits != 128 {
-		return nil
-	}
-
-	// Capacity check: If IPv4 host bits exceed IPv6 host bits,
-	// the IPv6 subnet cannot accommodate all addresses of the IPv4 subnet.
-	v4HostBits := 32 - v4MaskLen
-	v6HostBits := 128 - v6MaskLen
-	if v4HostBits > v6HostBits {
-		return nil
-	}
-
-	// Ensure the given IPv4 address actually belongs to the IPv4 subnet
-	if !awlSubnet4.Contains(v4) {
-		return nil
-	}
-
-	// Extract the IPv4 host offset (unmasked / host part)
-	v4Mask := awlSubnet4.Mask
-	hostOffsetV4 := make(net.IP, net.IPv4len)
-	for i := 0; i < net.IPv4len; i++ {
-		hostOffsetV4[i] = v4[i] &^ v4Mask[i]
-	}
-
-	// Normalize the base IPv6 subnet (prefix mask alignment)
-	baseV6 := awlSubnet6.IP.Mask(awlSubnet6.Mask).To16()
-	if baseV6 == nil {
-		return nil
-	}
-
-	// Align and embed the IPv4 host offset into the tail of the IPv6 address.
-	// Since capacity is already verified (v4HostBits <= v6HostBits),
-	// the IPv4 bytes safely fit into the trailing bytes of the IPv6 address.
-	addr := make(net.IP, net.IPv6len)
-	copy(addr, baseV6)
-
-	for i := 0; i < net.IPv4len; i++ {
-		v6Index := 12 + i // The last 4 bytes of IPv6 (indices 12, 13, 14, 15)
-		addr[v6Index] |= hostOffsetV4[i]
-	}
-
-	return addr
 }
