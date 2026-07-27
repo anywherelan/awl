@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -167,21 +166,17 @@ func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, de
 	vpnGatewayServerEnabled := s.conf.VPNGateway.ServerEnabled
 	s.conf.RUnlock()
 
-	myPeerInfo := protocol.PeerStatusInfo{
+	var ipv6Addr string
+	if ipV6, _ := s.conf.VPNLocalIPMaskV6(); ipV6 != nil {
+		ipv6Addr = ipV6.String()
+	}
+
+	return protocol.PeerStatusInfo{
 		Name:                    myPeerName,
 		AllowUsingAsExitNode:    peer.WeAllowUsingAsExitNode,
 		VPNGatewayServerEnabled: vpnGatewayServerEnabled,
+		IPv6Addr:                ipv6Addr,
 	}
-
-	ipV6, maskV6 := s.conf.VPNLocalIPMaskV6()
-	if ipV6 != nil && maskV6 != nil {
-		ipNetV6 := &net.IPNet{IP: ipV6.Mask(maskV6), Mask: maskV6}
-		if ipv6 := config.DeriveIPv6FromPeerID(s.p2p.PeerID(), ipNetV6); ipv6 != nil {
-			myPeerInfo.IPv6Addr = ipv6.String()
-		}
-	}
-
-	return myPeerInfo
 }
 
 // processPeerStatusInfo merges the status info received from peerID into the
@@ -220,7 +215,7 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 		if peer.Alias == "" {
 			peer.Alias = s.conf.GenUniqPeerAliasUnlocked(peer.Name, peer.Alias)
 		}
-		if peerInfo.IPv6Addr != "" && peer.IPAddrV6 == "" {
+		if peerInfo.IPv6Addr != "" && peer.IPAddrV6 != peerInfo.IPv6Addr {
 			peer.IPAddrV6 = peerInfo.IPv6Addr
 		}
 		peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode

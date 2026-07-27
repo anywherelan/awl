@@ -5,15 +5,13 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-
-	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 const (
 	DefaultVPNInterfaceName = "awl0"
 	// TODO: generate subnets if this has already taken
 	DefaultVPNNetworkSubnet  = "10.66.0.1/16"
-	DefaultVPNNetworkSubnet6 = "fd00:66:0::1/48"
+	DefaultVPNNetworkSubnet6 = "fd00:66:0::/48"
 )
 
 func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {
@@ -49,15 +47,6 @@ func (c *Config) VPNLocalIPMaskV6Unlocked() (net.IP, net.IPMask) {
 		return nil, nil
 	}
 
-	if c.P2pNode.PeerID != "" {
-		pid, err := peer.Decode(c.P2pNode.PeerID)
-		if err == nil {
-			if derived := DeriveIPv6FromPeerID(pid, ipNet); derived != nil {
-				return derived, ipNet.Mask
-			}
-		}
-	}
-
 	return localIP.To16(), ipNet.Mask
 }
 
@@ -74,7 +63,7 @@ func (c *Config) NetstackDNSIP() net.IP {
 }
 
 // computeNetstackDNSIP derives the reserved DNS server IP from the current
-// config snapshot: broadcast — shifted down until an address is free to
+// config snapshot: broadcast-1, shifted down until an address is free to
 // assign (CheckIPUnique rejects our own IP, the broadcast address and peers).
 // Deterministic; returns nil when the subnet has no free address. Not thread
 // safe — called from setDefaults at construction only, where netstackDNSIP is

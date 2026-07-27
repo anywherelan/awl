@@ -5,7 +5,6 @@ package anywherelan
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 
 	"golang.zx2c4.com/wireguard/tun"
@@ -46,57 +45,6 @@ func GetConfig() string {
 
 	data := conf.Export()
 	return string(data)
-}
-
-func GetLocalIPv6() string {
-	if globalDataDir == "" {
-		panic("call to GetLocalIPv6 before Setup")
-	}
-
-	conf, loadConfigErr := config.LoadConfig(appType, eventbus.NewBus())
-	if loadConfigErr != nil {
-		return ""
-	}
-
-	ipV6, _ := conf.VPNLocalIPMaskV6()
-	if ipV6 != nil {
-		return ipV6.String()
-	}
-	return ""
-}
-
-func GetVpnNetworkAddressV4() string {
-	if globalDataDir == "" {
-		panic("call to GetVpnNetworkAddressV4 before Setup")
-	}
-
-	conf, loadConfigErr := config.LoadConfig(appType, eventbus.NewBus())
-	if loadConfigErr != nil {
-		return ""
-	}
-
-	_, ipNet, err := net.ParseCIDR(conf.VPNConfig.IPNet)
-	if err == nil && ipNet != nil {
-		return ipNet.IP.String()
-	}
-	return ""
-}
-
-func GetVpnNetworkAddressV6() string {
-	if globalDataDir == "" {
-		panic("call to GetVpnNetworkAddressV6 before Setup")
-	}
-
-	conf, loadConfigErr := config.LoadConfig(appType, eventbus.NewBus())
-	if loadConfigErr != nil {
-		return ""
-	}
-
-	_, ipNet, err := net.ParseCIDR(conf.VPNConfig.IPNetV6)
-	if err == nil && ipNet != nil {
-		return ipNet.IP.String()
-	}
-	return ""
 }
 
 // SocketProtector is the interface that the Android host app must implement

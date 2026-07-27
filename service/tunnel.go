@@ -117,21 +117,8 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 	peerID := stream.Conn().RemotePeer()
 
 	defer func() {
-		if r := recover(); r != nil {
-			// This typically happens if vpnPeer.inboundCh is closed concurrently
-			// during a tunnel restart or peer removal.
-			t.logger.Debugf("StreamHandler recovered from panic (likely channel closed) for peer %s: %v", peerID, r)
-		}
 		_ = stream.Close()
 	}()
-
-	t.peersLock.RLock()
-	vpnPeer, ok := t.peerIDToPeer[peerID]
-	t.peersLock.RUnlock()
-	if !ok {
-		t.logger.Infof("Unknown peer %s tried to tunnel packet", peerID)
-		return
-	}
 
 	wrappedStream := &io.LimitedReader{}
 	for {
@@ -154,6 +141,15 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 		}
 		packet.GatewayDir = dir
 
+		t.peersLock.RLock()
+		vpnPeer, ok := t.peerIDToPeer[peerID]
+		if !ok {
+			t.peersLock.RUnlock()
+			t.logger.Infof("Unknown peer %s tried to tunnel packet", peerID)
+			t.device.PutTempPacket(packet)
+			return
+		}
+
 		select {
 		case vpnPeer.inboundCh <- packet:
 		default:
@@ -161,6 +157,7 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 			t.logger.Warnf("inbound reader dropped packet for peer %s", peerID)
 			t.device.PutTempPacket(packet)
 		}
+		t.peersLock.RUnlock()
 	}
 }
 

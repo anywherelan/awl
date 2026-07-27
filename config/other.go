@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/moby/sys/atomicwriter"
 	"github.com/multiformats/go-multiaddr"
@@ -237,10 +239,11 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if isEmptyConfig && conf.VPNConfig.IPNetV6 == "" {
 		conf.VPNConfig.IPNetV6 = DefaultVPNNetworkSubnet6
 	}
+	conf.ensureIPv6AddressLocked()
 	if ip, _ := conf.VPNLocalIPMask(); ip == nil {
 		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 	}
-	if ip, _ := conf.VPNLocalIPMaskV6(); ip == nil {
+	if ip, _ := conf.VPNLocalIPMaskV6(); conf.VPNConfig.IPNetV6 != "" && ip == nil {
 		conf.VPNConfig.IPNetV6 = DefaultVPNNetworkSubnet6
 	}
 	if conf.VPNConfig.InterfaceName == "" {
@@ -354,4 +357,19 @@ func writeFileAtomic(path string, data []byte) error {
 	}
 	ChownFileIfNeeded(path)
 	return nil
+}
+
+func (c *Config) ensureIPv6AddressLocked() {
+	if c.VPNConfig.IPNetV6 == "" || c.P2pNode.PeerID == "" {
+		return
+	}
+	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNetV6)
+	if err == nil && localIP.Equal(ipNet.IP) {
+		if pid, err := peer.Decode(c.P2pNode.PeerID); err == nil {
+			if derived := DeriveIPv6FromPeerID(pid, ipNet); derived != nil {
+				maskLen, _ := ipNet.Mask.Size()
+				c.VPNConfig.IPNetV6 = fmt.Sprintf("%s/%d", derived.String(), maskLen)
+			}
+		}
+	}
 }

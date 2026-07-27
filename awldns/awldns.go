@@ -219,10 +219,10 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 		qtype := question.Qtype
 		hostnameLower := strings.ToLower(hostname)
 		mappedIP, found := cfg.directMapping[hostnameLower]
+		mappedIPv6, foundV6 := cfg.directMappingV6[hostnameLower]
 
 		switch qtype {
 		case dns.TypeA, dns.TypeANY:
-			_, foundV6 := cfg.directMappingV6[hostnameLower]
 			if !found {
 				if foundV6 {
 					continue // domain exists but no A record, return NOERROR with 0 answers (NODATA)
@@ -243,10 +243,8 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 				})
 			}
 		case dns.TypeAAAA:
-			_, foundV4 := cfg.directMapping[hostnameLower]
-			mappedIPv6, foundV6 := cfg.directMappingV6[hostnameLower]
 			if !foundV6 {
-				if foundV4 {
+				if found {
 					continue // domain exists but no AAAA record, return NOERROR with 0 answers (NODATA)
 				}
 				m.SetRcode(req, dns.RcodeNameError)

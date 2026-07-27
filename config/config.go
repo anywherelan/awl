@@ -380,6 +380,7 @@ func (c *Config) SetIdentity(key crypto.PrivKey, id peer.ID) {
 
 	c.P2pNode.Identity = identity
 	c.P2pNode.PeerID = id.String()
+	c.ensureIPv6AddressLocked()
 	c.Save()
 	c.Unlock()
 }
