@@ -79,31 +79,6 @@ func (d *Device) PutTempPacket(data *Packet) {
 	d.packetsPool.Put(data)
 }
 
-func (d *Device) WritePacket(data *Packet, senderIP net.IP) error {
-	if data.IsIPv6 {
-		if d.localIP6 == nil {
-			// IPv6 not configured on this device — drop silently.
-			return nil
-		}
-		copy(data.Src, senderIP)
-		copy(data.Dst, d.localIP6)
-	} else {
-		copy(data.Src, senderIP)
-		copy(data.Dst, d.localIP)
-	}
-	data.RecalculateChecksum()
-
-	bufs := [][]byte{data.Buf()}
-	packetsCount, err := d.tun.Write(bufs, tunPacketOffset)
-	if err != nil {
-		return fmt.Errorf("write packet to tun: %v", err)
-	} else if packetsCount < len(bufs) {
-		d.logger.Warnf("wrote %d packets, len(bufs): %d", packetsCount, len(bufs))
-	}
-
-	return nil
-}
-
 // LocalIP returns the awl IPv4 address assigned to this device. Set once in NewDevice.
 func (d *Device) LocalIP() net.IP {
 	return d.localIP

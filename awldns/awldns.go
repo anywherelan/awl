@@ -222,7 +222,7 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 		mappedIPv6, foundV6 := cfg.directMappingV6[hostnameLower]
 
 		switch qtype {
-		case dns.TypeA, dns.TypeANY:
+		case dns.TypeA:
 			if !found {
 				if foundV6 {
 					continue // domain exists but no A record, return NOERROR with 0 answers (NODATA)
@@ -260,6 +260,37 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 					},
 					AAAA: ip,
 				})
+			}
+		case dns.TypeANY:
+			if !found && !foundV6 {
+				m.SetRcode(req, dns.RcodeNameError)
+				continue
+			}
+			if found {
+				if ip := net.ParseIP(mappedIP).To4(); ip != nil {
+					m.Answer = append(m.Answer, &dns.A{
+						Hdr: dns.RR_Header{
+							Name:   hostname,
+							Rrtype: dns.TypeA,
+							Class:  dns.ClassINET,
+							Ttl:    defaultTTLSeconds,
+						},
+						A: ip,
+					})
+				}
+			}
+			if foundV6 {
+				if ip := net.ParseIP(mappedIPv6).To16(); ip != nil {
+					m.Answer = append(m.Answer, &dns.AAAA{
+						Hdr: dns.RR_Header{
+							Name:   hostname,
+							Rrtype: dns.TypeAAAA,
+							Class:  dns.ClassINET,
+							Ttl:    defaultTTLSeconds,
+						},
+						AAAA: ip,
+					})
+				}
 			}
 		}
 	}

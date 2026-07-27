@@ -53,8 +53,8 @@ type TestSuite struct {
 
 func NewTestSuite(t testing.TB) *TestSuite {
 	// Snapshot goroutine state before anything starts. Because t.Cleanup is LIFO,
-	// registering here means this check runs last   ?after all peers and bootstrap
-	// nodes have been closed   ?so it reliably detects goroutine leaks.
+	// registering here means this check runs last — after all peers and bootstrap
+	// nodes have been closed — so it reliably detects goroutine leaks.
 	//
 	// libp2p.NATPortMap() spawns a short-lived UPnP SSDP discovery goroutine
 	// (koron/go-ssdp.Search) with a 5-second timeout. It exits on its own and
@@ -312,7 +312,7 @@ func (ts *TestSuite) makeFriends(peer1, peer2 TestPeer) {
 
 // makeFriendsWithAliases is the same as makeFriends but lets the caller pick
 // the per-side aliases. Tests that wire up more than two peers per Application
-// need distinct aliases   ?awl rejects duplicate names.
+// need distinct aliases — awl rejects duplicate names.
 func (ts *TestSuite) makeFriendsWithAliases(peer1, peer2 TestPeer, alias1, alias2 string) {
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 	ts.sendAndAcceptFriendRequest(peer1, peer2, alias1, alias2)
