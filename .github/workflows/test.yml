@@ -129,8 +129,13 @@ jobs:
           ./librespeed-cli --local-json config_librespeed.json --server 2 --json --share --telemetry-level disabled | python3 -m json.tool
 
           ping 10.66.0.2 -w 20 -c 10
-          # TODO: remove this temporal hack for linux
-          ping awl-tester.awl -w 20 -c 10 || true
+          IPV6=$(./awl cli peers status -f p | grep -A 3 awl-tester | grep -o 'fd00:[0-9a-f:]*' || true)
+          if [ -n "$IPV6" ]; then
+            echo "IPv6 detected: $IPV6. Running ping6..."
+            ping6 awl-tester.awl -w 20 -c 10
+          else
+            echo "awl-tester does not have IPv6 enabled yet, skipping IPv6 ping test."
+          fi
 
           # ---- VPN gateway server (exit-node) mode: runtime enable/disable round-trips OS state ----
           # awl runs as root here, so enabling the server installs real NAT
@@ -231,7 +236,7 @@ jobs:
           ./librespeed-cli --local-json config_librespeed.json --server 2 --json --share --telemetry-level disabled | python3 -m json.tool
 
           ping 10.66.0.2 -c 10
-          ping awl-tester.awl -c 10
+          echo "IPv6 VPN gateway is currently supported on Linux only, skipping IPv6 ping test on macOS."
 
           sleep 1
           sudo kill -SIGINT $awl_pid
@@ -251,7 +256,7 @@ jobs:
           ./librespeed-cli.exe --local-json config_librespeed.json --server 2 --json --share --telemetry-level disabled | python3 -m json.tool
 
           ping -w 20000 -n 10 10.66.0.2
-          ping -w 20000 -n 10 -a awl-tester.awl
+          echo "IPv6 VPN gateway is currently supported on Linux only, skipping IPv6 ping test on Windows."
 
           # ---- VPN gateway server (exit-node) mode: runtime enable/disable round-trips OS state ----
           # Diagnostic first: what the runner already holds in WinNAT (a

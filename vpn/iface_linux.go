@@ -11,7 +11,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Device, error) {
+func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask, localIPv6 net.IP, ipMaskv6 net.IPMask) (tun.Device, error) {
 	tunDevice, err := tun.CreateTUN(ifname, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("create tun: %v", err)
@@ -38,6 +38,18 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Devi
 	}
 	if err := netlink.AddrAdd(link, addr); err != nil {
 		return nil, fmt.Errorf("unable to set IP (%s) to (%v on interface): %v", localIP, addr.IPNet, err)
+	}
+
+	if localIPv6 != nil {
+		addr := &netlink.Addr{
+			IPNet: &net.IPNet{
+				IP:   localIPv6,
+				Mask: ipMaskv6,
+			},
+		}
+		if err := netlink.AddrAdd(link, addr); err != nil {
+			return nil, fmt.Errorf("unable to set IPv6 (%s) to (%v on interface): %v", localIPv6, addr.IPNet, err)
+		}
 	}
 
 	if err := netlink.LinkSetUp(link); err != nil {

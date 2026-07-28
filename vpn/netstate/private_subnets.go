@@ -22,16 +22,42 @@ var privateSubnets = []string{
 	"169.254.0.0/16", // RFC 3927 — link-local
 }
 
+// privateSubnetsV6 covers the IPv6 equivalents of LAN and link-local space.
+// Exit nodes must drop forwarding to these to prevent local IPv6 network exposure.
+var privateSubnetsV6 = []string{
+	"fc00::/7",  // RFC 4193 — Unique Local Address (ULA), equivalent to RFC 1918 LANs
+	"fe80::/10", // RFC 4291 — Link-local address, equivalent to 169.254.0.0/16
+}
+
 // privateSubnetPrefixes returns privateSubnets parsed into netip.Prefix.
 // Panics on a malformed entry — the list is a compile-time constant and is
 // verified by a unit test, so a panic here means a broken edit, not runtime
 // input.
 func privateSubnetPrefixes() []netip.Prefix {
-	prefixes := make([]netip.Prefix, 0, len(privateSubnets))
-	for _, s := range privateSubnets {
+	return parsePrefixList(privateSubnets, "privateSubnets")
+}
+
+// privateSubnetPrefixesV6 returns privateSubnetsV6 parsed into netip.Prefix.
+// Panics on a malformed entry for the same reasons as privateSubnetPrefixes.
+func privateSubnetPrefixesV6() []netip.Prefix {
+	return parsePrefixList(privateSubnetsV6, "privateSubnetsV6")
+}
+
+// AllPrivateSubnetPrefixes returns a combined slice of both IPv4 and IPv6 private prefixes.
+// Useful for cross-platform engines (like Windows WFP or Go-native packet matchers)
+// that handle both IP families in a single pass.
+func AllPrivateSubnetPrefixes() []netip.Prefix {
+	v4 := privateSubnetPrefixes()
+	v6 := privateSubnetPrefixesV6()
+	return append(v4, v6...)
+}
+
+func parsePrefixList(subnets []string, name string) []netip.Prefix {
+	prefixes := make([]netip.Prefix, 0, len(subnets))
+	for _, s := range subnets {
 		p, err := netip.ParsePrefix(s)
 		if err != nil {
-			panic(fmt.Sprintf("privateSubnets contains malformed prefix %q: %v", s, err))
+			panic(fmt.Sprintf("%s contains malformed prefix %q: %v", name, s, err))
 		}
 		prefixes = append(prefixes, p)
 	}

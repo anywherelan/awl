@@ -27,6 +27,7 @@ const (
 
 type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
+	PeerID() peer.ID
 	IsConnected(peerID peer.ID) bool
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	NewStreamMulti(ctx context.Context, id peer.ID, protos ...libp2pProtocol.ID) (network.Stream, error)
@@ -165,13 +166,17 @@ func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, de
 	vpnGatewayServerEnabled := s.conf.VPNGateway.ServerEnabled
 	s.conf.RUnlock()
 
-	myPeerInfo := protocol.PeerStatusInfo{
+	var ipv6Addr string
+	if ipV6, _ := s.conf.VPNLocalIPMaskV6(); ipV6 != nil {
+		ipv6Addr = ipV6.String()
+	}
+
+	return protocol.PeerStatusInfo{
 		Name:                    myPeerName,
 		AllowUsingAsExitNode:    peer.WeAllowUsingAsExitNode,
 		VPNGatewayServerEnabled: vpnGatewayServerEnabled,
+		IPv6Addr:                ipv6Addr,
 	}
-
-	return myPeerInfo
 }
 
 // processPeerStatusInfo merges the status info received from peerID into the
@@ -209,6 +214,9 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 		}
 		if peer.Alias == "" {
 			peer.Alias = s.conf.GenUniqPeerAliasUnlocked(peer.Name, peer.Alias)
+		}
+		if peerInfo.IPv6Addr != "" && peer.IPAddrV6 == "" {
+			peer.IPAddrV6 = peerInfo.IPv6Addr
 		}
 		peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode
 		peer.RemoteVPNGatewayServerEnabled = peerInfo.VPNGatewayServerEnabled

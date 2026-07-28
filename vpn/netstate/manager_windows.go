@@ -243,14 +243,14 @@ func (m *Manager) ClientRoutesActive() bool {
 // EnableServerNAT configures the exit-node data path for the awl subnet
 // (WFP filter + per-interface forwarding + WinNAT). Idempotent: a second
 // call while NAT is configured is a no-op.
-func (m *Manager) EnableServerNAT(awlSubnet, tunIfName string) error {
+func (m *Manager) EnableServerNAT(awlSubnet, awlSubnet6, tunIfName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.natState != nil {
 		return nil
 	}
-	state, err := m.setupNAT(awlSubnet, tunIfName)
+	state, err := m.setupNAT(awlSubnet, awlSubnet6, tunIfName)
 	if err != nil {
 		return fmt.Errorf("setup NAT: %w", err)
 	}

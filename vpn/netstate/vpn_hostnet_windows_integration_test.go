@@ -281,7 +281,7 @@ func TestGatewayHostNetNATLifecycle(t *testing.T) {
 	require.False(t, awlNATInstalled(t), "pre-existing awl-gateway NetNat; clean the host before running")
 
 	mgr := NewManager()
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, nicGUID))
+	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, "", nicGUID))
 	require.True(t, mgr.ServerNATActive())
 
 	require.True(t, awlNATInstalled(t), "NetNat must exist while NAT is up")
@@ -317,7 +317,7 @@ func TestGatewayHostNetNATPreservesExistingForwarding(t *testing.T) {
 	}
 
 	mgr := NewManager()
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, nicGUID))
+	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, "", nicGUID))
 	require.True(t, forwardingEnabled(t, nicLUID))
 
 	require.NoError(t, mgr.DisableServerNAT())
@@ -338,7 +338,7 @@ func TestGatewayHostNetNATStaleRecovery(t *testing.T) {
 	require.True(t, awlNATInstalled(t))
 
 	mgr := NewManager()
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, nicGUID),
+	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, "", nicGUID),
 		"EnableServerNAT must recover from a stale awl-gateway NetNat")
 	require.True(t, awlNATInstalled(t))
 
@@ -370,7 +370,7 @@ func TestGatewayHostNetNATRollback(t *testing.T) {
 	})
 
 	mgr := NewManager()
-	err = mgr.EnableServerNAT(testAwlSubnet, nicGUID)
+	err = mgr.EnableServerNAT(testAwlSubnet, "", nicGUID)
 	if err == nil {
 		// If even overlapping-prefix instances are tolerated, there is no
 		// failure to roll back from. Clean up and skip rather than fail.
@@ -603,7 +603,7 @@ func TestGatewayHostNetClientFenceAllowsClientServerCoexist(t *testing.T) {
 	_, nicGUID := pickServerTestNIC(t)
 
 	require.NoError(t, mgr.EnableClientRoutes(tunGUID))
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, nicGUID))
+	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, "", nicGUID))
 	t.Cleanup(func() { _ = mgr.DisableServerNAT() })
 
 	require.Equal(t, 8, clientFenceRuleCount(t), "client fence rules present with both roles on")

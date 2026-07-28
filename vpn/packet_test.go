@@ -21,6 +21,20 @@ func TestPacket_RecalculateChecksum(t *testing.T) {
 	a.Equal(rawData, packet.Packet)
 }
 
+func TestPacket_RecalculateChecksum_IPv6(t *testing.T) {
+	a := require.New(t)
+	packet, rawData := testUDPPacketIPv6()
+	// testUDPPacketIPv6 has 0000 for checksum, calling RecalculateChecksum will update it
+	packet.RecalculateChecksum()
+	// Just verify it doesn't crash and actually modifies the checksum if it was 0000
+	a.NotEqual(rawData, packet.Packet)
+
+	// Test idempotency
+	firstRecalculate := append([]byte(nil), packet.Packet...)
+	packet.RecalculateChecksum()
+	a.Equal(firstRecalculate, packet.Packet)
+}
+
 // TODO: bench with bigger packet
 func BenchmarkPacket_RecalculateChecksum(b *testing.B) {
 	packet, _ := testUDPPacket()
@@ -72,6 +86,31 @@ func TestPacket_Parse_RejectsMalformedIPv4(t *testing.T) {
 			p := new(Packet)
 			_, _ = p.ReadFrom(bytes.NewReader(tc.raw))
 			require.False(t, p.Parse(), "malformed packet must be rejected by Parse")
+		})
+	}
+}
+
+func TestPacket_Parse_RejectsMalformedIPv6(t *testing.T) {
+	newRawIPv6 := func(size int, nextHeader byte) []byte {
+		raw := make([]byte, size)
+		raw[0] = 0x60 // version 6
+		if len(raw) > 6 {
+			raw[6] = nextHeader
+		}
+		return raw
+	}
+
+	cases := []struct {
+		name string
+		raw  []byte
+	}{
+		{"length less than ipv6 header", newRawIPv6(20, 17)}, // ipv6 header is 40
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := new(Packet)
+			_, _ = p.ReadFrom(bytes.NewReader(tc.raw))
+			require.False(t, p.Parse(), "malformed IPv6 packet must be rejected by Parse")
 		})
 	}
 }
@@ -175,6 +214,19 @@ func TestPacket_CopyTo_SrcDstAliasCopyBuffer(t *testing.T) {
 
 func testUDPPacket() (*Packet, []byte) {
 	data, err := hex.DecodeString("4500002828f540004011fd490a4200010a420002a9d0238200148bfd68656c6c6f20776f726c6421")
+	if err != nil {
+		panic(err)
+	}
+
+	packet := new(Packet)
+	_, _ = packet.ReadFrom(bytes.NewReader(data))
+	packet.Parse()
+
+	return packet, data
+}
+
+func testUDPPacketIPv6() (*Packet, []byte) {
+	data, err := hex.DecodeString("6000000000141140fd000000000000000000000000000001fd00000000000000000000000000000204d2162e0014000068656c6c6f20776f726c6421")
 	if err != nil {
 		panic(err)
 	}

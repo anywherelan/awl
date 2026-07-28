@@ -78,7 +78,7 @@ type natState struct {
 // Order matters and is fail-closed: the WFP BLOCK filter is installed before
 // forwarding/NAT create any technical possibility of transit. Any failure
 // after the first step rolls back via teardownNAT (all steps are idempotent).
-func (m *Manager) setupNAT(awlSubnet, tunIfName string) (*natState, error) {
+func (m *Manager) setupNAT(awlSubnet, awlSubnet6, tunIfName string) (*natState, error) {
 	awlPrefix, err := netip.ParsePrefix(awlSubnet)
 	if err != nil {
 		return nil, fmt.Errorf("parse awl subnet %q: %w", awlSubnet, err)

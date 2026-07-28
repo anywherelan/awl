@@ -105,7 +105,7 @@ func TestSwappableTUN_ReadContinuesAcrossSwap(t *testing.T) {
 
 	fake1 := newFakeTUN()
 	sw := NewSwappableTUN(fake1)
-	dev, err := NewDevice(sw, "awl0", net.IPv4(10, 66, 0, 1), net.CIDRMask(24, 32))
+	dev, err := NewDevice(sw, "awl0", net.IPv4(10, 66, 0, 1), net.CIDRMask(24, 32), nil, nil)
 	a.NoError(err)
 
 	var mu sync.Mutex

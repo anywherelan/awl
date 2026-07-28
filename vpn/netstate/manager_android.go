@@ -113,7 +113,7 @@ func (m *Manager) ClientRoutesActive() bool {
 
 // EnableServerNAT only records the enabled state: Android exit node support
 // requires root or special system configuration, so no OS state is touched.
-func (m *Manager) EnableServerNAT(_, _ string) error {
+func (m *Manager) EnableServerNAT(_, _, _ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.serverNATActive = true

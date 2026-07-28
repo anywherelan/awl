@@ -2,6 +2,7 @@ package awldns
 
 import (
 	"net"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,7 @@ const (
 	defaultTTL        = 60 * time.Second
 	defaultTTLSeconds = uint32(defaultTTL / time.Second)
 	ptrV4Suffix       = ".in-addr.arpa."
+	ptrV6Suffix       = ".ip6.arpa."
 )
 
 const (
@@ -44,9 +46,10 @@ type Resolver struct {
 }
 
 type config struct {
-	upstreamDNS    string
-	directMapping  map[string]string
-	reverseMapping map[string]string
+	upstreamDNS     string
+	directMapping   map[string]string
+	directMappingV6 map[string]string
+	reverseMapping  map[string]string
 }
 
 // NewResolver creates a resolver that binds its own UDP and TCP sockets on
@@ -91,7 +94,8 @@ func newResolver(dnsAddress string) *Resolver {
 
 	mux := dns.NewServeMux()
 	mux.HandleFunc(LocalDomain, r.dnsLocalDomainHandler)
-	mux.HandleFunc(strings.TrimPrefix(ptrV4Suffix, "."), r.ptrv4Handler)
+	mux.HandleFunc(strings.TrimPrefix(ptrV4Suffix, "."), r.ptrHandler)
+	mux.HandleFunc(strings.TrimPrefix(ptrV6Suffix, "."), r.ptrHandler)
 	mux.HandleFunc(".", r.dnsProxyHandler)
 
 	r.udpServer = &dns.Server{
@@ -138,9 +142,11 @@ func serveDNSServer(srv *dns.Server) error {
 	return srv.ListenAndServe()
 }
 
-func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[string]string) {
-	reverseMapping := make(map[string]string, len(namesMapping))
+func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[string]string, namesMappingV6 map[string]string) {
+	reverseMapping := make(map[string]string, len(namesMapping)+len(namesMappingV6))
 	directMapping := make(map[string]string, len(namesMapping))
+	directMappingV6 := make(map[string]string, len(namesMappingV6))
+
 	for key, ip := range namesMapping {
 		canonicalName := dns.CanonicalName(key + "." + LocalDomain)
 		directMapping[canonicalName] = ip
@@ -154,10 +160,22 @@ func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[str
 		}
 	}
 
+	for key, ip := range namesMappingV6 {
+		canonicalName := dns.CanonicalName(key + "." + LocalDomain)
+		directMappingV6[canonicalName] = ip
+		existedName, exists := reverseMapping[ip]
+		if !exists {
+			reverseMapping[ip] = canonicalName
+		} else if exists && len(canonicalName) < len(existedName) {
+			reverseMapping[ip] = canonicalName
+		}
+	}
+
 	cfg := config{
-		upstreamDNS:    upstreamDNS,
-		directMapping:  directMapping,
-		reverseMapping: reverseMapping,
+		upstreamDNS:     upstreamDNS,
+		directMapping:   directMapping,
+		directMappingV6: directMappingV6,
+		reverseMapping:  reverseMapping,
 	}
 	r.cfg.Store(&cfg)
 }
@@ -201,10 +219,14 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 		qtype := question.Qtype
 		hostnameLower := strings.ToLower(hostname)
 		mappedIP, found := cfg.directMapping[hostnameLower]
+		mappedIPv6, foundV6 := cfg.directMappingV6[hostnameLower]
 
 		switch qtype {
-		case dns.TypeA, dns.TypeANY:
+		case dns.TypeA:
 			if !found {
+				if foundV6 {
+					continue // domain exists but no A record, return NOERROR with 0 answers (NODATA)
+				}
 				m.SetRcode(req, dns.RcodeNameError)
 				continue
 			}
@@ -221,11 +243,55 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 				})
 			}
 		case dns.TypeAAAA:
-			if !found {
+			if !foundV6 {
+				if found {
+					continue // domain exists but no AAAA record, return NOERROR with 0 answers (NODATA)
+				}
 				m.SetRcode(req, dns.RcodeNameError)
 				continue
 			}
-			// TODO: support IPv6 addresses in cfg.directMapping.
+			if ip := net.ParseIP(mappedIPv6).To16(); ip != nil {
+				m.Answer = append(m.Answer, &dns.AAAA{
+					Hdr: dns.RR_Header{
+						Name:   hostname,
+						Rrtype: dns.TypeAAAA,
+						Class:  dns.ClassINET,
+						Ttl:    defaultTTLSeconds,
+					},
+					AAAA: ip,
+				})
+			}
+		case dns.TypeANY:
+			if !found && !foundV6 {
+				m.SetRcode(req, dns.RcodeNameError)
+				continue
+			}
+			if found {
+				if ip := net.ParseIP(mappedIP).To4(); ip != nil {
+					m.Answer = append(m.Answer, &dns.A{
+						Hdr: dns.RR_Header{
+							Name:   hostname,
+							Rrtype: dns.TypeA,
+							Class:  dns.ClassINET,
+							Ttl:    defaultTTLSeconds,
+						},
+						A: ip,
+					})
+				}
+			}
+			if foundV6 {
+				if ip := net.ParseIP(mappedIPv6).To16(); ip != nil {
+					m.Answer = append(m.Answer, &dns.AAAA{
+						Hdr: dns.RR_Header{
+							Name:   hostname,
+							Rrtype: dns.TypeAAAA,
+							Class:  dns.ClassINET,
+							Ttl:    defaultTTLSeconds,
+						},
+						AAAA: ip,
+					})
+				}
+			}
 		}
 	}
 
@@ -234,7 +300,7 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 	_ = resp.WriteMsg(m)
 }
 
-func (r *Resolver) ptrv4Handler(resp dns.ResponseWriter, req *dns.Msg) {
+func (r *Resolver) ptrHandler(resp dns.ResponseWriter, req *dns.Msg) {
 	metrics.DNSQueriesTotal.WithLabelValues("awl_ptr").Inc()
 	start := time.Now()
 	defer func() {
@@ -249,7 +315,13 @@ func (r *Resolver) ptrv4Handler(resp dns.ResponseWriter, req *dns.Msg) {
 	name := req.Question[0].Name
 	cfg := r.loadConfig()
 
-	ip := ptrV4NameToIP(name)
+	var ip net.IP
+	if strings.HasSuffix(strings.ToLower(name), ptrV6Suffix) {
+		ip = ptrV6NameToIP(name)
+	} else {
+		ip = ptrV4NameToIP(name)
+	}
+
 	if ip == nil {
 		r.dnsProxyHandler(resp, req)
 		return
@@ -350,11 +422,29 @@ func IsValidDomainName(domain string) bool {
 }
 
 func ptrV4NameToIP(name string) net.IP {
-	s := strings.TrimSuffix(name, ptrV4Suffix)
+	s := strings.TrimSuffix(strings.ToLower(name), ptrV4Suffix)
 	revIp := net.ParseIP(s)
 	revIp = revIp.To4()
 	if revIp == nil {
 		return nil
 	}
 	return net.IP{revIp[3], revIp[2], revIp[1], revIp[0]}
+}
+
+func ptrV6NameToIP(name string) net.IP {
+	s := strings.TrimSuffix(strings.ToLower(name), ptrV6Suffix)
+	parts := strings.Split(s, ".")
+	if len(parts) != 32 {
+		return nil
+	}
+	ip := make(net.IP, 16)
+	for i := 0; i < 16; i++ {
+		high, err1 := strconv.ParseUint(parts[31-(i*2)], 16, 8)
+		low, err2 := strconv.ParseUint(parts[31-(i*2)-1], 16, 8)
+		if err1 != nil || err2 != nil {
+			return nil
+		}
+		ip[i] = byte((high << 4) | low)
+	}
+	return ip
 }

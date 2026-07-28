@@ -28,6 +28,7 @@ type (
 		// and uses KnownPeer.CanUseAsVPNGateway() to decide whether the
 		// peer is a valid VPN gateway target.
 		VPNGatewayServerEnabled bool
+		IPv6Addr                string `json:"ipv6Addr,omitempty"`
 	}
 )
 

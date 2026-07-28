@@ -29,7 +29,7 @@ func init() {
 	tun.WintunStaticRequestedGUID = &guid
 }
 
-func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask) (tun.Device, error) {
+func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask, localIPv6 net.IP, ipMaskv6 net.IPMask) (tun.Device, error) {
 	logger := log.Logger("awl/vpn")
 
 	var tunDevice tun.Device

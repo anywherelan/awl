@@ -96,6 +96,10 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 		}(),
 	}
 
+	if ipV6, _ := h.conf.VPNLocalIPMaskV6(); ipV6 != nil {
+		peerInfo.VPN.IPv6Addr = ipV6.String()
+	}
+
 	return c.JSON(http.StatusOK, peerInfo)
 }
 

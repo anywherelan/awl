@@ -10,7 +10,8 @@ import (
 const (
 	DefaultVPNInterfaceName = "awl0"
 	// TODO: generate subnets if this has already taken
-	DefaultVPNNetworkSubnet = "10.66.0.1/16"
+	DefaultVPNNetworkSubnet  = "10.66.0.1/16"
+	DefaultVPNNetworkSubnet6 = "fd00:66:0::/48"
 )
 
 func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {
@@ -29,6 +30,26 @@ func (c *Config) VPNLocalIPMaskUnlocked() (net.IP, net.IPMask) {
 	return localIP.To4(), ipNet.Mask
 }
 
+func (c *Config) VPNLocalIPMaskV6() (net.IP, net.IPMask) {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.VPNLocalIPMaskV6Unlocked()
+}
+
+func (c *Config) VPNLocalIPMaskV6Unlocked() (net.IP, net.IPMask) {
+	if c.VPNConfig.IPNetV6 == "" {
+		return nil, nil
+	}
+	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNetV6)
+	if err != nil {
+		logger.Errorf("parse CIDR %s: %v", c.VPNConfig.IPNetV6, err)
+		return nil, nil
+	}
+
+	return localIP.To16(), ipNet.Mask
+}
+
 // NetstackDNSIP returns the in-subnet IP reserved for the awl DNS server,
 // computed once in setDefaults and fixed for the session (see the
 // netstackDNSIP field). nil when the subnet has no free address, in which case
@@ -42,7 +63,7 @@ func (c *Config) NetstackDNSIP() net.IP {
 }
 
 // computeNetstackDNSIP derives the reserved DNS server IP from the current
-// config snapshot: broadcast−1, shifted down until an address is free to
+// config snapshot: broadcast-1, shifted down until an address is free to
 // assign (CheckIPUnique rejects our own IP, the broadcast address and peers).
 // Deterministic; returns nil when the subnet has no free address. Not thread
 // safe — called from setDefaults at construction only, where netstackDNSIP is

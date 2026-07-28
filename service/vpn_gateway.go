@@ -34,7 +34,7 @@ type NetManager interface {
 	EnableClientRoutes(tunIfName string) error
 	DisableClientRoutes() error
 	ClientRoutesActive() bool
-	EnableServerNAT(awlSubnet, tunIfName string) error
+	EnableServerNAT(awlSubnet, awlSubnet6, tunIfName string) error
 	DisableServerNAT() error
 	ServerNATActive() bool
 }
@@ -319,10 +319,16 @@ func (g *VPNGateway) applyServer() error {
 	localIP, netMask := g.conf.VPNLocalIPMask()
 	awlSubnet := (&net.IPNet{IP: localIP.Mask(netMask), Mask: netMask}).String()
 
-	if err := g.netManager.EnableServerNAT(awlSubnet, tunName); err != nil {
+	// Derive the IPv6 awl subnet for NAT6 (may be empty if IPv6 is unconfigured).
+	awlSubnet6 := ""
+	if localIPv6, netMaskv6 := g.conf.VPNLocalIPMaskV6(); localIPv6 != nil {
+		awlSubnet6 = (&net.IPNet{IP: localIPv6.Mask(netMaskv6), Mask: netMaskv6}).String()
+	}
+
+	if err := g.netManager.EnableServerNAT(awlSubnet, awlSubnet6, tunName); err != nil {
 		return err
 	}
-	g.logger.Infof("VPN gateway server NAT configured for subnet %s on %s", awlSubnet, tunName)
+	g.logger.Infof("VPN gateway server NAT configured for subnet %s (IPv6: %q) on %s", awlSubnet, awlSubnet6, tunName)
 	return nil
 }
 

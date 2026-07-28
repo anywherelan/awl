@@ -5,11 +5,11 @@ package netstate
 import (
 	"errors"
 	"fmt"
+	"golang.org/x/sys/unix"
 	"net"
 	"syscall"
 
 	"github.com/vishvananda/netlink"
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -47,15 +47,15 @@ type routeState struct {
 	origDefaults  []netlink.Route
 	tunRouteAdded bool
 
-	// IPv6 fail-closed state. The gateway only tunnels IPv4; to stop IPv6 from
-	// leaking past the exit node on a dual-stack host we fence it with an
-	// `unreachable ::/0` route, and exempt marked libp2p sockets via a v6
-	// fwmark rule + a copy of the host's IPv6 default(s) into tableID. Mirrors
-	// the IPv4 fields above. origDefaultsV6 may be empty (host has no IPv6) and,
-	// like origDefaults, is kept current by the monitor.
-	origDefaultsV6 []netlink.Route
-	v6RuleAdded    bool
-	v6UnreachAdded bool
+	// IPv6 gateway state. origDefaultsV6 are the host IPv6 default routes copied
+	// into tableID for the libp2p exemption path (mirrors origDefaults).
+	// tunRouteV6Added tracks whether we installed a ::/0 via TUN route so IPv6
+	// traffic flows through the tunnel (as opposed to the old fail-closed
+	// `unreachable ::/0` that merely blocked IPv6).
+	// v6RuleAdded tracks whether the fwmark→tableID rule for IPv6 was installed.
+	origDefaultsV6  []netlink.Route
+	v6RuleAdded     bool
+	tunRouteV6Added bool
 }
 
 // setupGatewayRoutes configures the system to route all traffic through the
@@ -153,10 +153,14 @@ func (m *Manager) setupGatewayRoutes(tunIfName string) (*routeState, error) {
 	}
 	state.tunRouteAdded = true
 
-	// IPv6 fail-closed fence (`unreachable ::/0` + libp2p exemption). Installed
-	// unconditionally — see setupIPv6Fence for why that is safe even when IPv6 is
-	// disabled via sysctl, and how a genuinely absent IPv6 stack is tolerated.
-	if err := setupIPv6Fence(state); err != nil {
+	// IPv6 gateway route: a ::/0 default route via TUN so IPv6 traffic is
+	// captured by the tunnel and forwarded to the exit node. This replaces the
+	// old `unreachable ::/0` fence — we now actually tunnel IPv6 instead of
+	// merely blocking it.
+	// Installed UNCONDITIONALLY even when the host has no IPv6 default right
+	// now (same rationale as the former fence: IPv6 may appear later via RA).
+	// Graceful on EAFNOSUPPORT (kernel-level ipv6.disable=1).
+	if err := setupIPv6TunRoute(state); err != nil {
 		_ = m.teardownGatewayRoutes(state)
 		return nil, err
 	}
@@ -164,33 +168,23 @@ func (m *Manager) setupGatewayRoutes(tunIfName string) (*routeState, error) {
 	return state, nil
 }
 
-// setupIPv6Fence installs the IPv6 fail-closed fencing onto state: a v6
-// fwmark->tableID rule, a copy of the host's current IPv6 default(s) into
-// tableID (the libp2p exemption path), and an `unreachable ::/0` route that wins
-// LPM over any host default so locally generated IPv6 connect()s fail fast with
-// EHOSTUNREACH and apps fall back to IPv4 through the tunnel (Happy Eyeballs,
-// RFC 8305). Without it a dual-stack host egresses IPv6 straight out its
-// physical interface, exposing the real address past the exit node.
+// setupIPv6TunRoute installs the IPv6 gateway capture route: a v6 fwmark→tableID
+// rule, a copy of the host's current IPv6 default(s) into tableID (the libp2p
+// exemption path), and a ::/0 default route via TUN so IPv6 flows through the
+// tunnel to the exit node.
 //
-// It is applied UNCONDITIONALLY, even when the host has no IPv6 default right
-// now. The unreachable route and the rule install fine even with IPv6
-// administratively disabled via sysctl (`disable_ipv6=1` only blocks address
-// assignment, not route/rule additions — verified on Linux 6.8). Installing it
-// regardless means IPv6 that appears later — a hot-plugged uplink, a runtime
-// sysctl flip, a fresh RA — is already fenced and loses LPM to our metric-5
-// unreachable, rather than leaking. An empty IPv6 default set is therefore not
-// an error (unlike the IPv4 default above).
+// This replaces the former `unreachable ::/0` fence: IPv6 is now FORWARDED
+// through the tunnel (exit node does NAT6) rather than dropped. The libp2p
+// exemption works identically to the IPv4 path.
 //
-// The one case where the IPv6 stack genuinely isn't there is a kernel-level
-// disable (`ipv6.disable=1` on the cmdline): the module is absent, AF_INET6 ops
-// fail with EAFNOSUPPORT, and there is nothing to leak. We detect that from the
-// netlink ops and skip the fence (leaving state.v6* unset) rather than failing
-// the otherwise-working IPv4 gateway setup.
-func setupIPv6Fence(state *routeState) error {
+// Graceful degradation: if the kernel has no IPv6 stack (ipv6.disable=1 on the
+// cmdline), EAFNOSUPPORT is returned from the first netlink op and we skip the
+// whole setup, leaving v6* fields unset. IPv4 gateway continues normally.
+func setupIPv6TunRoute(state *routeState) error {
 	origDefaultsV6, err := getDefaultRoutesV6()
 	if err != nil {
 		if ipv6Unavailable(err) {
-			logger.Infof("IPv6 stack unavailable (%v); skipping IPv6 leak fence", err)
+			logger.Infof("IPv6 stack unavailable (%v); skipping IPv6 gateway route", err)
 			return nil
 		}
 		return fmt.Errorf("get IPv6 default routes: %w", err)
@@ -198,7 +192,7 @@ func setupIPv6Fence(state *routeState) error {
 
 	if err := netlink.RuleAdd(buildFwmarkRuleV6()); err != nil {
 		if ipv6Unavailable(err) {
-			logger.Infof("IPv6 stack unavailable (%v); skipping IPv6 leak fence", err)
+			logger.Infof("IPv6 stack unavailable (%v); skipping IPv6 gateway route", err)
 			return nil
 		}
 		return fmt.Errorf("add IPv6 ip rule: %w", err)
@@ -214,16 +208,16 @@ func setupIPv6Fence(state *routeState) error {
 		}
 	}
 
-	if err := netlink.RouteAdd(buildV6UnreachableRoute()); err != nil {
+	// ::/0 via TUN — captures all IPv6 traffic into the tunnel.
+	if err := netlink.RouteAdd(buildTunDefaultRouteV6(state.tunLinkIndex)); err != nil {
 		if errors.Is(err, syscall.EEXIST) {
-			return fmt.Errorf("add IPv6 unreachable default route: %w — a ::/0 route at metric %d "+
-				"already exists (likely another VPN or a manual route, not awl: cleanupStaleRoutes "+
-				"already removed any of ours); inspect with `ip -6 route show` and resolve the conflict",
+			return fmt.Errorf("add IPv6 TUN default route: %w — a ::/0 route at metric %d "+
+				"already exists; inspect with `ip -6 route show` and resolve the conflict",
 				err, tunRouteMetric)
 		}
-		return fmt.Errorf("add IPv6 unreachable default route: %w", err)
+		return fmt.Errorf("add IPv6 TUN default route: %w", err)
 	}
-	state.v6UnreachAdded = true
+	state.tunRouteV6Added = true
 
 	return nil
 }
@@ -253,6 +247,10 @@ func ipv6Unavailable(err error) bool {
 //     or a system administrator's static route. Better to surface a clear
 //     error from RouteAdd's EEXIST than silently delete someone else's
 //     traffic path.
+//
+// The same logic applies to the IPv6 TUN default route: it is also bound to
+// the TUN interface and dies with the process. The fwmark rules for both
+// families ARE cleaned (they are not bound to the TUN fd).
 func cleanupStaleRoutes() bool {
 	cleaned := false
 
@@ -280,16 +278,10 @@ func cleanupStaleRoutes() bool {
 		}
 	}
 
-	// 3. Stale IPv6 fwmark rule and the `unreachable ::/0` fence. Unlike the
-	// IPv4 TUN default route (which the kernel auto-removes when the TUN fd dies
-	// with the process), the v6 unreachable route is not bound to any interface,
-	// so a SIGKILL'd run leaves it behind — fencing off IPv6 host-wide until it
-	// is removed. It IS owner-tagged (its low metric + ::/0 + RTN_UNREACHABLE
-	// shape is ours), so we clean it here rather than surfacing an EEXIST.
+	// 3. Stale IPv6 fwmark rule. The IPv6 TUN default route (::/0 via TUN) is
+	// NOT cleaned here — like the IPv4 TUN route, it is bound to the TUN
+	// interface fd and disappears when the process dies.
 	if err := netlink.RuleDel(buildFwmarkRuleV6()); err == nil {
-		cleaned = true
-	}
-	if err := netlink.RouteDel(buildV6UnreachableRoute()); err == nil {
 		cleaned = true
 	}
 
@@ -328,12 +320,11 @@ func (m *Manager) teardownGatewayRoutes(state *routeState) error {
 		errs = append(errs, fmt.Errorf("del ip rule: %w", err))
 	}
 
-	// IPv6 fail-closed teardown, reverse order of setup: unreachable fence,
-	// copied defaults, then the v6 fwmark rule. Guarded by the per-step flags so
-	// a rollback from a partially-applied setup doesn't generate spurious errors.
-	if state.v6UnreachAdded {
-		if err := netlink.RouteDel(buildV6UnreachableRoute()); err != nil {
-			errs = append(errs, fmt.Errorf("del IPv6 unreachable default route: %w", err))
+	// IPv6 gateway teardown, reverse order of setup: TUN default route,
+	// copied defaults, then the v6 fwmark rule. Guarded by the per-step flags.
+	if state.tunRouteV6Added {
+		if err := netlink.RouteDel(buildTunDefaultRouteV6(state.tunLinkIndex)); err != nil {
+			errs = append(errs, fmt.Errorf("del IPv6 TUN default route: %w", err))
 		}
 	}
 	for i := range state.origDefaultsV6 {
@@ -401,21 +392,21 @@ func buildTunDefaultRoute(tunLinkIndex int) *netlink.Route {
 	}
 }
 
-// buildV6UnreachableRoute constructs the `unreachable ::/0` fence installed
-// while the gateway is on. RTN_UNREACHABLE (not RTN_BLACKHOLE) so locally
-// generated IPv6 connect()s fail fast with EHOSTUNREACH and apps fall back to
-// IPv4 through the tunnel (Happy Eyeballs, RFC 8305) instead of timing out.
-// Same low metric as the IPv4 TUN default so it wins LPM over the host's
-// RA/DHCPv6 default. The identical shape is used for Add, stale-cleanup Del and
-// teardown Del so they can't drift. No LinkIndex: an unreachable route is not
-// attached to any interface.
-func buildV6UnreachableRoute() *netlink.Route {
+// buildTunDefaultRouteV6 constructs the IPv6 default route via the TUN. This
+// is the IPv6 analogue of buildTunDefaultRoute: a ::/0 route via the TUN so
+// all IPv6 traffic is captured into the tunnel and forwarded to the exit node.
+// Scope is SCOPE_LINK (point-to-point TUN, no gateway address). Same low
+// metric as the IPv4 TUN default so it wins LPM over any existing host
+// RA/DHCPv6 default. The identical shape is used for RouteAdd and RouteDel so
+// they can't drift.
+func buildTunDefaultRouteV6(tunLinkIndex int) *netlink.Route {
 	return &netlink.Route{
-		Type: unix.RTN_UNREACHABLE,
+		LinkIndex: tunLinkIndex,
 		Dst: &net.IPNet{
 			IP:   net.IPv6zero,
 			Mask: net.CIDRMask(0, 128),
 		},
+		Scope:    netlink.SCOPE_LINK,
 		Priority: tunRouteMetric,
 		Family:   netlink.FAMILY_V6,
 	}
@@ -455,10 +446,10 @@ func isIPv4DefaultDst(dst *net.IPNet) bool {
 }
 
 // getDefaultRoutesV6 returns every IPv6 default route (::/0) currently in the
-// main routing table, to be copied into tableID as the libp2p exemption path.
-// Unlike getDefaultRoutes, an empty result is NOT an error: the gateway installs
-// the `unreachable ::/0` fence unconditionally, so a host with no IPv6 uplink is
-// simply fenced against IPv6 that may appear later via RA.
+// main routing table, to be copied into the policy-routing table as the libp2p
+// exemption path. Unlike getDefaultRoutes, an empty result is NOT an error: the
+// gateway installs the `unreachable ::/0` fence unconditionally, so a host with
+// no IPv6 uplink is simply fenced against IPv6 that may appear later via RA.
 func getDefaultRoutesV6() ([]netlink.Route, error) {
 	allRoutes, err := netlink.RouteList(nil, netlink.FAMILY_V6)
 	if err != nil {

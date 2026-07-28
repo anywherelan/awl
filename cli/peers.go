@@ -83,6 +83,9 @@ func printPeersStatus(api *apiclient.Client, format string, w io.Writer) error {
 				if peer.DomainName != "" {
 					info = append(info, fmt.Sprintf("%s.%s", peer.DomainName, awldns.LocalDomain))
 				}
+				if peer.IpAddrV6 != "" {
+					info = append(info, peer.IpAddrV6)
+				}
 				info = append(info, peer.IpAddr)
 
 				row = append(row, strings.Join(info, "\n"))

@@ -163,7 +163,7 @@ func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []mu
 }
 
 // NewTestPeerExpectingInitError builds a peer with the same defaults as
-// NewTestPeerWithAppConfig but does NOT assert that Init succeeded — it
+// NewTestPeerWithAppConfig but does NOT assert that Init succeeded   ?it
 // returns the Init error to the caller. The Application is registered for
 // cleanup either way, so callers do not need to call Close themselves.
 //
@@ -542,7 +542,6 @@ func pickFreeAddr(t testing.TB) string {
 		t.Fatal(err)
 	}
 	defer l.Close()
-
 	return l.Addr().String()
 }
 
@@ -550,8 +549,8 @@ func testPacket(length int) []byte {
 	return testPacketWithDest(length, "10.66.0.2")
 }
 
-func testPacketWithSrcDest(length int, srcIP, destIP string) []byte {
-	data, err := hex.DecodeString("4500002828f540004011fd490a4200010a420002a9d0238200148bfd68656c6c6f20776f726c6421")
+func buildPacketFromHex(length int, srcIP, destIP net.IP, hexStr string) []byte {
+	data, err := hex.DecodeString(hexStr)
 	if err != nil {
 		panic(err)
 	}
@@ -573,25 +572,57 @@ func testPacketWithSrcDest(length int, srcIP, destIP string) []byte {
 	}
 	vpnPacket.Parse()
 
-	srcIPParsed := net.ParseIP(srcIP).To4()
-	if srcIPParsed == nil {
-		panic(fmt.Sprintf("invalid source IP: %s", srcIP))
+	if srcIP != nil {
+		copy(vpnPacket.Src, srcIP)
 	}
-	copy(vpnPacket.Src, srcIPParsed)
-
-	destIPParsed := net.ParseIP(destIP).To4()
-	if destIPParsed == nil {
-		panic(fmt.Sprintf("invalid destination IP: %s", destIP))
+	if destIP != nil {
+		copy(vpnPacket.Dst, destIP)
 	}
-	copy(vpnPacket.Dst, destIPParsed)
 
 	vpnPacket.RecalculateChecksum()
 
 	return vpnPacket.Packet
 }
 
+func testPacketWithSrcDest(length int, srcIP, destIP string) []byte {
+	srcIPParsed := net.ParseIP(srcIP).To4()
+	if srcIPParsed == nil {
+		panic(fmt.Sprintf("invalid source IP: %s", srcIP))
+	}
+	destIPParsed := net.ParseIP(destIP).To4()
+	if destIPParsed == nil {
+		panic(fmt.Sprintf("invalid destination IP: %s", destIP))
+	}
+	return buildPacketFromHex(length, srcIPParsed, destIPParsed, "4500002828f540004011fd490a4200010a420002a9d0238200148bfd68656c6c6f20776f726c6421")
+}
+
 func testPacketWithDest(length int, destIP string) []byte {
 	return testPacketWithSrcDest(length, "10.66.0.1", destIP)
+}
+
+func testPacketWithSrcDestV6(length int, srcIP, destIP string) []byte {
+	srcIPParsed := net.ParseIP(srcIP).To16()
+	if srcIPParsed == nil {
+		panic(fmt.Sprintf("invalid source IPv6: %s", srcIP))
+	}
+	destIPParsed := net.ParseIP(destIP).To16()
+	if destIPParsed == nil {
+		panic(fmt.Sprintf("invalid destination IPv6: %s", destIP))
+	}
+	packet := buildPacketFromHex(length, srcIPParsed, destIPParsed, "6000000000141140fd000000000000000000000000000001fd00000000000000000000000000000204d2162e0014000068656c6c6f20776f726c6421")
+	if length > 40 {
+		payloadLen := uint16(length - 40)
+		binary.BigEndian.PutUint16(packet[4:], payloadLen)
+		binary.BigEndian.PutUint16(packet[44:], payloadLen)
+
+		// Recalculate checksum after modifying lengths
+		vpnPacket := vpn.Packet{}
+		vpnPacket.Packet = packet
+		if vpnPacket.Parse() {
+			vpnPacket.RecalculateChecksum()
+		}
+	}
+	return packet
 }
 
 // testUDPPacket builds an IPv4/UDP packet with the given payload and correct
@@ -677,7 +708,7 @@ func (m *testNetManager) ClientRoutesActive() bool {
 	return m.clientActive
 }
 
-func (m *testNetManager) EnableServerNAT(_, _ string) error {
+func (m *testNetManager) EnableServerNAT(_, _, _ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.serverActive {

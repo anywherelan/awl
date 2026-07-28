@@ -845,15 +845,18 @@ func testSOCKS5Proxy(ts *TestSuite, proxyAddr string, expectSocksErr string) {
 func testSOCKS5ProxyWithAuth(ts *TestSuite, proxyAddr string, auth *proxy.Auth, iterations int, expectSocksErr string) {
 	// setup mock server
 	expectedBody := strings.Repeat("test text", 10_000)
-	addr := pickFreeAddr(ts.t)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	ts.NoError(err)
+	addr := l.Addr().String()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, expectedBody)
 	})
 	//nolint
-	httpServer := &http.Server{Addr: addr, Handler: mux}
+	httpServer := &http.Server{Handler: mux}
 	go func() {
-		_ = httpServer.ListenAndServe()
+		_ = httpServer.Serve(l)
 	}()
 	defer func() {
 		httpServer.Shutdown(context.Background())
@@ -937,6 +940,32 @@ func TestTunnelPackets(t *testing.T) {
 	received2 := peer2.tun.InboundCount()
 	ts.EqualValues(packetsCount, received1)
 	ts.EqualValues(packetsCount, received2)
+
+	// --- IPv6 Routing Test ---
+	peer2ConfigInPeer1, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+	peer1ConfigInPeer2, _ := peer2.app.Conf.GetPeer(peer1.PeerID())
+
+	peer1IPv6Str := peer1ConfigInPeer2.IPAddrV6
+	peer2IPv6Str := peer2ConfigInPeer1.IPAddrV6
+
+	ts.t.Logf("DEBUG: peer1 IPNetV6: %v", peer1.app.Conf.VPNConfig.IPNetV6)
+	ts.t.Logf("DEBUG: peer1IPv6 calculated: %s, peer2IPv6 calculated: %s", peer1IPv6Str, peer2IPv6Str)
+
+	peer1.tun.ClearInboundCount()
+	peer2.tun.ClearInboundCount()
+
+	// Send IPv6 packets from peer1 to peer2
+	const ipv6PacketsCount = 10
+	ipv6Packet := testPacketWithSrcDestV6(packetSize, peer1IPv6Str, peer2IPv6Str)
+
+	for i := 0; i < ipv6PacketsCount; i++ {
+		peer1.tun.Outbound <- [][]byte{ipv6Packet}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	time.Sleep(1 * time.Second)
+	receivedIPv6 := peer2.tun.InboundCount()
+	ts.EqualValues(ipv6PacketsCount, receivedIPv6, "peer2 should receive exactly %d IPv6 packets", ipv6PacketsCount)
 }
 
 func BenchmarkTunnelPackets(b *testing.B) {

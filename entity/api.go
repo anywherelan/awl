@@ -58,6 +58,7 @@ type (
 		Alias                         string
 		Version                       string
 		IpAddr                        string
+		IpAddrV6                      string
 		DomainName                    string
 		Connected                     bool
 		Confirmed                     bool
@@ -93,6 +94,7 @@ type (
 		VPNInterfaceEnabled bool
 		InterfaceName       string
 		IPNet               string
+		IPv6Addr            string
 	}
 
 	SOCKS5Info struct {
