@@ -215,7 +215,7 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 		if peer.Alias == "" {
 			peer.Alias = s.conf.GenUniqPeerAliasUnlocked(peer.Name, peer.Alias)
 		}
-		if peerInfo.IPv6Addr != "" && peer.IPAddrV6 != peerInfo.IPv6Addr {
+		if peerInfo.IPv6Addr != "" && peer.IPAddrV6 == "" {
 			peer.IPAddrV6 = peerInfo.IPv6Addr
 		}
 		peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode

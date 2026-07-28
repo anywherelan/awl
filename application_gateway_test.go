@@ -951,6 +951,7 @@ func TestGatewayServeAsVPNGatewayPropagatesViaStatus(t *testing.T) {
 // the same peer must let SetGatewayPeer succeed again and resume packet flow.
 // HandleReadPackets must not panic on packets sent during the gap.
 func TestGatewayRebindOnPeerReadd(t *testing.T) {
+	skipIfVPNGatewayUnsupported(t)
 	ts := NewTestSuite(t)
 	client, exitNode, _ := setupGatewayPeers(ts)
 

@@ -114,11 +114,18 @@ func (t *Tunnel) SetDNSHandler(dnsIP net.IP, h DNSPacketHandler) {
 }
 
 func (t *Tunnel) StreamHandler(stream network.Stream) {
-	peerID := stream.Conn().RemotePeer()
-
 	defer func() {
 		_ = stream.Close()
 	}()
+
+	peerID := stream.Conn().RemotePeer()
+	t.peersLock.RLock()
+	_, ok := t.peerIDToPeer[peerID]
+	t.peersLock.RUnlock()
+	if !ok {
+		t.logger.Infof("Unknown peer %s tried to tunnel packet", peerID)
+		return
+	}
 
 	wrappedStream := &io.LimitedReader{}
 	for {
@@ -144,9 +151,8 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 		t.peersLock.RLock()
 		vpnPeer, ok := t.peerIDToPeer[peerID]
 		if !ok {
-			t.peersLock.RUnlock()
-			t.logger.Infof("Unknown peer %s tried to tunnel packet", peerID)
 			t.device.PutTempPacket(packet)
+			t.peersLock.RUnlock()
 			return
 		}
 
