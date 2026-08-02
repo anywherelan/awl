@@ -56,10 +56,19 @@ func TestCLI_Me(t *testing.T) {
 	t.Run("Id", func(t *testing.T) {
 		out, err := runCLI(ts, peer1, "me", "id")
 		require.NoError(t, err)
-		lines := strings.SplitN(strings.TrimRight(out, "\n"), "\n", 2)
-		require.Len(t, lines, 2)
+		lines := strings.SplitN(strings.TrimRight(out, "\n"), "\n", 3)
+		require.Len(t, lines, 3)
 		require.Equal(t, fmt.Sprintf("your peer id: %s", peer1.PeerID()), lines[0])
-		require.NotEmpty(t, lines[1]) // QR code block follows
+
+		// The link is the shareable form of the same thing: it carries our name
+		// and grants nothing, so it is safe to show next to the peer id.
+		rawLink := strings.TrimSpace(strings.TrimPrefix(lines[1], "your link:"))
+		link, err := entity.ParseInviteLink(rawLink)
+		require.NoError(t, err)
+		require.Equal(t, peer1.PeerID(), link.PeerID)
+		require.Empty(t, link.Token, "`me id` must never print a token")
+
+		require.NotEmpty(t, lines[2]) // QR code block follows
 	})
 
 	t.Run("ListProxies_Empty", func(t *testing.T) {

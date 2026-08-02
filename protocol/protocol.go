@@ -45,6 +45,19 @@ func SendStatus(stream io.Writer, statusInfo PeerStatusInfo) error {
 
 type AuthPeer struct {
 	Name string
+	// Token is the secret from an invite link, presented by the peer that
+	// redeems it. A valid token means the request is accepted automatically.
+	//
+	// Additive and backwards compatible: ReceiveAuth decodes without
+	// DisallowUnknownFields, so an older awl ignores the field and falls back to
+	// a manual accept, and a request from an older awl simply has none.
+	//
+	// The token must not leak outside this handshake: it travels over the
+	// encrypted libp2p transport and AuthStreamHandler clears it before the
+	// request is stored or emitted. entity.AuthRequest embeds this struct, so
+	// the field is always empty there and swagger does not advertise it —
+	// json:"-" is not an option, it would drop the token from the wire too.
+	Token string `json:",omitempty" swaggerignore:"true"`
 }
 
 type AuthPeerResponse struct {

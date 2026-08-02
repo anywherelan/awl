@@ -57,6 +57,7 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 			WeAllowUsingAsExitNode:        knownPeer.WeAllowUsingAsExitNode,
 			AllowedUsingAsExitNode:        knownPeer.AllowedUsingAsExitNode,
 			RemoteVPNGatewayServerEnabled: knownPeer.RemoteVPNGatewayServerEnabled,
+			InviteID:                      knownPeer.InviteID,
 			LastSeen:                      knownPeer.LastSeen,
 			Connections:                   h.p2p.PeerConnectionsInfo(id),
 			NetworkStats:                  netStats,
@@ -188,6 +189,7 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 		Alias:                req.Alias,
 		IPAddr:               req.IPAddr,
 		AllowUsingAsExitNode: req.AllowUsingAsExitNode,
+		PendingInviteToken:   req.Token,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))

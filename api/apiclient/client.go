@@ -116,6 +116,29 @@ func (c *Client) AuthRequests() ([]entity.AuthRequest, error) {
 	return authRequests, nil
 }
 
+func (c *Client) CreateInvite(request entity.CreateInviteRequest) (*entity.InviteResponse, error) {
+	invite := new(entity.InviteResponse)
+	err := c.sendPostRequest(api.CreateInvitePath, request, invite)
+	if err != nil {
+		return nil, err
+	}
+	return invite, nil
+}
+
+func (c *Client) Invites() ([]entity.InviteResponse, error) {
+	invites := make([]entity.InviteResponse, 0)
+	err := c.sendGetRequest(api.GetInvitesPath, &invites)
+	if err != nil {
+		return nil, err
+	}
+	return invites, nil
+}
+
+func (c *Client) RevokeInvite(id string) error {
+	request := entity.RevokeInviteRequest{ID: id}
+	return c.sendPostRequest(api.RevokeInvitePath, request, nil)
+}
+
 func (c *Client) BlockedPeers() ([]config.BlockedPeer, error) {
 	blocked := make([]config.BlockedPeer, 0)
 	err := c.sendGetRequest(api.GetBlockedPeersPath, &blocked)

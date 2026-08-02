@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/config"
@@ -127,6 +128,89 @@ func TestAcceptFriend_ErrorCases(t *testing.T) {
 		err := peer1.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: "bad-peer-id", Alias: "alias"})
 		ts.Error(err)
 		ts.ErrorContains(err, "Invalid hex-encoded multihash")
+	})
+}
+
+// TestInvitesAPI covers the invite link lifecycle through the API alone:
+// creating a link, seeing it in the list and revoking it. Redeeming one takes
+// two nodes and lives in application_test.go (TestAddPeerViaInviteLink and
+// around it).
+func TestInvitesAPI(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	err := peer1.api.UpdateMySettings("alice")
+	ts.NoError(err)
+
+	invites, err := peer1.api.Invites()
+	ts.NoError(err)
+	ts.Len(invites, 0)
+
+	created, err := peer1.api.CreateInvite(entity.CreateInviteRequest{
+		Label:                "my laptop",
+		Alias:                "laptop",
+		AllowUsingAsExitNode: true,
+		ExpiresInSeconds:     int64((24 * time.Hour).Seconds()),
+	})
+	ts.NoError(err)
+	ts.Equal(1, created.MaxUses, "MaxUses defaults to single-use")
+	ts.Equal(0, created.UsedCount)
+	ts.Equal(entity.InviteStatusActive, created.Status)
+	ts.True(created.AllowUsingAsExitNode)
+	ts.False(created.Revoked)
+	ts.WithinDuration(time.Now().Add(24*time.Hour), created.ExpiresAt, time.Minute)
+
+	link, err := entity.ParseInviteLink(created.Link)
+	ts.NoError(err)
+	ts.Equal(peer1.PeerID(), link.PeerID)
+	ts.Equal("alice", link.Name)
+	ts.NotEmpty(link.Token)
+
+	// The token only ever leaves through the link, never as a field of its own.
+	withoutLink := *created
+	withoutLink.Link = ""
+	body, err := json.Marshal(withoutLink)
+	ts.NoError(err)
+	ts.NotContains(string(body), link.Token)
+
+	invites, err = peer1.api.Invites()
+	ts.NoError(err)
+	ts.Len(invites, 1)
+	ts.Equal(*created, invites[0])
+
+	err = peer1.api.RevokeInvite(created.ID)
+	ts.NoError(err)
+
+	invites, err = peer1.api.Invites()
+	ts.NoError(err)
+	ts.Len(invites, 1)
+	ts.True(invites[0].Revoked, "revoked invites stay in the list as history")
+	ts.Equal(entity.InviteStatusRevoked, invites[0].Status)
+
+	err = peer1.api.RevokeInvite("00000000")
+	ts.Error(err)
+	ts.ErrorContains(err, "invite not found")
+}
+
+func TestCreateInvite_ErrorCases(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+
+	t.Run("AliasWithMultiUse", func(t *testing.T) {
+		_, err := peer1.api.CreateInvite(entity.CreateInviteRequest{MaxUses: 5, Alias: "laptop"})
+		ts.Error(err)
+		ts.ErrorContains(err, "alias can only be set for a single-use invite")
+	})
+
+	t.Run("TooManyUses", func(t *testing.T) {
+		_, err := peer1.api.CreateInvite(entity.CreateInviteRequest{MaxUses: 1000})
+		ts.Error(err)
+	})
+
+	t.Run("NegativeExpiry", func(t *testing.T) {
+		_, err := peer1.api.CreateInvite(entity.CreateInviteRequest{ExpiresInSeconds: -1})
+		ts.Error(err)
 	})
 }
 

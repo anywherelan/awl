@@ -300,6 +300,10 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.BlockedPeers = make(map[string]BlockedPeer)
 	}
 
+	if conf.Invites == nil {
+		conf.Invites = make(map[string]Invite)
+	}
+
 	if conf.dataDir == "" {
 		conf.dataDir = CalcAppDataDir()
 	}

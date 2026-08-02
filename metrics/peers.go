@@ -76,6 +76,22 @@ var (
 		Help:      "Total number of status requests received.",
 	})
 
+	InvitesRedeemedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: "peers",
+		Name:      "invites_redeemed_total",
+		Help:      "Total number of invite links successfully redeemed by peers.",
+	})
+
+	// InviteTokensRejectedTotal explains why a peer that presented an invite
+	// token still ended up in the manual accept queue.
+	InviteTokensRejectedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: "peers",
+		Name:      "invite_tokens_rejected_total",
+		Help:      "Total number of invite tokens rejected, by reason.",
+	}, []string{"reason"})
+
 	PeersConnectionEventsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",

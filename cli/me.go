@@ -201,9 +201,16 @@ func printPeerId(api *apiclient.Client, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "your peer id: %s\n", info.PeerID)
 
-	qrterminal.GenerateHalfBlock(info.PeerID, qrterminal.M, w)
+	// A link without a token: it identifies us and carries our name, so the
+	// other side can fill the add form from a single scan, but it grants
+	// nothing on its own — that is what `peers invite create` is for.
+	link := entity.BuildInviteLink(info.PeerID, "", info.Name)
+
+	fmt.Fprintf(w, "your peer id: %s\n", info.PeerID)
+	fmt.Fprintf(w, "your link:    %s\n", link)
+
+	qrterminal.GenerateHalfBlock(link, qrterminal.M, w)
 
 	return nil
 }

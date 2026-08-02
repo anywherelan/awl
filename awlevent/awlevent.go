@@ -3,8 +3,9 @@ package awlevent
 import (
 	"context"
 
-	"github.com/anywherelan/awl/protocol"
 	"github.com/libp2p/go-libp2p/core/event"
+
+	"github.com/anywherelan/awl/protocol"
 )
 
 type Bus = event.Bus
@@ -16,6 +17,13 @@ type KnownPeerChanged struct {
 type ReceivedAuthRequest struct {
 	protocol.AuthPeer
 	PeerID string
+}
+
+// InviteRedeemed is emitted when a peer joins through one of our invite links
+// (config.Invite), carrying the non-secret invite ID.
+type InviteRedeemed struct {
+	PeerID   string
+	InviteID string
 }
 
 // VPNGatewayConnectivityChanged is emitted (client mode only) when the
