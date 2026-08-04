@@ -248,7 +248,7 @@ func TestCLI_PeersAdd(t *testing.T) {
 
 		out, err := runCLI(ts, peer1, "peers", "add", "--pid", peer2.PeerID(), "--name", "peer_2")
 		require.NoError(t, err)
-		require.Equal(t, "user added to friends list successfully\n", out)
+		require.Equal(t, "successfully accepted existing invitation from the device 'peer_2'\n", out)
 
 		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
 		require.NoError(t, err)
@@ -271,7 +271,7 @@ func TestCLI_PeersAdd(t *testing.T) {
 
 		out, err := runCLI(ts, peer1, "peers", "add", "--pid", peer2.PeerID(), "--name", "peer_2", "--allow-exit-node")
 		require.NoError(t, err)
-		require.Equal(t, "user added to friends list successfully\n", out)
+		require.Equal(t, "successfully accepted existing invitation from the device 'peer_2'\n", out)
 
 		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
 		require.NoError(t, err)
@@ -283,6 +283,241 @@ func TestCLI_PeersAdd(t *testing.T) {
 			return err == nil && peer1OnPeer2.AllowedUsingAsExitNode
 		}, 15*time.Second, 100*time.Millisecond)
 	})
+}
+
+// TestCLI_PeersInvite covers the invite link lifecycle through the CLI alone,
+// on a single peer: creating links, listing them, revoking one. Redeeming a
+// link takes two nodes and lives in TestCLI_AddPeerViaInviteLink.
+func TestCLI_PeersInvite(t *testing.T) {
+	ts := NewTestSuite(t)
+	peer1 := ts.NewTestPeer(false)
+	ts.NoError(peer1.api.UpdateMySettings("alice"))
+
+	t.Run("Empty", func(t *testing.T) {
+		out, err := runCLI(ts, peer1, "peers", "invite", "list")
+		require.NoError(t, err)
+		require.Equal(t, "you have no invite links\n", out)
+	})
+
+	var createdID string
+
+	t.Run("Create", func(t *testing.T) {
+		out, err := runCLI(ts, peer1, "peers", "invite", "create",
+			"--alias", "laptop", "--label", "my laptop", "--allow-exit-node")
+		require.NoError(t, err)
+
+		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		require.Greater(t, len(lines), 2, "the link, its summary, and a QR code block")
+
+		// The link comes first and alone on its line, so it can be picked out of
+		// the output by eye or by a script.
+		link, err := entity.ParseInviteLink(lines[0])
+		require.NoError(t, err)
+		require.Equal(t, peer1.PeerID(), link.PeerID)
+		require.Equal(t, "alice", link.Name)
+		require.NotEmpty(t, link.Token, "a created invite is a capability, unlike the link from `me id`")
+
+		summary := lines[1]
+		require.Contains(t, summary, "uses 0/1")
+		require.Contains(t, summary, `alias "laptop"`)
+		require.Contains(t, summary, "exit node")
+		require.NotContains(t, summary, link.Token)
+
+		invites, err := peer1.api.Invites()
+		require.NoError(t, err)
+		require.Len(t, invites, 1)
+		createdID = invites[0].ID
+		require.Contains(t, summary, "id "+createdID)
+	})
+
+	t.Run("CreateWithoutQR", func(t *testing.T) {
+		out, err := runCLI(ts, peer1, "peers", "invite", "create", "--no-qr", "--expires", "never")
+		require.NoError(t, err)
+
+		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		require.Len(t, lines, 2, "the link and its summary, nothing else")
+		require.Contains(t, lines[1], "expires never")
+
+		_, err = entity.ParseInviteLink(lines[0])
+		require.NoError(t, err)
+	})
+
+	// Days are ours: time.ParseDuration knows no unit above an hour, and a link
+	// that lives a week is an ordinary thing to ask for.
+	t.Run("CreateExpiringInDays", func(t *testing.T) {
+		out, err := runCLI(ts, peer1, "peers", "invite", "create", "--no-qr", "--expires", "7d", "--uses", "5")
+		require.NoError(t, err)
+		require.Contains(t, out, "uses 0/5")
+
+		invites, err := peer1.api.Invites()
+		require.NoError(t, err)
+		require.WithinDuration(t, time.Now().Add(7*24*time.Hour), invites[0].ExpiresAt, time.Minute)
+	})
+
+	t.Run("List", func(t *testing.T) {
+		out, err := runCLI(ts, peer1, "peers", "invite", "list")
+		require.NoError(t, err)
+
+		require.Contains(t, out, createdID)
+		require.Contains(t, out, "my laptop")
+		require.Contains(t, out, "0/1")
+		require.Contains(t, out, "active")
+		require.Contains(t, out, "never")
+
+		invites, err := peer1.api.Invites()
+		require.NoError(t, err)
+		for _, invite := range invites {
+			link, err := entity.ParseInviteLink(invite.Link)
+			require.NoError(t, err)
+			require.NotContains(t, out, link.Token, "the list must not hand out secrets by default")
+		}
+	})
+
+	t.Run("ListWithLinks", func(t *testing.T) {
+		out, err := runCLI(ts, peer1, "peers", "invite", "list", "--show-links")
+		require.NoError(t, err)
+
+		invites, err := peer1.api.Invites()
+		require.NoError(t, err)
+		for _, invite := range invites {
+			require.Contains(t, out, invite.Link)
+		}
+	})
+
+	t.Run("Revoke", func(t *testing.T) {
+		out, err := runCLI(ts, peer1, "peers", "invite", "revoke", "--id", createdID)
+		require.NoError(t, err)
+		require.Contains(t, out, "peers already added through it stay")
+
+		invites, err := peer1.api.Invites()
+		require.NoError(t, err)
+		for _, invite := range invites {
+			if invite.ID == createdID {
+				require.True(t, invite.Revoked)
+				require.Equal(t, entity.InviteStatusRevoked, invite.Status)
+			}
+		}
+
+		out, err = runCLI(ts, peer1, "peers", "invite", "list")
+		require.NoError(t, err)
+		require.Contains(t, out, "revoked", "a revoked invite stays in the list as history")
+	})
+
+	t.Run("RevokeUnknown", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "invite", "revoke", "--id", "0000")
+		require.ErrorContains(t, err, "invite not found")
+	})
+
+	t.Run("AliasWithMultiUse", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "invite", "create", "--uses", "5", "--alias", "laptop")
+		require.ErrorContains(t, err, "single-use")
+	})
+
+	// Rejected before any request is made, so the message has to say what a
+	// valid value looks like.
+	t.Run("BadExpires", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "invite", "create", "--expires", "tomorrow")
+		require.ErrorContains(t, err, "invalid expires value")
+		require.ErrorContains(t, err, "never")
+	})
+}
+
+// TestCLI_AddPeerViaInviteLink is the whole point of the CLI half of the
+// feature: creating a link on one node and joining by it on another, without
+// touching anything but the command line — and without an accept step.
+func TestCLI_AddPeerViaInviteLink(t *testing.T) {
+	ts := NewTestSuite(t)
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	ts.NoError(peer1.api.UpdateMySettings("alice"))
+
+	out, err := runCLI(ts, peer1, "peers", "invite", "create", "--no-qr",
+		"--alias", "laptop", "--allow-exit-node")
+	require.NoError(t, err)
+	inviteLink, _, _ := strings.Cut(out, "\n")
+
+	// No --name: the link carries one, and that is the point of it.
+	out, err = runCLI(ts, peer2, "peers", "add", "--link", inviteLink)
+	require.NoError(t, err)
+	require.Contains(t, out, "accepts it automatically")
+
+	ts.Eventually(func() bool {
+		pcfg, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+		return err == nil && pcfg.Confirmed
+	}, 15*time.Second, 50*time.Millisecond)
+
+	require.Len(t, peer1.app.AuthStatus.GetIngoingAuthRequests(), 0, "nobody had to accept anything")
+
+	peer2OnPeer1, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+	require.NoError(t, err)
+	require.Equal(t, "laptop", peer2OnPeer1.Alias, "the alias comes from the invite")
+	require.True(t, peer2OnPeer1.WeAllowUsingAsExitNode)
+
+	peer1OnPeer2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+	require.NoError(t, err)
+	require.Equal(t, "alice", peer1OnPeer2.Alias, "the name in the link is what we call the creator")
+
+	out, err = runCLI(ts, peer1, "peers", "invite", "list")
+	require.NoError(t, err)
+	require.Contains(t, out, "1/1")
+	require.Contains(t, out, entity.InviteStatusUsedUp)
+}
+
+// TestCLI_PeersAddLinkErrors: the flags of `peers add` stopped being required
+// when --link arrived, so the combinations it accepts are now checked by hand.
+func TestCLI_PeersAddLinkErrors(t *testing.T) {
+	ts := NewTestSuite(t)
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+
+	link := entity.BuildInviteLink(peer2.PeerID(), "", "")
+
+	t.Run("LinkAndPeerID", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "add", "--link", link, "--pid", peer2.PeerID(), "--name", "peer_2")
+		require.ErrorContains(t, err, "mutually exclusive")
+	})
+
+	t.Run("Neither", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "add", "--name", "peer_2")
+		require.ErrorContains(t, err, "either link or pid flag is required")
+	})
+
+	t.Run("NoName", func(t *testing.T) {
+		// A link that carries no name — the token-less form printed by `me id`
+		// for a peer that has not named itself.
+		_, err := runCLI(ts, peer1, "peers", "add", "--link", link)
+		require.ErrorContains(t, err, "name flag is required")
+	})
+
+	t.Run("BrokenLink", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "add", "--link", "awl://invite?p=nonsense", "--name", "peer_2")
+		require.ErrorContains(t, err, "invalid peer id")
+	})
+}
+
+// TestCLI_PeersAddByTokenlessLink: a link without a token is not an invitation,
+// it is the shareable form of a peer id — the add stays as manual as ever.
+func TestCLI_PeersAddByTokenlessLink(t *testing.T) {
+	ts := NewTestSuite(t)
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+
+	link := entity.BuildInviteLink(peer2.PeerID(), "", "peer_2")
+
+	out, err := runCLI(ts, peer1, "peers", "add", "--link", link)
+	require.NoError(t, err)
+	require.Equal(t, "friend request sent successfully\n", out, "no token, no promise of an automatic accept")
+
+	pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+	require.NoError(t, err)
+	require.Equal(t, "peer_2", pcfg.Alias)
+
+	ts.Eventually(func() bool {
+		reqs, err := peer2.api.AuthRequests()
+		return err == nil && len(reqs) == 1
+	}, 15*time.Second, 50*time.Millisecond)
 }
 
 // TestCLI_PeersRename covers rename by peer ID and by alias on a shared peer pair.

@@ -9,6 +9,7 @@ import (
 	http_pprof "net/http/pprof"
 	"runtime/pprof"
 	"strings"
+	"unicode"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/ipfs/go-log/v2"
@@ -111,6 +112,10 @@ func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 
 	val := validator.New()
 	err = val.RegisterValidation("trimmed_str_not_empty", validateTrimmedStringNotEmpty, false)
+	if err != nil {
+		return nil, err
+	}
+	err = val.RegisterValidation("no_control_chars", validateNoControlChars, false)
 	if err != nil {
 		return nil, err
 	}
@@ -265,4 +270,8 @@ func validateTrimmedStringNotEmpty(fl validator.FieldLevel) bool {
 	str := fl.Field().String()
 	str = strings.TrimSpace(str)
 	return len(str) > 0
+}
+
+func validateNoControlChars(fl validator.FieldLevel) bool {
+	return !strings.ContainsFunc(fl.Field().String(), unicode.IsControl)
 }

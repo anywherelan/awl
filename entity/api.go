@@ -18,7 +18,7 @@ type (
 	}
 	FriendRequest struct {
 		PeerID string `validate:"required"`
-		Alias  string `validate:"required,trimmed_str_not_empty"`
+		Alias  string `validate:"required,trimmed_str_not_empty,max=100,no_control_chars"`
 		// optional: specific IP address for the peer
 		IPAddr string `validate:"omitempty,ipv4"`
 		// optional: allow the peer to use us as an exit node
@@ -30,7 +30,7 @@ type (
 	}
 	FriendRequestReply struct {
 		PeerID  string `validate:"required"`
-		Alias   string `validate:"required,trimmed_str_not_empty"`
+		Alias   string `validate:"required,trimmed_str_not_empty,max=100,no_control_chars"`
 		Decline bool
 		// optional: specific IP address for the peer
 		IPAddr string `validate:"omitempty,ipv4"`
@@ -42,14 +42,14 @@ type (
 	}
 	UpdatePeerSettingsRequest struct {
 		PeerID     string `validate:"required"`
-		Alias      string `validate:"required,trimmed_str_not_empty"`
+		Alias      string `validate:"required,trimmed_str_not_empty,max=100,no_control_chars"`
 		DomainName string `validate:"required,trimmed_str_not_empty"`
 		// TODO: support ipv6
 		IPAddr               string `validate:"required,ipv4"`
 		AllowUsingAsExitNode bool
 	}
 	UpdateMySettingsRequest struct {
-		Name string
+		Name string `validate:"max=100,no_control_chars"`
 	}
 
 	UpdateProxySettingsRequest struct {
@@ -64,10 +64,10 @@ type (
 		// "24h" on their side. Maximum is 365 days.
 		ExpiresInSeconds int64 `validate:"gte=0,lte=31536000"`
 		// Alias to give the peer that redeems the link. Single-use links only.
-		Alias string `validate:"max=100"`
+		Alias string `validate:"max=100,no_control_chars"`
 		// AllowUsingAsExitNode lets the new peer use us as an exit node.
 		AllowUsingAsExitNode bool
-		Label                string `validate:"max=100"`
+		Label                string `validate:"max=100,no_control_chars"`
 	}
 	RevokeInviteRequest struct {
 		ID string `validate:"required"`

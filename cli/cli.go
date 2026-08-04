@@ -230,14 +230,19 @@ func (a *Application) init() {
 						Usage: "Invite peer or accept existing invitation from this peer",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
+								Name:     "link",
+								Usage:    "invite link to add the peer by, instead of pid: awl://invite?p=...",
+								Required: false,
+							},
+							&cli.StringFlag{
 								Name:     "pid",
 								Usage:    "peer id",
-								Required: true,
+								Required: false,
 							},
 							&cli.StringFlag{
 								Name:     "name",
-								Usage:    "peer name",
-								Required: true,
+								Usage:    "peer name, required unless the link carries one",
+								Required: false,
 							},
 							&cli.StringFlag{
 								Name:     "ip",
@@ -252,7 +257,13 @@ func (a *Application) init() {
 						},
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
-							return addPeer(a.api, c.String("pid"), c.String("name"), c.String("ip"), c.Bool("allow-exit-node"), c.App.Writer)
+							return addPeer(a.api, addPeerParams{
+								Link:                 c.String("link"),
+								PeerID:               c.String("pid"),
+								Alias:                c.String("name"),
+								IPAddr:               c.String("ip"),
+								AllowUsingAsExitNode: c.Bool("allow-exit-node"),
+							}, c.App.Writer)
 						},
 					},
 					{
@@ -373,6 +384,91 @@ func (a *Application) init() {
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
 							return setAllowUsingAsExitNode(a.api, c.String("pid"), c.Bool("allow"), c.App.Writer)
+						},
+					},
+					{
+						Name:  "invite",
+						Usage: "Group of commands to work with invite links: share one and the peer is added automatically",
+						Subcommands: []*cli.Command{
+							{
+								Name:  "create",
+								Usage: "Create an invite link and print it with a QR code",
+								Flags: []cli.Flag{
+									&cli.IntFlag{
+										Name:     "uses",
+										Usage:    "how many peers may join through the link, up to 100",
+										Required: false,
+										Value:    1,
+									},
+									&cli.StringFlag{
+										Name:     "expires",
+										Usage:    "how long the link lives, up to 365d: a duration such as 30m, 24h, 7d, 1d6h, or 'never'",
+										Required: false,
+										Value:    "24h",
+									},
+									&cli.StringFlag{
+										Name:     "alias",
+										Usage:    "optional. name to give the peer that joins, single-use links only, up to 100 characters",
+										Required: false,
+									},
+									&cli.BoolFlag{
+										Name:     "allow-exit-node",
+										Usage:    "allow the joining peer to use your device as exit node (as VPN Gateway or SOCKS5 proxy)",
+										Required: false,
+									},
+									&cli.StringFlag{
+										Name:     "label",
+										Usage:    "note for yourself, shown in the list, up to 100 characters",
+										Required: false,
+									},
+									&cli.BoolFlag{
+										Name:     "no-qr",
+										Usage:    "print the link without a QR code",
+										Required: false,
+									},
+								},
+								Before: a.initApiConnection,
+								Action: func(c *cli.Context) error {
+									return createInvite(a.api, createInviteParams{
+										Uses:                 c.Int("uses"),
+										Expires:              c.String("expires"),
+										Alias:                c.String("alias"),
+										AllowUsingAsExitNode: c.Bool("allow-exit-node"),
+										Label:                c.String("label"),
+										ShowQR:               !c.Bool("no-qr"),
+									}, c.App.Writer)
+								},
+							},
+							{
+								Name:  "list",
+								Usage: "Print all invite links, spent ones included",
+								Flags: []cli.Flag{
+									&cli.BoolFlag{
+										Name:     "show-links",
+										Usage:    "print the links themselves, secrets and all",
+										Required: false,
+									},
+								},
+								Before: a.initApiConnection,
+								Action: func(c *cli.Context) error {
+									return printInvites(a.api, c.Bool("show-links"), c.App.Writer)
+								},
+							},
+							{
+								Name:  "revoke",
+								Usage: "Stop an invite link from accepting new peers; peers already added stay",
+								Flags: []cli.Flag{
+									&cli.StringFlag{
+										Name:     "id",
+										Usage:    "invite id, as printed by 'peers invite list'",
+										Required: true,
+									},
+								},
+								Before: a.initApiConnection,
+								Action: func(c *cli.Context) error {
+									return revokeInvite(a.api, c.String("id"), c.App.Writer)
+								},
+							},
 						},
 					},
 				},
