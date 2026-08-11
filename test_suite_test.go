@@ -371,7 +371,7 @@ func (ts *TestSuite) NewSimnetPeerPair(latency time.Duration, bandwidthBps int, 
 // alias1 is how peer2 will know peer1 (set in the reply); alias2 is how peer1
 // will know peer2 (set in the outbound friend request).
 func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer, alias1, alias2 string) {
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), alias2, "")
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: alias2})
 	ts.NoError(err)
 
 	var authRequests []entity.AuthRequest
@@ -380,7 +380,7 @@ func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer, alias1, a
 		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, alias1, false, "")
+	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Alias: alias1})
 	ts.NoError(err)
 
 	ts.Eventually(func() bool {

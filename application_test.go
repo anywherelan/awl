@@ -2,6 +2,7 @@ package awl
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go/integrationtests/tools/israce"
 	"golang.org/x/net/proxy"
@@ -25,6 +28,7 @@ import (
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/anywherelan/awl/protocol"
+	"github.com/anywherelan/awl/service"
 	"github.com/anywherelan/awl/vpn"
 )
 
@@ -66,7 +70,7 @@ func TestRemovePeer(t *testing.T) {
 	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 
 	// Add peer2 from peer1 - should succeed
-	err = peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
+	err = peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
 	ts.NoError(err)
 	time.Sleep(500 * time.Millisecond)
 
@@ -103,7 +107,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
 	ts.NoError(err)
 
 	var authRequests []entity.AuthRequest
@@ -112,7 +116,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_1", true, "")
+	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Alias: "peer_1", Decline: true})
 	ts.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)
@@ -142,7 +146,7 @@ func TestAutoAcceptFriendRequest(t *testing.T) {
 	peer2.app.Conf.P2pNode.AutoAcceptAuthRequests = true
 	peer2.app.Conf.Unlock()
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", "")
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
 	ts.NoError(err)
 
 	ts.Eventually(func() bool {
@@ -174,7 +178,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 
 	t.Run("InviteWithCustomIP", func(t *testing.T) {
 		customIP := "10.66.0.222"
-		err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer_2", customIP)
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2", IPAddr: customIP})
 		ts.NoError(err)
 
 		// Check immediate state on peer1
@@ -184,7 +188,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 	})
 
 	t.Run("RespondWithCustomIP", func(t *testing.T) {
-		err := peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+		err := peer3.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
 		ts.NoError(err)
 
 		var authRequests []entity.AuthRequest
@@ -195,7 +199,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 		}, 15*time.Second, 50*time.Millisecond)
 
 		customIP := "10.66.0.223"
-		err = peer1.api.ReplyFriendRequest(authRequests[0].PeerID, "peer_3", false, customIP)
+		err = peer1.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Alias: "peer_3", IPAddr: customIP})
 		ts.NoError(err)
 
 		p3, exists := peer1.app.Conf.GetPeer(peer3.PeerID())
@@ -207,7 +211,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 		peer4 := ts.NewTestPeer(false)
 		ts.ensurePeersAvailableInDHT(peer1, peer4)
 
-		err := peer1.api.SendFriendRequest(peer4.PeerID(), "peer_4", "invalid-ip")
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer4.PeerID(), Alias: "peer_4", IPAddr: "invalid-ip"})
 		ts.Error(err)
 		ts.ErrorContains(err, "Field validation for 'IPAddr' failed")
 	})
@@ -217,7 +221,7 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 		ts.ensurePeersAvailableInDHT(peer1, peer5)
 
 		// Try to use peer2's IP which is 10.66.0.222
-		err := peer1.api.SendFriendRequest(peer5.PeerID(), "peer_5", "10.66.0.222")
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer5.PeerID(), Alias: "peer_5", IPAddr: "10.66.0.222"})
 		ts.Error(err)
 		ts.ErrorContains(err, "ip 10.66.0.222 is already used by peer")
 	})
@@ -232,11 +236,11 @@ func TestGetAuthRequestsSuggestedIP(t *testing.T) {
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 	ts.ensurePeersAvailableInDHT(peer1, peer3)
 
-	err := peer2.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+	err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
 	ts.NoError(err)
 	time.Sleep(200 * time.Millisecond)
 
-	err = peer3.api.SendFriendRequest(peer1.PeerID(), "peer_1", "")
+	err = peer3.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
 	ts.NoError(err)
 
 	ts.Eventually(func() bool {
@@ -270,12 +274,12 @@ func TestUniquePeerAlias(t *testing.T) {
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 	ts.ensurePeersAvailableInDHT(peer2, peer3)
 
-	err := peer1.api.SendFriendRequest(peer2.PeerID(), "peer", "")
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer"})
 	ts.NoError(err)
 
 	time.Sleep(200 * time.Millisecond)
 
-	err = peer1.api.SendFriendRequest(peer3.PeerID(), "peer", "")
+	err = peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer3.PeerID(), Alias: "peer"})
 	ts.EqualError(err, "status code: 400, error: "+api.ErrorPeerAliasIsNotUniq)
 }
 
@@ -317,13 +321,21 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		return peer2Config.AllowedUsingAsExitNode
 	}, 15*time.Second, 100*time.Millisecond)
 
+	// peer2 allowing us does NOT select it as our exit node — the choice is always explicit
 	info, err = peer1.api.PeerInfo()
 	ts.NoError(err)
-	ts.Equal(peer2.PeerID(), info.SOCKS5.UsingPeerID)
+	ts.Equal("", info.SOCKS5.UsingPeerID)
 
 	availableProxies, err = peer1.api.ListAvailableProxies()
 	ts.NoError(err)
 	ts.Len(availableProxies, 1)
+
+	err = peer1.api.UpdateProxySettings(peer2.PeerID())
+	ts.NoError(err)
+
+	info, err = peer1.api.PeerInfo()
+	ts.NoError(err)
+	ts.Equal(peer2.PeerID(), info.SOCKS5.UsingPeerID)
 
 	// allow from peer1, check that peer2 got our config
 	err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
@@ -342,6 +354,11 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 		return peer1Config.AllowedUsingAsExitNode && peer1Config.WeAllowUsingAsExitNode
 	}, 15*time.Second, 100*time.Millisecond)
 
+	ts.Equal("", peer2.app.SOCKS5.GetProxyPeerID())
+
+	// peer2 has to pick peer1 explicitly too; the checks below proxy through it.
+	err = peer2.api.UpdateProxySettings(peer1.PeerID())
+	ts.NoError(err)
 	ts.Equal(peer1.PeerID(), peer2.app.SOCKS5.GetProxyPeerID())
 
 	// disallow from peer2, check that peer1 got our new config
@@ -395,6 +412,757 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	info, err = peer2.api.PeerInfo()
 	ts.NoError(err)
 	ts.Equal("", info.SOCKS5.UsingPeerID)
+}
+
+// TestAddPeerWithExitNodePermission covers granting AllowUsingAsExitNode at add
+// time — in the outgoing invite and in the reply to an incoming one — instead of
+// a follow-up update_settings call. The permission has to reach the other side
+// through the regular status exchange.
+func TestAddPeerWithExitNodePermission(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	peer3 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	ts.ensurePeersAvailableInDHT(peer1, peer3)
+
+	t.Run("InviteWithExitNode", func(t *testing.T) {
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                "peer_2",
+			AllowUsingAsExitNode: true,
+		})
+		ts.NoError(err)
+
+		peer2OnPeer1, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		ts.True(peer2OnPeer1.WeAllowUsingAsExitNode)
+
+		var authRequests []entity.AuthRequest
+		ts.Eventually(func() bool {
+			authRequests, err = peer2.api.AuthRequests()
+			ts.NoError(err)
+			return len(authRequests) == 1
+		}, 15*time.Second, 50*time.Millisecond)
+		err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{
+			PeerID: authRequests[0].PeerID,
+			Alias:  "peer_1",
+		})
+		ts.NoError(err)
+
+		// peer2 learns the permission from the status exchange, without anyone
+		// calling update_settings.
+		ts.Eventually(func() bool {
+			peer1OnPeer2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+			ts.NoError(err)
+			return peer1OnPeer2.AllowedUsingAsExitNode
+		}, 15*time.Second, 100*time.Millisecond)
+
+		peer1OnPeer2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+		ts.NoError(err)
+		ts.False(peer1OnPeer2.WeAllowUsingAsExitNode, "the permission is one-way")
+
+		// Being allowed is not the same as being selected, see clearSelectedExitNode.
+		availableProxies, err := peer2.api.ListAvailableProxies()
+		ts.NoError(err)
+		ts.Len(availableProxies, 1)
+		info, err := peer2.api.PeerInfo()
+		ts.NoError(err)
+		ts.Equal("", info.SOCKS5.UsingPeerID)
+	})
+
+	t.Run("AcceptWithExitNode", func(t *testing.T) {
+		err := peer3.api.SendFriendRequest(entity.FriendRequest{
+			PeerID: peer1.PeerID(),
+			Alias:  "peer_1",
+		})
+		ts.NoError(err)
+
+		var authRequests []entity.AuthRequest
+		ts.Eventually(func() bool {
+			authRequests, err = peer1.api.AuthRequests()
+			ts.NoError(err)
+			return len(authRequests) == 1
+		}, 15*time.Second, 50*time.Millisecond)
+		err = peer1.api.ReplyFriendRequest(entity.FriendRequestReply{
+			PeerID:               authRequests[0].PeerID,
+			Alias:                "peer_3",
+			AllowUsingAsExitNode: true,
+		})
+		ts.NoError(err)
+
+		peer3OnPeer1, err := peer1.api.KnownPeerConfig(peer3.PeerID())
+		ts.NoError(err)
+		ts.True(peer3OnPeer1.WeAllowUsingAsExitNode)
+
+		ts.Eventually(func() bool {
+			peer1OnPeer3, err := peer3.api.KnownPeerConfig(peer1.PeerID())
+			ts.NoError(err)
+			return peer1OnPeer3.AllowedUsingAsExitNode
+		}, 15*time.Second, 100*time.Millisecond)
+	})
+}
+
+// TestAddPeerViaInviteLink is the invite link happy path: the creator makes a
+// link, the redeemer adds the creator with the token from it, and both sides end
+// up confirmed with the invite's settings applied — accept_peer is never called
+// anywhere in this test.
+func TestAddPeerViaInviteLink(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	peer3 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(creator, peer2)
+	ts.ensurePeersAvailableInDHT(creator, peer3)
+
+	err := creator.api.UpdateMySettings("alice")
+	ts.NoError(err)
+
+	invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{
+		Label:                "my laptop",
+		Alias:                "laptop",
+		AllowUsingAsExitNode: true,
+		ExpiresInSeconds:     int64(time.Hour.Seconds()),
+	})
+	ts.NoError(err)
+
+	link, err := entity.ParseInviteLink(invite.Link)
+	ts.NoError(err)
+	ts.Equal(creator.PeerID(), link.PeerID)
+	ts.Equal("alice", link.Name)
+
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{
+		PeerID: link.PeerID,
+		Alias:  link.Name,
+		Token:  link.Token,
+	})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		knownPeer, exists := peer2.app.Conf.GetPeer(creator.PeerID())
+		return exists && knownPeer.Confirmed
+	}, 15*time.Second, 50*time.Millisecond)
+
+	ts.Len(creator.app.AuthStatus.GetIngoingAuthRequests(), 0, "the request was never queued for a manual accept")
+
+	peer2OnCreator, exists := creator.app.Conf.GetPeer(peer2.PeerID())
+	ts.True(exists)
+	ts.True(peer2OnCreator.Confirmed)
+	ts.Equal("laptop", peer2OnCreator.Alias, "the alias comes from the invite")
+	ts.True(peer2OnCreator.WeAllowUsingAsExitNode)
+	ts.Equal(invite.ID, peer2OnCreator.InviteID)
+
+	creatorOnPeer2, exists := peer2.app.Conf.GetPeer(creator.PeerID())
+	ts.True(exists)
+	ts.Empty(creatorOnPeer2.PendingInviteToken, "the token is dropped once we are confirmed")
+	ts.Empty(creatorOnPeer2.InviteID, "the marker belongs to the side that issued the link")
+
+	// The permission from the invite reaches the peer through the status exchange.
+	ts.Eventually(func() bool {
+		knownPeer, _ := peer2.app.Conf.GetPeer(creator.PeerID())
+		return knownPeer.AllowedUsingAsExitNode
+	}, 15*time.Second, 50*time.Millisecond)
+
+	invites, err := creator.api.Invites()
+	ts.NoError(err)
+	ts.Len(invites, 1)
+	ts.Equal(1, invites[0].UsedCount)
+	ts.Equal(entity.InviteStatusUsedUp, invites[0].Status)
+
+	knownPeers, err := creator.api.KnownPeers()
+	ts.NoError(err)
+	ts.Len(knownPeers, 1)
+	ts.Equal(invite.ID, knownPeers[0].InviteID, "the peers list shows which invite let this peer in")
+
+	// An invite whose alias is already taken must not lose the peer: AddPeer
+	// rejects a duplicate alias outright, and nobody would see that error.
+	t.Run("AliasCollision", func(t *testing.T) {
+		secondInvite, err := creator.api.CreateInvite(entity.CreateInviteRequest{Alias: "laptop"})
+		ts.NoError(err)
+		secondLink, err := entity.ParseInviteLink(secondInvite.Link)
+		ts.NoError(err)
+
+		err = peer3.api.SendFriendRequest(entity.FriendRequest{
+			PeerID: secondLink.PeerID,
+			Alias:  "alice",
+			Token:  secondLink.Token,
+		})
+		ts.NoError(err)
+
+		ts.Eventually(func() bool {
+			knownPeer, exists := creator.app.Conf.GetPeer(peer3.PeerID())
+			return exists && knownPeer.Confirmed
+		}, 15*time.Second, 50*time.Millisecond)
+
+		peer3OnCreator, _ := creator.app.Conf.GetPeer(peer3.PeerID())
+		ts.Equal("laptop_0", peer3OnCreator.Alias)
+		ts.Equal(secondInvite.ID, peer3OnCreator.InviteID)
+	})
+}
+
+// TestInviteLinkAlreadyKnownPeer covers the case where the redeemer is already
+// in the creator's KnownPeers (the creator invited it the usual way earlier).
+// An invite only ever lets a new peer in: the peer is already added, with
+// settings the creator chose by hand, and a link presented afterwards changes
+// nothing and costs the link nothing. The connection comes up regardless — the
+// creator answers "you are in my KnownPeers" and the status exchange that
+// follows confirms both sides, exactly as in any mutual add.
+func TestInviteLinkAlreadyKnownPeer(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(creator, peer2)
+
+	// The creator invites peer2 the ordinary way; peer2 never replies to it.
+	err := creator.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	ts.NoError(err)
+	ts.Eventually(func() bool {
+		return len(peer2.app.AuthStatus.GetIngoingAuthRequests()) == 1
+	}, 15*time.Second, 50*time.Millisecond)
+
+	invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{AllowUsingAsExitNode: true})
+	ts.NoError(err)
+	link, err := entity.ParseInviteLink(invite.Link)
+	ts.NoError(err)
+
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{
+		PeerID: link.PeerID,
+		Alias:  "creator",
+		Token:  link.Token,
+	})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		knownPeer, exists := creator.app.Conf.GetPeer(peer2.PeerID())
+		return exists && knownPeer.Confirmed
+	}, 15*time.Second, 50*time.Millisecond)
+
+	peer2OnCreator, _ := creator.app.Conf.GetPeer(peer2.PeerID())
+	ts.Equal("peer_2", peer2OnCreator.Alias, "the alias the creator chose earlier stays")
+	ts.False(peer2OnCreator.WeAllowUsingAsExitNode, "the link cannot grant anything to a peer already added by hand")
+	ts.Empty(peer2OnCreator.InviteID, "the peer did not come in through the link")
+
+	ts.Eventually(func() bool {
+		knownPeer, exists := peer2.app.Conf.GetPeer(creator.PeerID())
+		return exists && knownPeer.Confirmed
+	}, 15*time.Second, 50*time.Millisecond)
+
+	ts.Len(creator.app.AuthStatus.GetIngoingAuthRequests(), 0, "an already known peer is not queued for a manual accept")
+
+	invites, err := creator.api.Invites()
+	ts.NoError(err)
+	ts.Equal(0, invites[0].UsedCount, "nothing was redeemed")
+	ts.Equal(entity.InviteStatusActive, invites[0].Status, "the link is still good for somebody else")
+}
+
+// TestInviteLinkNotRedeemed checks that a token that no longer works degrades
+// into an ordinary auth request instead of failing outright, and that a
+// rejected token spends nothing.
+func TestInviteLinkNotRedeemed(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	peer3 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(creator, peer2)
+	ts.ensurePeersAvailableInDHT(creator, peer3)
+
+	requirePendingAuthRequest := func(from TestPeer) {
+		var authRequests []entity.AuthRequest
+		ts.Eventually(func() bool {
+			var err error
+			authRequests, err = creator.api.AuthRequests()
+			ts.NoError(err)
+			for _, req := range authRequests {
+				if req.PeerID == from.PeerID() {
+					return true
+				}
+			}
+			return false
+		}, 15*time.Second, 50*time.Millisecond)
+
+		for _, req := range authRequests {
+			ts.Empty(req.Token, "the auth requests endpoint must never hand out a token")
+		}
+		_, exists := creator.app.Conf.GetPeer(from.PeerID())
+		ts.False(exists, "the peer waits for a manual accept")
+	}
+
+	t.Run("Revoked", func(t *testing.T) {
+		invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{})
+		ts.NoError(err)
+		link, err := entity.ParseInviteLink(invite.Link)
+		ts.NoError(err)
+		ts.NoError(creator.api.RevokeInvite(invite.ID))
+
+		err = peer2.api.SendFriendRequest(entity.FriendRequest{
+			PeerID: link.PeerID,
+			Alias:  "creator",
+			Token:  link.Token,
+		})
+		ts.NoError(err)
+
+		requirePendingAuthRequest(peer2)
+
+		stored, exists := creator.app.Conf.GetInvite(invite.ID)
+		ts.True(exists)
+		ts.Equal(0, stored.UsedCount)
+	})
+
+	t.Run("Expired", func(t *testing.T) {
+		invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{ExpiresInSeconds: 60})
+		ts.NoError(err)
+		link, err := entity.ParseInviteLink(invite.Link)
+		ts.NoError(err)
+
+		// Move the expiry into the past instead of waiting for it.
+		creator.app.Conf.Lock()
+		stored := creator.app.Conf.Invites[invite.ID]
+		stored.ExpiresAt = time.Now().Add(-time.Hour)
+		creator.app.Conf.Invites[invite.ID] = stored
+		creator.app.Conf.Unlock()
+
+		err = peer3.api.SendFriendRequest(entity.FriendRequest{
+			PeerID: link.PeerID,
+			Alias:  "creator",
+			Token:  link.Token,
+		})
+		ts.NoError(err)
+
+		requirePendingAuthRequest(peer3)
+
+		stored, _ = creator.app.Conf.GetInvite(invite.ID)
+		ts.Equal(0, stored.UsedCount)
+	})
+}
+
+// TestInviteLinkSingleUse: the second holder of a single-use link gets nothing
+// but the ordinary manual path.
+func TestInviteLinkSingleUse(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	peer3 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(creator, peer2)
+	ts.ensurePeersAvailableInDHT(creator, peer3)
+
+	invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{MaxUses: 1})
+	ts.NoError(err)
+	link, err := entity.ParseInviteLink(invite.Link)
+	ts.NoError(err)
+
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{
+		PeerID: link.PeerID, Alias: "creator", Token: link.Token,
+	})
+	ts.NoError(err)
+	ts.Eventually(func() bool {
+		knownPeer, exists := creator.app.Conf.GetPeer(peer2.PeerID())
+		return exists && knownPeer.Confirmed
+	}, 15*time.Second, 50*time.Millisecond)
+
+	err = peer3.api.SendFriendRequest(entity.FriendRequest{
+		PeerID: link.PeerID, Alias: "creator", Token: link.Token,
+	})
+	ts.NoError(err)
+	ts.Eventually(func() bool {
+		authRequests, err := creator.api.AuthRequests()
+		ts.NoError(err)
+		return len(authRequests) == 1 && authRequests[0].PeerID == peer3.PeerID()
+	}, 15*time.Second, 50*time.Millisecond)
+
+	_, exists := creator.app.Conf.GetPeer(peer3.PeerID())
+	ts.False(exists)
+
+	stored, _ := creator.app.Conf.GetInvite(invite.ID)
+	ts.Equal(1, stored.UsedCount, "a spent link cannot be spent again")
+}
+
+// TestInviteLinkFromBlockedPeer: blocking outranks an invite. The blocked peer
+// is declined as usual, the creator is not even told about it, and the link is
+// left untouched.
+func TestInviteLinkFromBlockedPeer(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(creator, peer2)
+
+	creator.app.Conf.UpsertBlockedPeer(peer2.PeerID(), "unwanted")
+
+	invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{AllowUsingAsExitNode: true})
+	ts.NoError(err)
+	link, err := entity.ParseInviteLink(invite.Link)
+	ts.NoError(err)
+
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{
+		PeerID: link.PeerID,
+		Alias:  "creator",
+		Token:  link.Token,
+	})
+	ts.NoError(err)
+
+	// The declined answer is what tells us the creator has processed the request.
+	ts.Eventually(func() bool {
+		knownPeer, exists := peer2.app.Conf.GetPeer(creator.PeerID())
+		return exists && knownPeer.Declined
+	}, 15*time.Second, 50*time.Millisecond)
+
+	_, exists := creator.app.Conf.GetPeer(peer2.PeerID())
+	ts.False(exists)
+	ts.Len(creator.app.AuthStatus.GetIngoingAuthRequests(), 0, "a blocked peer is not offered for a manual accept either")
+
+	stored, _ := creator.app.Conf.GetInvite(invite.ID)
+	ts.Equal(0, stored.UsedCount, "a blocked peer must not spend a use")
+
+	// A declined peer stops retrying, so its token is not presented again.
+	_, outgoing := peer2.app.AuthStatus.GetAuthRequestCounts()
+	ts.Equal(0, outgoing)
+}
+
+// TestRemovePeerStopsInviteTokenRetries: removing a peer we added by link must
+// also stop the auth retries carrying the invite token. Otherwise the token
+// keeps being handed to a peer the user got rid of, and once that peer comes
+// online it auto-accepts a request nobody wanted any more.
+func TestRemovePeerStopsInviteTokenRetries(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(creator, peer2)
+
+	invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{})
+	ts.NoError(err)
+	link, err := entity.ParseInviteLink(invite.Link)
+	ts.NoError(err)
+
+	// Revoked, so the creator queues a manual request instead of confirming and
+	// the redeemer keeps retrying with the token.
+	ts.NoError(creator.api.RevokeInvite(invite.ID))
+
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{
+		PeerID: link.PeerID,
+		Alias:  "creator",
+		Token:  link.Token,
+	})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		_, outgoing := peer2.app.AuthStatus.GetAuthRequestCounts()
+		return outgoing == 1
+	}, 15*time.Second, 50*time.Millisecond)
+
+	err = peer2.api.RemovePeer(creator.PeerID())
+	ts.NoError(err)
+
+	_, outgoing := peer2.app.AuthStatus.GetAuthRequestCounts()
+	ts.Equal(0, outgoing, "no retry may carry the token to a removed peer")
+}
+
+// TestInviteLinkWithAutoAccept: a valid token applies the invite's settings even
+// when AutoAcceptAuthRequests would have let the peer in anyway. Without this,
+// turning on the global auto-accept would silently drop the invite's settings
+// and leave the link unspent.
+func TestInviteLinkWithAutoAccept(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(creator, peer2)
+
+	creator.app.Conf.Lock()
+	creator.app.Conf.P2pNode.AutoAcceptAuthRequests = true
+	creator.app.Conf.Unlock()
+
+	// Plain auto-accept names a peer after itself, so an alias of "bob" would
+	// mean the invite was ignored.
+	err := peer2.api.UpdateMySettings("bob")
+	ts.NoError(err)
+
+	invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{
+		Alias:                "laptop",
+		AllowUsingAsExitNode: true,
+	})
+	ts.NoError(err)
+	link, err := entity.ParseInviteLink(invite.Link)
+	ts.NoError(err)
+
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{
+		PeerID: link.PeerID,
+		Alias:  "creator",
+		Token:  link.Token,
+	})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		knownPeer, exists := creator.app.Conf.GetPeer(peer2.PeerID())
+		return exists && knownPeer.Confirmed
+	}, 15*time.Second, 50*time.Millisecond)
+
+	peer2OnCreator, _ := creator.app.Conf.GetPeer(peer2.PeerID())
+	ts.Equal("laptop", peer2OnCreator.Alias, "the invite's alias wins over the auto-accept default")
+	ts.True(peer2OnCreator.WeAllowUsingAsExitNode)
+	ts.Equal(invite.ID, peer2OnCreator.InviteID)
+
+	stored, _ := creator.app.Conf.GetInvite(invite.ID)
+	ts.Equal(1, stored.UsedCount, "the link is spent, not bypassed by auto-accept")
+}
+
+// TestInviteLinkUseAccounting covers who spends a use of a link and who does not.
+func TestInviteLinkUseAccounting(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	peer3 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(creator, peer2)
+	ts.ensurePeersAvailableInDHT(creator, peer3)
+
+	invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{MaxUses: 2})
+	ts.NoError(err)
+	link, err := entity.ParseInviteLink(invite.Link)
+	ts.NoError(err)
+
+	// One link rolling out several devices: both are added, and only then is it
+	// used up.
+	t.Run("MultiUse", func(t *testing.T) {
+		for _, redeemer := range []TestPeer{peer2, peer3} {
+			err = redeemer.api.SendFriendRequest(entity.FriendRequest{
+				PeerID: link.PeerID,
+				Alias:  "creator",
+				Token:  link.Token,
+			})
+			ts.NoError(err)
+
+			ts.Eventually(func() bool {
+				knownPeer, exists := creator.app.Conf.GetPeer(redeemer.PeerID())
+				return exists && knownPeer.Confirmed
+			}, 15*time.Second, 50*time.Millisecond)
+
+			knownPeer, _ := creator.app.Conf.GetPeer(redeemer.PeerID())
+			ts.Equal(invite.ID, knownPeer.InviteID)
+		}
+
+		invites, err := creator.api.Invites()
+		ts.NoError(err)
+		ts.Len(invites, 1)
+		ts.Equal(2, invites[0].UsedCount)
+		ts.Equal(entity.InviteStatusUsedUp, invites[0].Status)
+	})
+
+	// A peer already in KnownPeers has nothing to redeem: a retry carrying a
+	// token must not eat a use of an unrelated link.
+	t.Run("KnownPeerKeepsUse", func(t *testing.T) {
+		freshInvite, err := creator.api.CreateInvite(entity.CreateInviteRequest{})
+		ts.NoError(err)
+		freshLink, err := entity.ParseInviteLink(freshInvite.Link)
+		ts.NoError(err)
+
+		err = peer2.app.AuthStatus.SendAuthRequest(context.Background(), creator.app.P2p.PeerID(), protocol.AuthPeer{
+			Name:  "peer_2",
+			Token: freshLink.Token,
+		})
+		ts.NoError(err)
+
+		stored, _ := creator.app.Conf.GetInvite(freshInvite.ID)
+		ts.Equal(0, stored.UsedCount)
+
+		peer2OnCreator, _ := creator.app.Conf.GetPeer(peer2.PeerID())
+		ts.Equal(invite.ID, peer2OnCreator.InviteID, "the marker keeps pointing at the link the peer actually came from")
+	})
+}
+
+// TestInviteTokenSurvivesRestart: a peer added through a link stays unconfirmed
+// until the creator sees it, so its auth request is retried in the background —
+// and that retry is rebuilt from the config on every start
+// (restoreOutgoingAuths). If the token were not stored alongside the peer, a
+// restart before the creator ever came online would leave a dead "not accepted"
+// entry that no retry could revive.
+//
+// The restart is imitated rather than performed: every test peer gets a fresh
+// data dir, but the config modifier runs before app.Init — hence before
+// AuthStatus reads the config, which is the whole of what this test is about.
+func TestInviteTokenSurvivesRestart(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	err := creator.api.UpdateMySettings("alice")
+	ts.NoError(err)
+
+	invite, err := creator.api.CreateInvite(entity.CreateInviteRequest{
+		Alias:                "laptop",
+		AllowUsingAsExitNode: true,
+	})
+	ts.NoError(err)
+	link, err := entity.ParseInviteLink(invite.Link)
+	ts.NoError(err)
+
+	peer2 := ts.NewTestPeerWithConfig(func(conf *config.Config) {
+		// What AddPeer stored before the restart, plus the fields setDefaults
+		// fills in while loading a config from disk.
+		conf.KnownPeers[link.PeerID] = config.KnownPeer{
+			PeerID:             link.PeerID,
+			Name:               link.Name,
+			Alias:              link.Name,
+			IPAddr:             conf.GenerateNextIpAddr(),
+			DomainName:         awldns.TrimDomainName(link.Name),
+			CreatedAt:          time.Now(),
+			PendingInviteToken: link.Token,
+		}
+	})
+	ts.ensurePeersAvailableInDHT(creator, peer2)
+
+	// Connecting by hand rather than waiting for MaintainBackgroundConnections,
+	// which does the same thing up to five seconds later: either way it is
+	// onPeerConnected that sends the restored auth request.
+	err = peer2.app.P2p.ConnectPeer(context.Background(), creator.app.P2p.PeerID())
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		knownPeer, exists := creator.app.Conf.GetPeer(peer2.PeerID())
+		return exists && knownPeer.Confirmed
+	}, 15*time.Second, 50*time.Millisecond)
+
+	peer2OnCreator, _ := creator.app.Conf.GetPeer(peer2.PeerID())
+	ts.Equal("laptop", peer2OnCreator.Alias, "the restored retry carried the token, so the invite applied")
+	ts.True(peer2OnCreator.WeAllowUsingAsExitNode)
+	ts.Equal(invite.ID, peer2OnCreator.InviteID)
+
+	ts.Eventually(func() bool {
+		knownPeer, _ := peer2.app.Conf.GetPeer(creator.PeerID())
+		return knownPeer.Confirmed && knownPeer.PendingInviteToken == ""
+	}, 15*time.Second, 50*time.Millisecond)
+
+	invites, err := creator.api.Invites()
+	ts.NoError(err)
+	ts.Equal(1, invites[0].UsedCount)
+}
+
+// TestAddPeerRedeemsInvite exercises the redemption invariant at the one place
+// that owns it: an invite is spent inside AddPeer's critical section, so a use
+// can only ever be counted together with the peer that spent it. None of these
+// races can be provoked through the network, hence the direct calls.
+func TestAddPeerRedeemsInvite(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	creator := ts.NewTestPeer(false)
+	auth := creator.app.AuthStatus
+
+	// Two holders of a single-use link arriving together: one gets in, the rest
+	// cost the link nothing.
+	t.Run("Concurrent", func(t *testing.T) {
+		invite, err := creator.app.Conf.CreateInvite(config.CreateInviteParams{
+			MaxUses:              1,
+			Alias:                "laptop",
+			AllowUsingAsExitNode: true,
+		})
+		ts.NoError(err)
+
+		const redeemers = 20
+		peerIDs := make([]peer.ID, redeemers)
+		for i := range peerIDs {
+			peerIDs[i] = generateTestPeerID(ts)
+		}
+
+		var wg sync.WaitGroup
+		errs := make([]error, redeemers)
+		start := make(chan struct{})
+		for i, peerID := range peerIDs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				errs[i] = auth.AddPeer(context.Background(), service.AddPeerParams{
+					PeerID:            peerID,
+					Name:              fmt.Sprintf("redeemer-%d", i),
+					Confirmed:         true,
+					UniquifyAlias:     true,
+					RedeemInviteToken: invite.Token,
+				})
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		succeeded := 0
+		for _, err := range errs {
+			if err == nil {
+				succeeded++
+			}
+		}
+		ts.Equal(1, succeeded)
+
+		added := make([]config.KnownPeer, 0, 1)
+		for _, peerID := range peerIDs {
+			if knownPeer, exists := creator.app.Conf.GetPeer(peerID.String()); exists {
+				added = append(added, knownPeer)
+			}
+		}
+		ts.Len(added, 1, "a single-use invite admits exactly one peer")
+		ts.Equal("laptop", added[0].Alias, "its settings come from the invite")
+		ts.True(added[0].WeAllowUsingAsExitNode)
+		ts.Equal(invite.ID, added[0].InviteID)
+
+		stored, _ := creator.app.Conf.GetInvite(invite.ID)
+		ts.Equal(1, stored.UsedCount)
+	})
+
+	// A retry meeting onPeerConnected makes two auth streams from one peer; the
+	// loser gets "peer has already been added" and must not burn a use.
+	t.Run("AlreadyAdded", func(t *testing.T) {
+		invite, err := creator.app.Conf.CreateInvite(config.CreateInviteParams{MaxUses: 2})
+		ts.NoError(err)
+
+		params := service.AddPeerParams{
+			PeerID:            generateTestPeerID(ts),
+			Name:              "twice",
+			Confirmed:         true,
+			UniquifyAlias:     true,
+			RedeemInviteToken: invite.Token,
+		}
+		ts.NoError(auth.AddPeer(context.Background(), params))
+		ts.Error(auth.AddPeer(context.Background(), params))
+
+		stored, _ := creator.app.Conf.GetInvite(invite.ID)
+		ts.Equal(1, stored.UsedCount)
+	})
+
+	// The check in the auth handler is advisory only. If the link goes bad
+	// between it and the redemption, the peer is not quietly let in without what
+	// the link promised.
+	t.Run("Unusable", func(t *testing.T) {
+		invite, err := creator.app.Conf.CreateInvite(config.CreateInviteParams{MaxUses: 1})
+		ts.NoError(err)
+		ts.True(creator.app.Conf.RevokeInvite(invite.ID))
+
+		peerID := generateTestPeerID(ts)
+		err = auth.AddPeer(context.Background(), service.AddPeerParams{
+			PeerID:            peerID,
+			Name:              "revoked",
+			Confirmed:         true,
+			UniquifyAlias:     true,
+			RedeemInviteToken: invite.Token,
+		})
+		ts.ErrorIs(err, config.ErrInviteRevoked)
+
+		_, exists := creator.app.Conf.GetPeer(peerID.String())
+		ts.False(exists)
+	})
+}
+
+// generateTestPeerID returns a valid peer ID for peers that never connect.
+// AddPeer feeds the peer list, the DNS table and the VPN, so a fabricated
+// string would be planted in all three.
+func generateTestPeerID(ts *TestSuite) peer.ID {
+	_, pubKey, err := crypto.GenerateEd25519Key(rand.Reader)
+	ts.NoError(err)
+	peerID, err := peer.IDFromPublicKey(pubKey)
+	ts.NoError(err)
+
+	return peerID
 }
 
 func TestSOCKS5ProxyFallbackToOldProtocol(t *testing.T) {

@@ -171,34 +171,101 @@ func getPeerIdByAlias(api *apiclient.Client, alias string) (string, error) {
 	return "", fmt.Errorf("can't find peer with name \"%s\"", alias)
 }
 
-func addPeer(api *apiclient.Client, peerID, alias, ipAddr string, w io.Writer) error {
+// addPeerParams is the flags of `peers add`. A peer is named either by an
+// invite link or by a peer id; the rest is optional.
+type addPeerParams struct {
+	// Link is an invite link. With a token in it the peer auto accepts us.
+	// Without a token, link is merely a peer id with a name, and the remote peer needs to accept us.
+	Link                 string
+	PeerID               string
+	Alias                string
+	IPAddr               string
+	AllowUsingAsExitNode bool
+	// token is resolved from Link
+	token string
+}
+
+func addPeer(api *apiclient.Client, params addPeerParams, w io.Writer) error {
+	params, err := resolveAddPeerTarget(params)
+	if err != nil {
+		return err
+	}
+
 	authRequests, err := api.AuthRequests()
 	if err != nil {
 		return err
 	}
 	hasRequest := false
 	for _, req := range authRequests {
-		if req.PeerID == peerID {
+		if req.PeerID == params.PeerID {
 			hasRequest = true
 			break
 		}
 	}
 	if hasRequest {
-		err := api.ReplyFriendRequest(peerID, alias, false, ipAddr)
+		// Drop the token on purpose: a peer that already sent us a request
+		// already knows us, so FriendRequestReply intentionally carries no token.
+		err := api.ReplyFriendRequest(entity.FriendRequestReply{
+			PeerID:               params.PeerID,
+			Alias:                params.Alias,
+			IPAddr:               params.IPAddr,
+			AllowUsingAsExitNode: params.AllowUsingAsExitNode,
+		})
 		if err != nil {
 			return err
 		}
 
-		fmt.Fprintln(w, "user added to friends list successfully")
+		fmt.Fprintf(w, "successfully accepted existing invitation from the device '%s'\n", params.Alias)
 		return nil
 	}
 
-	err = api.SendFriendRequest(peerID, alias, ipAddr)
+	err = api.SendFriendRequest(entity.FriendRequest{
+		PeerID:               params.PeerID,
+		Alias:                params.Alias,
+		IPAddr:               params.IPAddr,
+		AllowUsingAsExitNode: params.AllowUsingAsExitNode,
+		Token:                params.token,
+	})
 	if err != nil {
 		return err
 	}
+
+	if params.token != "" {
+		fmt.Fprintln(w, "friend request sent with the invite link; the peer accepts it automatically once it is online")
+		return nil
+	}
 	fmt.Fprintln(w, "friend request sent successfully")
 	return nil
+}
+
+// resolveAddPeerTarget validate params and resolves an invite link.
+func resolveAddPeerTarget(params addPeerParams) (addPeerParams, error) {
+	params.Alias = strings.TrimSpace(params.Alias)
+
+	if params.Link != "" && params.PeerID != "" {
+		return params, errors.New("link and pid flags are mutually exclusive: a link already has PeerID")
+	}
+
+	if params.Link != "" {
+		link, err := entity.ParseInviteLink(params.Link)
+		if err != nil {
+			return params, err
+		}
+		params.token = link.Token
+		params.PeerID = link.PeerID
+		if params.Alias == "" {
+			params.Alias = strings.TrimSpace(link.Name)
+		}
+	}
+
+	switch {
+	case params.PeerID == "":
+		return params, errors.New("either link or pid flag is required")
+	case params.Alias == "":
+		return params, errors.New("name flag is required: the link carries no name to fall back on")
+	}
+
+	return params, nil
 }
 
 func removePeer(api *apiclient.Client, peerID string, w io.Writer) error {

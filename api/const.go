@@ -15,6 +15,11 @@ const (
 	AcceptPeerInvitationPath = V0Prefix + "peers/accept_peer"
 	GetAuthRequestsPath      = V0Prefix + "peers/auth_requests"
 
+	// Invite links
+	CreateInvitePath = V0Prefix + "peers/invites/create"
+	GetInvitesPath   = V0Prefix + "peers/invites/list"
+	RevokeInvitePath = V0Prefix + "peers/invites/revoke"
+
 	// Settings
 	GetMyPeerInfoPath        = V0Prefix + "settings/peer_info"
 	UpdateMyInfoPath         = V0Prefix + "settings/update"

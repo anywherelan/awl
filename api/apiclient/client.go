@@ -99,22 +99,11 @@ func (c *Client) UpdateProxySettings(usingPeerID string) error {
 	return c.sendPostRequest(api.UpdateProxySettingsPath, request, nil)
 }
 
-func (c *Client) SendFriendRequest(peerID, alias string, ipAddr string) error {
-	request := entity.FriendRequest{
-		PeerID: peerID,
-		Alias:  alias,
-		IPAddr: ipAddr,
-	}
+func (c *Client) SendFriendRequest(request entity.FriendRequest) error {
 	return c.sendPostRequest(api.SendFriendRequestPath, request, nil)
 }
 
-func (c *Client) ReplyFriendRequest(peerID, alias string, decline bool, ipAddr string) error {
-	request := entity.FriendRequestReply{
-		PeerID:  peerID,
-		Alias:   alias,
-		Decline: decline,
-		IPAddr:  ipAddr,
-	}
+func (c *Client) ReplyFriendRequest(request entity.FriendRequestReply) error {
 	return c.sendPostRequest(api.AcceptPeerInvitationPath, request, nil)
 }
 
@@ -125,6 +114,29 @@ func (c *Client) AuthRequests() ([]entity.AuthRequest, error) {
 		return nil, err
 	}
 	return authRequests, nil
+}
+
+func (c *Client) CreateInvite(request entity.CreateInviteRequest) (*entity.InviteResponse, error) {
+	invite := new(entity.InviteResponse)
+	err := c.sendPostRequest(api.CreateInvitePath, request, invite)
+	if err != nil {
+		return nil, err
+	}
+	return invite, nil
+}
+
+func (c *Client) Invites() ([]entity.InviteResponse, error) {
+	invites := make([]entity.InviteResponse, 0)
+	err := c.sendGetRequest(api.GetInvitesPath, &invites)
+	if err != nil {
+		return nil, err
+	}
+	return invites, nil
+}
+
+func (c *Client) RevokeInvite(id string) error {
+	request := entity.RevokeInviteRequest{ID: id}
+	return c.sendPostRequest(api.RevokeInvitePath, request, nil)
 }
 
 func (c *Client) BlockedPeers() ([]config.BlockedPeer, error) {

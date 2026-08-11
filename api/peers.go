@@ -11,6 +11,7 @@ import (
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
+	"github.com/anywherelan/awl/service"
 )
 
 const ErrorPeerAliasIsNotUniq = "peer name is not unique"
@@ -56,6 +57,7 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 			WeAllowUsingAsExitNode:        knownPeer.WeAllowUsingAsExitNode,
 			AllowedUsingAsExitNode:        knownPeer.AllowedUsingAsExitNode,
 			RemoteVPNGatewayServerEnabled: knownPeer.RemoteVPNGatewayServerEnabled,
+			InviteID:                      knownPeer.InviteID,
 			LastSeen:                      knownPeer.LastSeen,
 			Connections:                   h.p2p.PeerConnectionsInfo(id),
 			NetworkStats:                  netStats,
@@ -182,7 +184,13 @@ func (h *Handler) SendFriendRequest(c echo.Context) (err error) {
 			ErrorMessage("You can't add yourself"))
 	}
 
-	err = h.authStatus.AddPeer(h.ctx, peerId, "", req.Alias, false, req.IPAddr)
+	err = h.authStatus.AddPeer(h.ctx, service.AddPeerParams{
+		PeerID:               peerId,
+		Alias:                req.Alias,
+		IPAddr:               req.IPAddr,
+		AllowUsingAsExitNode: req.AllowUsingAsExitNode,
+		PendingInviteToken:   req.Token,
+	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
 	}
@@ -230,7 +238,14 @@ func (h *Handler) AcceptFriend(c echo.Context) (err error) {
 		return c.NoContent(http.StatusOK)
 	}
 
-	err = h.authStatus.AddPeer(h.ctx, peerId, auth.Name, req.Alias, true, req.IPAddr)
+	err = h.authStatus.AddPeer(h.ctx, service.AddPeerParams{
+		PeerID:               peerId,
+		Name:                 auth.Name,
+		Alias:                req.Alias,
+		Confirmed:            true,
+		IPAddr:               req.IPAddr,
+		AllowUsingAsExitNode: req.AllowUsingAsExitNode,
+	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
 	}

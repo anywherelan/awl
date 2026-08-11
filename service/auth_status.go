@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -27,7 +28,6 @@ const (
 
 type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
-	PeerID() peer.ID
 	IsConnected(peerID peer.ID) bool
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	NewStreamMulti(ctx context.Context, id peer.ID, protos ...libp2pProtocol.ID) (network.Stream, error)
@@ -44,10 +44,15 @@ type AuthStatus struct {
 	p2p           P2p
 	conf          *config.Config
 	authsEmitter  awlevent.Emitter
+	inviteEmitter awlevent.Emitter
 }
 
 func NewAuthStatus(p2pService P2p, conf *config.Config, eventbus awlevent.Bus) *AuthStatus {
 	emitter, err := eventbus.Emitter(new(awlevent.ReceivedAuthRequest))
+	if err != nil {
+		panic(err)
+	}
+	inviteEmitter, err := eventbus.Emitter(new(awlevent.InviteRedeemed))
 	if err != nil {
 		panic(err)
 	}
@@ -59,6 +64,7 @@ func NewAuthStatus(p2pService P2p, conf *config.Config, eventbus awlevent.Bus) *
 		p2p:           p2pService,
 		conf:          conf,
 		authsEmitter:  emitter,
+		inviteEmitter: inviteEmitter,
 	}
 	auth.restoreOutgoingAuths()
 	p2pService.SubscribeConnectionEvents(auth.onPeerConnected, auth.onPeerDisconnected)
@@ -151,6 +157,12 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 
 func (s *AuthStatus) BlockPeer(peerID peer.ID, name string) {
 	s.conf.UpsertBlockedPeer(peerID.String(), name)
+
+	// Stop retrying our own auth request to a peer we just blocked or removed.
+	s.authsLock.Lock()
+	delete(s.outgoingAuths, peerID)
+	s.authsLock.Unlock()
+
 	go func() {
 		_ = s.ExchangeNewStatusInfo(context.Background(), peerID, config.KnownPeer{})
 	}()
@@ -192,23 +204,21 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 		s.conf.UpdatePeerFields(peerID, func(peer *config.KnownPeer) {
 			peer.LastSeen = time.Now()
 			peer.Declined = true
+			peer.PendingInviteToken = ""
 		})
 
-		s.conf.Lock()
-		defer s.conf.Unlock()
-		if s.conf.SOCKS5.UsingPeerID == peerID {
-			s.conf.SOCKS5.UsingPeerID = ""
-		}
+		s.clearSelectedExitNode(peerID)
 
 		return
 	}
 
-	var allowedUsingAsExitNode bool
 	s.conf.UpdatePeerFields(peerID, func(peer *config.KnownPeer) {
 		peer.LastSeen = time.Now()
 		peer.Name = peerInfo.Name
 		peer.Confirmed = true
 		peer.Declined = false
+		// The invite token has done its job once the peer confirms us
+		peer.PendingInviteToken = ""
 		if peer.DomainName == "" {
 			peer.DomainName = awldns.TrimDomainName(peer.DisplayName())
 		}
@@ -220,19 +230,26 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 		}
 		peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode
 		peer.RemoteVPNGatewayServerEnabled = peerInfo.VPNGatewayServerEnabled
-		allowedUsingAsExitNode = peer.AllowedUsingAsExitNode
 	})
 
+	if !peerInfo.AllowUsingAsExitNode {
+		s.clearSelectedExitNode(peerID)
+	}
+}
+
+// clearSelectedExitNode drops peerID as our SOCKS5 exit node if it is the one
+// currently selected. Called when the peer declines us or revokes the
+// permission: we never select an exit node on the peer's behalf, but we do stop
+// using one that no longer allows it.
+func (s *AuthStatus) clearSelectedExitNode(peerID string) {
 	s.conf.Lock()
 	defer s.conf.Unlock()
 
-	if allowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == "" {
-		s.conf.SOCKS5.UsingPeerID = peerID
+	if s.conf.SOCKS5.UsingPeerID != peerID {
+		return
 	}
-
-	if !allowedUsingAsExitNode && s.conf.SOCKS5.UsingPeerID == peerID {
-		s.conf.SOCKS5.UsingPeerID = ""
-	}
+	s.conf.SOCKS5.UsingPeerID = ""
+	s.conf.Save()
 }
 
 func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
@@ -249,13 +266,37 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 		return
 	}
 
+	// The invite token is a bearer secret: it is consumed here and dropped, so
+	// that it is never stored in ingoingAuths, emitted, or returned by API.
+	inviteToken := authPeer.Token
+	authPeer.Token = ""
+
 	_, isBlocked := s.conf.GetBlockedPeer(peerID)
-	_, confirmed := s.conf.GetPeer(peerID)
+	_, known := s.conf.GetPeer(peerID)
 	s.conf.RLock()
 	autoAccept := s.conf.P2pNode.AutoAcceptAuthRequests
 	s.conf.RUnlock()
 
-	if !confirmed && !isBlocked && !autoAccept {
+	// An invite only ever lets a new peer in.
+	// A peer already in KnownPeers is kept as is, we don't apply settings from the invite to it.
+	// Blocking outranks an invite.
+	var (
+		invite      config.Invite
+		inviteValid bool
+	)
+	if !isBlocked && !known {
+		invite, inviteValid = s.checkInvite(inviteToken, peerID)
+	}
+
+	if !isBlocked && !known && (inviteValid || autoAccept) {
+		// A false here means the add lost a race for the invite.
+		known = s.addPeerFromAuth(remotePeer, authPeer, invite, inviteValid)
+	}
+
+	// Whoever we did not take in above is offered for a manual accept.
+	// This is the ordinary path for a peer with no invite and no auto-accept, and the
+	// fallback for an auto-add that lost a race.
+	if !isBlocked && !known {
 		s.authsLock.Lock()
 		s.ingoingAuths[remotePeer] = authPeer
 		s.authsLock.Unlock()
@@ -264,13 +305,8 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 			PeerID:   peerID,
 		})
 	}
-	if !confirmed && !isBlocked && autoAccept {
-		defer func() {
-			_ = s.AddPeer(context.Background(), remotePeer, authPeer.Name, s.conf.GenUniqPeerAlias(authPeer.Name, ""), true, "")
-		}()
-	}
 
-	authResponse := protocol.AuthPeerResponse{Confirmed: confirmed, Declined: isBlocked}
+	authResponse := protocol.AuthPeerResponse{Confirmed: known, Declined: isBlocked}
 	err = protocol.SendAuthResponse(stream, authResponse)
 	if err != nil {
 		s.logger.Errorf("sending auth response to %s as an answer: %v", peerID, err)
@@ -278,6 +314,81 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	}
 
 	s.logger.Infof("Successfully received auth from %s (%s)", authPeer.Name, peerID)
+}
+
+// checkInvite looks up a token from an auth request, without consuming anything.
+func (s *AuthStatus) checkInvite(token, peerID string) (config.Invite, bool) {
+	if token == "" {
+		return config.Invite{}, false
+	}
+
+	invite, err := s.conf.CheckInvite(token)
+	if err != nil {
+		if reason := inviteRejectionReason(err); reason != "" {
+			metrics.InviteTokensRejectedTotal.WithLabelValues(reason).Inc()
+		}
+		s.logger.Infof("peer %s presented an unusable invite token: %v", peerID, err)
+		return config.Invite{}, false
+	}
+
+	return invite, true
+}
+
+func inviteRejectionReason(err error) string {
+	switch {
+	case errors.Is(err, config.ErrInviteExpired):
+		return "expired"
+	case errors.Is(err, config.ErrInviteRevoked):
+		return "revoked"
+	case errors.Is(err, config.ErrInviteUsedUp):
+		return "used_up"
+	case errors.Is(err, config.ErrInviteNotFound):
+		return "unknown"
+	}
+	return ""
+}
+
+// addPeerFromAuth adds a peer that arrived with a valid invite token or under AutoAcceptAuthRequests.
+// A valid token has a priority and applies the invite's settings.
+func (s *AuthStatus) addPeerFromAuth(remotePeer peer.ID, authPeer protocol.AuthPeer, invite config.Invite, inviteValid bool) bool {
+	params := AddPeerParams{
+		PeerID:        remotePeer,
+		Name:          authPeer.Name,
+		Confirmed:     true,
+		UniquifyAlias: true,
+	}
+	if inviteValid {
+		// The invite's own settings are read by AddPeer, from the invite it
+		// redeems — not copied from the check above, which is only advisory.
+		params.RedeemInviteToken = invite.Token
+	}
+
+	err := s.AddPeer(context.Background(), params)
+	if err != nil {
+		// Also covers the invite going unusable between the check above and the
+		// redemption inside AddPeer (two holders of a single-use link arriving together).
+		if reason := inviteRejectionReason(err); reason != "" {
+			metrics.InviteTokensRejectedTotal.WithLabelValues(reason).Inc()
+		}
+		s.logger.Errorf("failed to auto-add peer %s (from invite: %v) %s: %v", params.Name, inviteValid, params.PeerID, err)
+		return false
+	}
+
+	if inviteValid {
+		s.onInviteRedeemed(remotePeer.String(), params.Name, invite.ID)
+	}
+
+	return true
+}
+
+func (s *AuthStatus) onInviteRedeemed(peerID, peerName, inviteID string) {
+	metrics.InvitesRedeemedTotal.Inc()
+	s.logger.Infof("peer %s %s was added automatically through invite %s", peerName, peerID, inviteID)
+	// TODO: surface this in the UI, or at least as a tray notification
+	_ = s.inviteEmitter.Emit(awlevent.InviteRedeemed{
+		PeerID:   peerID,
+		InviteID: inviteID,
+	})
 }
 
 func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req protocol.AuthPeer) error {
@@ -326,9 +437,43 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	return nil
 }
 
-func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias string, confirmed bool, ipAddr string) error {
+// AddPeerParams describes a peer about to be added to KnownPeers. It is a
+// struct rather than a positional argument list because the callers set
+// different subsets of it (an outgoing invite, an accepted request, an
+// auto-accepted one), and because it keeps growing.
+type AddPeerParams struct {
+	PeerID peer.ID
+	// Name is how the peer calls itself; empty when we invite it first and
+	// learn the name later from the status exchange.
+	Name string
+	// Alias is the local name for the peer, chosen by us.
+	Alias string
+	// UniquifyAlias makes a clashing (or empty) Alias be resolved into a free
+	// one instead of failing, under the same lock that inserts the peer. Set it
+	// on paths with no user to report a clash to; a user-driven add leaves it
+	// false so the error reaches the form that caused it.
+	UniquifyAlias bool
+	// Confirmed reports whether the peer has already confirmed us, i.e. we are
+	// accepting its request rather than sending our own.
+	Confirmed bool
+	// IPAddr is the VPN address for the peer. Generated when empty.
+	IPAddr string
+	// AllowUsingAsExitNode lets the peer use us as a SOCKS5 / VPN Gateway exit node.
+	// Announced to it by the status exchange, see createPeerInfo.
+	AllowUsingAsExitNode bool
+	// RedeemInviteToken is a token of OUR invite, presented to us by the peer.
+	// AddPeer spends one use of the matching invite and takes Alias,
+	// AllowUsingAsExitNode and InviteID from it, overriding whatever was passed here.
+	RedeemInviteToken string
+	// PendingInviteToken is the invite token we present to the peer until it
+	// confirms us. Set on the side that redeems a link.
+	PendingInviteToken string
+}
+
+func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
+	peerID := params.PeerID
 	peerIDStr := peerID.String()
-	alias = strings.TrimSpace(alias)
+	alias := strings.TrimSpace(params.Alias)
 
 	s.conf.RemoveBlockedPeer(peerIDStr)
 
@@ -337,10 +482,24 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias st
 		s.conf.Unlock()
 		return fmt.Errorf("peer has already been added")
 	}
-	if !s.conf.IsUniqPeerAliasUnlocked("", alias) {
+	inviteID := ""
+	if params.RedeemInviteToken != "" {
+		invite, err := s.conf.ReserveInviteUnlocked(params.RedeemInviteToken)
+		if err != nil {
+			s.conf.Unlock()
+			return fmt.Errorf("redeeming invite: %w", err)
+		}
+		alias = strings.TrimSpace(invite.Alias)
+		params.AllowUsingAsExitNode = invite.WeAllowUsingAsExitNode
+		inviteID = invite.ID
+	}
+	if params.UniquifyAlias {
+		alias = s.conf.GenUniqPeerAliasUnlocked(params.Name, alias)
+	} else if !s.conf.IsUniqPeerAliasUnlocked("", alias) {
 		s.conf.Unlock()
 		return fmt.Errorf("peer name is not unique")
 	}
+	ipAddr := params.IPAddr
 	if ipAddr != "" {
 		if err := s.conf.CheckIPUnique(ipAddr, peerIDStr); err != nil {
 			s.conf.Unlock()
@@ -351,12 +510,15 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias st
 	}
 
 	newPeerConfig := config.KnownPeer{
-		PeerID:    peerIDStr,
-		Name:      name,
-		Alias:     alias,
-		IPAddr:    ipAddr,
-		Confirmed: confirmed,
-		CreatedAt: time.Now(),
+		PeerID:                 peerIDStr,
+		Name:                   params.Name,
+		Alias:                  alias,
+		IPAddr:                 ipAddr,
+		Confirmed:              params.Confirmed,
+		CreatedAt:              time.Now(),
+		WeAllowUsingAsExitNode: params.AllowUsingAsExitNode,
+		InviteID:               inviteID,
+		PendingInviteToken:     params.PendingInviteToken,
 	}
 	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
 	s.conf.UpsertPeerUnlocked(newPeerConfig)
@@ -372,9 +534,10 @@ func (s *AuthStatus) AddPeer(ctx context.Context, peerID peer.ID, name, alias st
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if !confirmed {
+		if !params.Confirmed {
 			authPeer := protocol.AuthPeer{
-				Name: s.conf.NodeName(),
+				Name:  s.conf.NodeName(),
+				Token: params.PendingInviteToken,
 			}
 			_ = s.SendAuthRequest(ctx, peerID, authPeer)
 		}
@@ -463,7 +626,8 @@ func (s *AuthStatus) restoreOutgoingAuths() {
 	for _, knownPeer := range s.conf.KnownPeers {
 		if !knownPeer.Confirmed && !knownPeer.Declined {
 			outgoingAuths[knownPeer.PeerId()] = protocol.AuthPeer{
-				Name: peerName,
+				Name:  peerName,
+				Token: knownPeer.PendingInviteToken,
 			}
 		}
 	}

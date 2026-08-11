@@ -9,6 +9,7 @@ import (
 	http_pprof "net/http/pprof"
 	"runtime/pprof"
 	"strings"
+	"unicode"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/ipfs/go-log/v2"
@@ -114,6 +115,10 @@ func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 	if err != nil {
 		return nil, err
 	}
+	err = val.RegisterValidation("no_control_chars", validateNoControlChars, false)
+	if err != nil {
+		return nil, err
+	}
 
 	e.Validator = &customValidator{validator: val}
 
@@ -150,6 +155,9 @@ func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 	e.POST(RemovePeerSettingsPath, h.RemovePeer)
 	e.GET(GetAuthRequestsPath, h.GetAuthRequests)
 	e.GET(GetBlockedPeersPath, h.GetBlockedPeers)
+	e.POST(CreateInvitePath, h.CreateInvite)
+	e.GET(GetInvitesPath, h.GetInvites)
+	e.POST(RevokeInvitePath, h.RevokeInvite)
 
 	// Settings
 	e.GET(GetMyPeerInfoPath, h.GetMyPeerInfo)
@@ -262,4 +270,8 @@ func validateTrimmedStringNotEmpty(fl validator.FieldLevel) bool {
 	str := fl.Field().String()
 	str = strings.TrimSpace(str)
 	return len(str) > 0
+}
+
+func validateNoControlChars(fl validator.FieldLevel) bool {
+	return !strings.ContainsFunc(fl.Field().String(), unicode.IsControl)
 }

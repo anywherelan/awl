@@ -77,6 +77,7 @@ type (
 		DNS                   DNSConfig              `json:"dns"`
 		KnownPeers            map[string]KnownPeer   `json:"knownPeers"`
 		BlockedPeers          map[string]BlockedPeer `json:"blockedPeers"`
+		Invites               map[string]Invite      `json:"invites"`
 		Update                UpdateConfig           `json:"update"`
 	}
 	P2pNodeConfig struct {
@@ -165,6 +166,39 @@ type (
 		// (also from status) it determines whether this peer is currently a valid
 		// VPN gateway target for us — see KnownPeer.CanUseAsVPNGateway.
 		RemoteVPNGatewayServerEnabled bool `json:"remoteVPNGatewayServerEnabled"`
+		// InviteID marks a peer we let in through one of our invite links
+		// (Config.Invites). Non-secret, kept forever: it is what lets the UI say
+		// "added via invite X".
+		InviteID string `json:"inviteID,omitempty"`
+		// PendingInviteToken is the secret from an invite link we are redeeming:
+		// we present it in every auth request until the peer confirms us, then it
+		// is dropped. Set only on the side that used the link.
+		PendingInviteToken string `json:"pendingInviteToken,omitempty"`
+	}
+	// Invite is a link we handed out: whoever presents Token is added
+	// automatically, with the settings stored here, until the invite is used up,
+	// expires or is revoked. Invites are kept forever, including spent ones, as
+	// history and as the target of KnownPeer.InviteID.
+	Invite struct {
+		// ID is a short non-secret identifier, the key in Config.Invites. UI, CLI
+		// and logs refer to an invite by it so the token stays out of sight.
+		ID string `json:"id"`
+		// Token is the bearer secret embedded in the link. Stored in the clear
+		// because the link has to be displayable again.
+		Token string `json:"token"`
+		// Label is an optional human-readable note.
+		Label string `json:"label,omitempty"`
+		// Alias to give the new peer; single-use invites only, aliases are unique.
+		Alias string `json:"alias,omitempty"`
+		// WeAllowUsingAsExitNode is applied to the new peer's KnownPeer.
+		WeAllowUsingAsExitNode bool `json:"weAllowUsingAsExitNode"`
+		MaxUses                int  `json:"maxUses"`
+		UsedCount              int  `json:"usedCount"`
+		// ExpiresAt is checked against our own clock at redemption time; zero
+		// means the invite never expires.
+		ExpiresAt time.Time `json:"expiresAt"`
+		CreatedAt time.Time `json:"createdAt"`
+		Revoked   bool      `json:"revoked"`
 	}
 	BlockedPeer struct {
 		// Hex-encoded multihash representing a peer ID

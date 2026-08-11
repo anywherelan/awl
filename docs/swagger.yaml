@@ -42,6 +42,42 @@ definitions:
       username:
         type: string
     type: object
+  config.Invite:
+    properties:
+      alias:
+        description: Alias to give the new peer; single-use invites only, aliases
+          are unique.
+        type: string
+      createdAt:
+        type: string
+      expiresAt:
+        description: |-
+          ExpiresAt is checked against our own clock at redemption time; zero
+          means the invite never expires.
+        type: string
+      id:
+        description: |-
+          ID is a short non-secret identifier, the key in Config.Invites. UI, CLI
+          and logs refer to an invite by it so the token stays out of sight.
+        type: string
+      label:
+        description: Label is an optional human-readable note.
+        type: string
+      maxUses:
+        type: integer
+      revoked:
+        type: boolean
+      token:
+        description: |-
+          Token is the bearer secret embedded in the link. Stored in the clear
+          because the link has to be displayable again.
+        type: string
+      usedCount:
+        type: integer
+      weAllowUsingAsExitNode:
+        description: WeAllowUsingAsExitNode is applied to the new peer's KnownPeer.
+        type: boolean
+    type: object
   config.KnownPeer:
     properties:
       alias:
@@ -61,8 +97,17 @@ definitions:
       domainName:
         description: DomainName without zone suffix (.awl)
         type: string
+      inviteID:
+        description: |-
+          InviteID marks a peer we let in through one of our invite links
+          (Config.Invites). Non-secret, kept forever: it is what lets the UI say
+          "added via invite X".
+        type: string
       ipAddr:
         description: IPAddr used for forwarding
+        type: string
+      ipAddrV6:
+        description: IPAddrV6 used for IPv6 overlay forwarding (derived from peerID)
         type: string
       lastSeen:
         description: Time of last connection
@@ -72,6 +117,12 @@ definitions:
         type: string
       peerId:
         description: Hex-encoded multihash representing a peer ID
+        type: string
+      pendingInviteToken:
+        description: |-
+          PendingInviteToken is the secret from an invite link we are redeeming:
+          we present it in every auth request until the peer confirms us, then it
+          is dropped. Set only on the side that used the link.
         type: string
       remoteVPNGatewayServerEnabled:
         description: |-
@@ -151,6 +202,8 @@ definitions:
         type: string
       ipNet:
         type: string
+      ipNetV6:
+        type: string
     type: object
   config.VPNGatewayConfig:
     properties:
@@ -228,6 +281,33 @@ definitions:
         format: int64
         type: integer
     type: object
+  entity.CreateInviteRequest:
+    properties:
+      alias:
+        description: Alias to give the peer that redeems the link. Single-use links
+          only.
+        maxLength: 100
+        type: string
+      allowUsingAsExitNode:
+        description: AllowUsingAsExitNode lets the new peer use us as an exit node.
+        type: boolean
+      expiresInSeconds:
+        description: |-
+          ExpiresInSeconds: 0 means the invite never expires. A number rather
+          than a duration string, as with ReconnectionIntervalSec; clients parse
+          "24h" on their side. Maximum is 365 days.
+        maximum: 31536000
+        minimum: 0
+        type: integer
+      label:
+        maxLength: 100
+        type: string
+      maxUses:
+        description: 'MaxUses: 0 means the default, 1 (single-use).'
+        maximum: 100
+        minimum: 0
+        type: integer
+    type: object
   entity.DhtDebugInfo:
     properties:
       bootstrapPeers:
@@ -276,10 +356,19 @@ definitions:
     properties:
       alias:
         type: string
+      allowUsingAsExitNode:
+        description: 'optional: allow the peer to use us as an exit node'
+        type: boolean
       ipaddr:
         description: 'optional: specific IP address for the peer'
         type: string
       peerID:
+        type: string
+      token:
+        description: |-
+          optional: token from an invite link (see InviteLink.Token). It is
+          stored with the peer and presented in every auth request until the
+          peer confirms us, which it then does without a manual accept.
         type: string
     required:
     - alias
@@ -289,6 +378,9 @@ definitions:
     properties:
       alias:
         type: string
+      allowUsingAsExitNode:
+        description: 'optional: allow the peer to use us as an exit node'
+        type: boolean
       decline:
         type: boolean
       ipaddr:
@@ -306,6 +398,42 @@ definitions:
         type: string
       version:
         type: string
+    type: object
+  entity.InviteResponse:
+    properties:
+      alias:
+        type: string
+      allowUsingAsExitNode:
+        type: boolean
+      createdAt:
+        type: string
+      expiresAt:
+        description: ExpiresAt zero means the invite never expires.
+        type: string
+      id:
+        type: string
+      label:
+        type: string
+      link:
+        description: |-
+          Link is rebuilt on every request from the current node name, so
+          renaming this node changes the link shown here while links already
+          handed out keep working — the name plays no part in validation.
+        type: string
+      maxUses:
+        type: integer
+      revoked:
+        type: boolean
+      status:
+        description: Status is derived from the fields above for display.
+        enum:
+          - active
+          - expired
+          - used_up
+          - revoked
+        type: string
+      usedCount:
+        type: integer
     type: object
   entity.KnownPeersResponse:
     properties:
@@ -328,7 +456,14 @@ definitions:
         type: string
       domainName:
         type: string
+      inviteID:
+        description: |-
+          InviteID is set when we let this peer in through one of our invite
+          links; empty otherwise. Non-secret, see config.KnownPeer.InviteID.
+        type: string
       ipAddr:
+        type: string
+      ipAddrV6:
         type: string
       lastSeen:
         type: string
@@ -420,6 +555,13 @@ definitions:
         $ref: '#/definitions/entity.VPNInfo'
       vpngateway:
         $ref: '#/definitions/entity.VPNGatewayInfo'
+    type: object
+  entity.RevokeInviteRequest:
+    properties:
+      id:
+        type: string
+    required:
+      - id
     type: object
   entity.SOCKS5Info:
     properties:
@@ -519,6 +661,8 @@ definitions:
         type: string
       ipnet:
         type: string
+      ipv6Addr:
+        type: string
       vpninterfaceEnabled:
         type: boolean
     type: object
@@ -536,6 +680,10 @@ definitions:
         type: string
       httpListenOnAdminHost:
         type: boolean
+      invites:
+        additionalProperties:
+          $ref: '#/definitions/config.Invite'
+        type: object
       knownPeers:
         additionalProperties:
           $ref: '#/definitions/config.KnownPeer'
@@ -788,6 +936,79 @@ paths:
           schema:
             $ref: '#/definitions/api.Error'
       summary: Invite new peer
+      tags:
+        - Peers
+  /peers/invites/create:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.CreateInviteRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.InviteResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create an invite link
+      tags:
+        - Peers
+  /peers/invites/list:
+    get:
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/entity.InviteResponse'
+            type: array
+      summary: Get invite links
+      tags:
+        - Peers
+  /peers/invites/revoke:
+    post:
+      consumes:
+        - application/json
+      description: Stops new connections through the link; peers already added stay.
+      parameters:
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.RevokeInviteRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Revoke an invite link
       tags:
       - Peers
   /peers/remove:
