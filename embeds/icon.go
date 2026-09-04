@@ -65,7 +65,7 @@ func EmbedIcon() (string, error) {
 	equal := checkIsFileEqual(iconPath, appIcon)
 	if equal {
 		appIconPath = iconPath
-		return iconDir, nil
+		return iconPath, nil
 	}
 
 	err = os.WriteFile(iconPath, appIcon, iconMode)
@@ -76,7 +76,7 @@ func EmbedIcon() (string, error) {
 
 	appIconPath = iconPath
 
-	return iconDir, nil
+	return iconPath, nil
 }
 
 func RemoveIconIfNeeded() error {
