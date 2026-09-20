@@ -72,7 +72,7 @@ gobuild-macos() {
     archive_name="$name-macos-$arch-$VERSION.zip"
     filename="$name"
     CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-buildid= -s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
-    zip "$archive_name" "$filename"
+    zip "$archive_name" "$filename" "$awldir/embeds/Icon.png" "$awldir/tools/install-awl-tray-app.sh"
     rm "$filename"
     mv "$archive_name" "$builddir"
   done
