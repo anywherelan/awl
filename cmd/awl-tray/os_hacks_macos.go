@@ -18,6 +18,8 @@ import (
 )
 
 func initOSSpecificHacks() {
+	exitIfTranslocated()
+
 	uid := os.Geteuid()
 	if uid != 0 {
 		fmt.Printf("process is run under non-root uid: %d, ask for root permissions with osascript\n", uid)
@@ -39,6 +41,24 @@ func openURL(input string) error {
 
 func getRealUserID() (uint32, bool) {
 	return 0, false
+}
+
+// exitIfTranslocated asks the user to move the app to Applications and exits, if the app runs translocated.
+// macOS runs a quarantined app that wasn't moved in Finder (e.g. started right from the disk image window)
+// from a random read-only path (App Translocation), which changes on every launch.
+func exitIfTranslocated() {
+	executable, err := os.Executable()
+	if err != nil || !strings.Contains(executable, "/AppTranslocation/") {
+		return
+	}
+
+	fmt.Printf("app is translocated, refusing to run: %s\n", executable)
+	err = zenity.Info("Anywherelan can't run from here. Drag it to the Applications folder in Finder, then open it from there.",
+		zenity.Title("Move Anywherelan to Applications"))
+	if err != nil {
+		fmt.Printf("error showing dialog: %v\n", err)
+	}
+	os.Exit(0)
 }
 
 // osascript error number when the user presses Cancel in the password dialog
