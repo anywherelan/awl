@@ -8,6 +8,10 @@ tempdir=$(dirname $(mktemp -u))
 
 wintun_version="wintun-0.14.1"
 
+# minimum macOS version for awl-tray: MACOSX_DEPLOYMENT_TARGET and LSMinimumSystemVersion.
+# keep in sync with Go's minimum macOS version
+MACOS_MIN_VERSION="13.0"
+
 # until https://github.com/golang/go/issues/37475 is implemented
 VERSION=$(git describe --tags --always --abbrev=8 --dirty)
 
@@ -65,17 +69,70 @@ gobuild-linux() {
   done
 }
 
-# build for macOS
+# generate AppIcon.icns from 1024x1024 png, macOS only
+build-macos-icon() {
+  src_png="$1"
+  out_icns="$2"
+  iconset="$(mktemp -d)/AppIcon.iconset"
+  mkdir -p "$iconset"
+  for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$src_png" --out "$iconset/icon_${size}x${size}.png" >/dev/null || exit 1
+    sips -z $((size * 2)) $((size * 2)) "$src_png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null || exit 1
+  done
+  iconutil -c icns "$iconset" -o "$out_icns" || exit 1
+  rm -rf "$(dirname "$iconset")"
+}
+
+# assemble and ad-hoc sign Anywherelan.app, macOS only
+build-macos-app() {
+  binary="$1"
+  icns="$2"
+  app="$3"
+  macosdir="$awldir/cmd/awl-tray/macos"
+  # v0.20.0-3-gabcdef12-dirty -> 0.20.0
+  bundle_version="${VERSION#v}"
+  bundle_version="${bundle_version%%-*}"
+
+  rm -rf "$app"
+  mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+  cp "$binary" "$app/Contents/MacOS/awl-tray"
+  cp "$icns" "$app/Contents/Resources/AppIcon.icns"
+  sed -e "s/@VERSION@/$bundle_version/g" -e "s/@MACOS_MIN_VERSION@/$MACOS_MIN_VERSION/g" \
+    "$macosdir/Info.plist" >"$app/Contents/Info.plist"
+  plutil -lint "$app/Contents/Info.plist" || exit 1
+
+  # the whole bundle is signed: the signature of the binary covers Info.plist and resources
+  codesign --force -s - "$app" || exit 1
+  codesign --verify --deep --strict "$app" || exit 1
+}
+
+# build for macOS: Anywherelan.app in a dmg
 gobuild-macos() {
   name="$1"
+  icns="$(mktemp -d)/AppIcon.icns"
+  build-macos-icon "$awldir/cmd/awl-tray/macos/AppIcon-1024.png" "$icns"
   for arch in amd64 arm64; do
-    archive_name="$name-macos-$arch-$VERSION.zip"
+    archive_name="$name-macos-$arch-$VERSION.dmg"
     filename="$name"
-    CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-buildid= -s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
-    zip "$archive_name" "$filename"
+    MACOSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-buildid= -s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename" || exit 1
+
+    minos="$(otool -l "$filename" | awk '/LC_BUILD_VERSION/ {found = 1} found && $1 == "minos" {print $2; exit}')"
+    if [ "$minos" != "$MACOS_MIN_VERSION" ]; then
+      echo "error: $filename ($arch) has minos '$minos', expected '$MACOS_MIN_VERSION'"
+      exit 1
+    fi
+
+    staging="$(mktemp -d)"
+    build-macos-app "$filename" "$icns" "$staging/Anywherelan.app"
+    ln -s /Applications "$staging/Applications"
+    hdiutil create -volname Anywherelan -srcfolder "$staging" -format UDZO -ov "$archive_name" || exit 1
+    hdiutil verify "$archive_name" || exit 1
+
+    rm -rf "$staging"
     rm "$filename"
     mv "$archive_name" "$builddir"
   done
+  rm -rf "$(dirname "$icns")"
 }
 
 # build for windows OS
