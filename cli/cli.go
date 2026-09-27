@@ -57,6 +57,10 @@ func (a *Application) Run() {
 	if len(os.Args) == 1 {
 		return
 	}
+	// macOS passes -psn_X_Y (process serial number) to an app bundle on the first launch of a quarantined app
+	if runtime.GOOS == "darwin" && strings.HasPrefix(os.Args[1], "-psn_") {
+		return
+	}
 
 	switch arg := os.Args[1]; arg {
 	case WithEnvCommandName:
