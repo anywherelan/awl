@@ -18,7 +18,9 @@ For instructions on how to install anywherelan [see readme](https://github.com/a
 {{range .AwlTrayWindows7}}
 [{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
 
-### macOS binary builds
+### macOS app
+
+(arm64 — Apple Silicon, amd64 — Intel)
 
 {{range .AwlTrayMacos}}
 [{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}

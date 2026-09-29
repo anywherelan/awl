@@ -37,6 +37,9 @@ var (
 		if config.IsWindows7 == "true" {
 			return "windows7"
 		}
+		if runtime.GOOS == "darwin" {
+			return "macos"
+		}
 		return runtime.GOOS
 	}()
 	awlFilenamesRegex     = regexp.MustCompile(fmt.Sprintf("awl-%s-%s.*", goos, runtime.GOARCH))
@@ -135,7 +138,18 @@ func (uc *UpdateService) CheckForUpdates() (bool, error) {
 	return status, nil
 }
 
+// ReleasePageURL returns the GitHub release page of the new version.
+func (uc *UpdateService) ReleasePageURL() string {
+	return fmt.Sprintf("https://github.com/%s/%s/releases/tag/%s", gitUserName, gitRepoName, uc.NewVersion.VersionTag())
+}
+
 func (uc *UpdateService) DoUpdate() (updaterini.UpdateResult, error) {
+	// the app is an .app bundle on macOS, replacing files one by one would break it
+	if runtime.GOOS == "darwin" {
+		return updaterini.UpdateResult{}, fmt.Errorf("updates are not supported on macOS, download version %s from %s",
+			uc.NewVersion.VersionTag(), uc.ReleasePageURL())
+	}
+
 	curFile, err := os.Executable()
 	if err != nil {
 		return updaterini.UpdateResult{}, err

@@ -415,6 +415,15 @@ func onClickUpdateMenu() error {
 		return nil
 	}
 
+	if runtime.GOOS == "darwin" {
+		dialogMessage := fmt.Sprintf("New version available!\nAvailable version %s: %s.\nCurrent version %s.",
+			updService.NewVersion.VersionTag(), updService.NewVersion.VersionName(), config.Version)
+		if !showQuestionDialog("Anywherelan new version available", dialogMessage, "Open Download Page") {
+			return nil
+		}
+		return openURL(updService.ReleasePageURL())
+	}
+
 	var serverMessage string
 	if app != nil {
 		serverMessage = " Server will be stopped!"
