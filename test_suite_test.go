@@ -163,7 +163,7 @@ func (ts *TestSuite) newTestPeerWithConfig(disableLogging bool, listenAddrs []mu
 }
 
 // NewTestPeerExpectingInitError builds a peer with the same defaults as
-// NewTestPeerWithAppConfig but does NOT assert that Init succeeded   ?it
+// NewTestPeerWithAppConfig but does NOT assert that Init succeeded — it
 // returns the Init error to the caller. The Application is registered for
 // cleanup either way, so callers do not need to call Close themselves.
 //

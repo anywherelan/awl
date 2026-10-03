@@ -3,7 +3,7 @@ package vpn
 import (
 	"encoding/binary"
 	"errors"
-	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"testing"
@@ -105,7 +105,7 @@ func TestSwappableTUN_ReadContinuesAcrossSwap(t *testing.T) {
 
 	fake1 := newFakeTUN()
 	sw := NewSwappableTUN(fake1)
-	dev, err := NewDevice(sw, "awl0", net.IPv4(10, 66, 0, 1), net.CIDRMask(24, 32), nil, nil)
+	dev, err := NewDevice(sw, "awl0", netip.MustParsePrefix("10.66.0.1/24"), netip.Prefix{})
 	a.NoError(err)
 
 	var mu sync.Mutex

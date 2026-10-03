@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync"
@@ -147,7 +148,10 @@ type (
 		Alias string `json:"alias"`
 		// IPAddr used for forwarding
 		IPAddr string `json:"ipAddr"`
-		// IPAddrV6 used for IPv6 overlay forwarding (derived from peerID)
+		// IPAddrV6 is our view of the peer's IPv6 overlay address: the address the
+		// peer announced if it is valid in our subnet, otherwise one derived from
+		// its peer ID. Assigned once and not changed by later announcements, see
+		// Config.AllocPeerIPv6Unlocked. Used only while RemoteIPv6Enabled.
 		IPAddrV6 string `json:"ipAddrV6"`
 		// DomainName without zone suffix (.awl)
 		DomainName string `json:"domainName"`
@@ -166,6 +170,10 @@ type (
 		// (also from status) it determines whether this peer is currently a valid
 		// VPN gateway target for us — see KnownPeer.CanUseAsVPNGateway.
 		RemoteVPNGatewayServerEnabled bool `json:"remoteVPNGatewayServerEnabled"`
+		// RemoteIPv6Enabled is whether the remote peer announces an IPv6 overlay
+		// address via the status protocol. IPAddrV6 is kept while it is false, so
+		// the peer gets the same address back when it enables IPv6 again.
+		RemoteIPv6Enabled bool `json:"remoteIPv6Enabled"`
 		// InviteID marks a peer we let in through one of our invite links
 		// (Config.Invites). Non-secret, kept forever: it is what lets the UI say
 		// "added via invite X".
@@ -414,7 +422,7 @@ func (c *Config) SetIdentity(key crypto.PrivKey, id peer.ID) {
 
 	c.P2pNode.Identity = identity
 	c.P2pNode.PeerID = id.String()
-	c.ensureIPv6AddressLocked()
+	c.deriveOwnIPv6Unlocked()
 	c.Save()
 	c.Unlock()
 }
@@ -489,33 +497,41 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 	return result
 }
 
-func (c *Config) DNSNamesMapping() map[string]string {
-	mapping := make(map[string]string)
+// DNSNamesMapping returns the IPv4 addresses of known peers by peer ID and by
+// domain name. Peers with an invalid IP are left out.
+func (c *Config) DNSNamesMapping() map[string]netip.Addr {
+	mapping := make(map[string]netip.Addr)
 	c.RLock()
 	defer c.RUnlock()
 
 	for _, knownPeer := range c.KnownPeers {
-		mapping[knownPeer.PeerID] = knownPeer.IPAddr
+		addr, err := netip.ParseAddr(knownPeer.IPAddr)
+		if err != nil || !addr.Is4() {
+			continue
+		}
+		mapping[knownPeer.PeerID] = addr
 		if knownPeer.DomainName != "" {
-			mapping[knownPeer.DomainName] = knownPeer.IPAddr
+			mapping[knownPeer.DomainName] = addr
 		}
 	}
 
 	return mapping
 }
 
-func (c *Config) DNSNamesMappingV6() map[string]string {
-	mapping := make(map[string]string)
+// DNSNamesMappingV6 is DNSNamesMapping for IPv6, see PeerIPv6Unlocked.
+func (c *Config) DNSNamesMappingV6() map[string]netip.Addr {
+	mapping := make(map[string]netip.Addr)
 	c.RLock()
 	defer c.RUnlock()
 
 	for _, knownPeer := range c.KnownPeers {
-		if knownPeer.IPAddrV6 == "" {
+		addr, ok := c.PeerIPv6Unlocked(knownPeer)
+		if !ok {
 			continue
 		}
-		mapping[knownPeer.PeerID] = knownPeer.IPAddrV6
+		mapping[knownPeer.PeerID] = addr
 		if knownPeer.DomainName != "" {
-			mapping[knownPeer.DomainName] = knownPeer.IPAddrV6
+			mapping[knownPeer.DomainName] = addr
 		}
 	}
 

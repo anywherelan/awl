@@ -4,7 +4,7 @@ package vpn
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/tun"
@@ -32,7 +32,7 @@ func NewAndroidTUNFromFD(fd int) (tun.Device, error) {
 // newTUN is the nil-device path of NewDevice. On Android the TUN device must be
 // supplied externally via NewAndroidTUNFromFD (the host owns the fd), so being
 // asked to create one here is a programming error.
-func newTUN(_ string, _ int, _ net.IP, _ net.IPMask, _ net.IP, _ net.IPMask) (tun.Device, error) {
+func newTUN(_ string, _ int, _, _ netip.Prefix) (tun.Device, error) {
 	return nil, fmt.Errorf("android requires an externally-supplied tun device (use NewAndroidTUNFromFD)")
 }
 

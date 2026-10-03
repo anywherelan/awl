@@ -179,8 +179,8 @@ func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, de
 	s.conf.RUnlock()
 
 	var ipv6Addr string
-	if ipV6, _ := s.conf.VPNLocalIPMaskV6(); ipV6 != nil {
-		ipv6Addr = ipV6.String()
+	if prefix, ok := s.conf.VPNPrefixV6(); ok {
+		ipv6Addr = prefix.Addr().String()
 	}
 
 	return protocol.PeerStatusInfo{
@@ -225,9 +225,7 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 		if peer.Alias == "" {
 			peer.Alias = s.conf.GenUniqPeerAliasUnlocked(peer.Name, peer.Alias)
 		}
-		if peerInfo.IPv6Addr != "" && peer.IPAddrV6 == "" {
-			peer.IPAddrV6 = peerInfo.IPv6Addr
-		}
+		s.updatePeerIPv6Unlocked(peer, peerInfo.IPv6Addr)
 		peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode
 		peer.RemoteVPNGatewayServerEnabled = peerInfo.VPNGatewayServerEnabled
 	})
@@ -235,6 +233,34 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 	if !peerInfo.AllowUsingAsExitNode {
 		s.clearSelectedExitNode(peerID)
 	}
+}
+
+// updatePeerIPv6Unlocked applies the IPv6 address the peer announced (empty if
+// none) to peer. The address is assigned once, later announcements only toggle
+// RemoteIPv6Enabled. Called under the config write lock, which makes the
+// uniqueness check and the assignment atomic.
+func (s *AuthStatus) updatePeerIPv6Unlocked(peer *config.KnownPeer, announced string) {
+	peer.RemoteIPv6Enabled = announced != ""
+	if announced == "" {
+		return
+	}
+	if peer.IPAddrV6 != "" {
+		if peer.IPAddrV6 != announced {
+			s.logger.Debugf("peer %s announced IPv6 %s, keeping previously assigned %s", peer.PeerID, announced, peer.IPAddrV6)
+		}
+		return
+	}
+
+	addr, rejectErr, err := s.conf.AllocPeerIPv6Unlocked(peer.PeerID, announced)
+	if errors.Is(err, config.ErrIPv6Disabled) {
+		return
+	} else if err != nil {
+		s.logger.Errorf("assign IPv6 to peer %s (announced %s): %v", peer.PeerID, announced, err)
+		return
+	} else if rejectErr != nil {
+		s.logger.Warnf("peer %s announced IPv6 %q, rejected: %v; assigned %s instead", peer.PeerID, announced, rejectErr, addr)
+	}
+	peer.IPAddrV6 = addr
 }
 
 // clearSelectedExitNode drops peerID as our SOCKS5 exit node if it is the one

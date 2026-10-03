@@ -2,9 +2,12 @@ package config
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 const (
@@ -14,40 +17,155 @@ const (
 	DefaultVPNNetworkSubnet6 = "fd00:66:0::/48"
 )
 
-func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {
+// VPNPrefix returns our IPv4 address with the prefix length of the awl subnet.
+// setDefaults replaces an invalid vpn.ipNet with the default, so the result is
+// valid for any config built by NewConfig or LoadConfig.
+func (c *Config) VPNPrefix() netip.Prefix {
 	c.RLock()
 	defer c.RUnlock()
 
-	return c.VPNLocalIPMaskUnlocked()
+	return c.vpnPrefixUnlocked()
 }
 
+// TODO: remove after unification with ipv6
 func (c *Config) VPNLocalIPMaskUnlocked() (net.IP, net.IPMask) {
-	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNet)
-	if err != nil {
-		logger.Errorf("parse CIDR %s: %v", c.VPNConfig.IPNet, err)
+	prefix := c.vpnPrefixUnlocked()
+	if !prefix.IsValid() {
+		logger.Errorf("invalid vpn.ipNet %q", c.VPNConfig.IPNet)
 		return nil, nil
 	}
-	return localIP.To4(), ipNet.Mask
+
+	return net.IP(prefix.Addr().AsSlice()), net.CIDRMask(prefix.Bits(), net.IPv4len*8)
 }
 
-func (c *Config) VPNLocalIPMaskV6() (net.IP, net.IPMask) {
+// vpnPrefixUnlocked parses vpn.ipNet; the zero Prefix means it is invalid.
+func (c *Config) vpnPrefixUnlocked() netip.Prefix {
+	prefix, err := netip.ParsePrefix(c.VPNConfig.IPNet)
+	if err != nil || !prefix.Addr().Is4() {
+		return netip.Prefix{}
+	}
+
+	return prefix
+}
+
+// VPNPrefixV6 returns our IPv6 address with the prefix length of the awl IPv6
+// subnet. When IPv6 is off, ok is false and the prefix is invalid.
+func (c *Config) VPNPrefixV6() (prefix netip.Prefix, ok bool) {
 	c.RLock()
 	defer c.RUnlock()
 
-	return c.VPNLocalIPMaskV6Unlocked()
+	return c.vpnPrefixV6Unlocked()
 }
 
-func (c *Config) VPNLocalIPMaskV6Unlocked() (net.IP, net.IPMask) {
-	if c.VPNConfig.IPNetV6 == "" {
-		return nil, nil
-	}
-	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNetV6)
+// ErrIPv6Disabled is returned by AllocPeerIPv6Unlocked when the IPv6 overlay is
+// off on our side.
+var ErrIPv6Disabled = errors.New("IPv6 overlay is disabled")
+
+// maxIPv6PrefixBits keeps at least 64 host bits, so that addresses derived from
+// peer IDs practically never collide.
+const maxIPv6PrefixBits = 64
+
+// parseIPNetV6 parses vpnConfig.ipNetV6: our own address with the prefix length
+// of the awl IPv6 subnet. A zero host part means "derive our address from the
+// peer ID", see deriveOwnIPv6Unlocked. The returned prefix is not masked.
+func parseIPNetV6(s string) (netip.Prefix, error) {
+	prefix, err := netip.ParsePrefix(s)
 	if err != nil {
-		logger.Errorf("parse CIDR %s: %v", c.VPNConfig.IPNetV6, err)
-		return nil, nil
+		return netip.Prefix{}, err
+	}
+	if !prefix.Addr().Is6() || prefix.Addr().Is4In6() {
+		return netip.Prefix{}, errors.New("not an IPv6 prefix")
+	}
+	if prefix.Bits() > maxIPv6PrefixBits {
+		return netip.Prefix{}, fmt.Errorf("prefix /%d is too long, must be /%d or shorter", prefix.Bits(), maxIPv6PrefixBits)
 	}
 
-	return localIP.To16(), ipNet.Mask
+	return prefix, nil
+}
+
+// vpnPrefixV6Unlocked returns our IPv6 address with the prefix length of the
+// awl IPv6 subnet. ok is false when IPv6 is disabled or the value is invalid;
+// the latter aborts startup, see ValidateForStartup.
+func (c *Config) vpnPrefixV6Unlocked() (prefix netip.Prefix, ok bool) {
+	if c.VPNConfig.IPNetV6 == "" {
+		return netip.Prefix{}, false
+	}
+	prefix, err := parseIPNetV6(c.VPNConfig.IPNetV6)
+	return prefix, err == nil
+}
+
+// AllocPeerIPv6Unlocked picks our view of the IPv6 address of peerID, which
+// announced the address announced: see pickPeerAddr. rejectErr says why the
+// announced address was not taken. Caller must hold the config write lock and
+// store the result in the same critical section, so that two peers cannot be
+// given the same address.
+func (c *Config) AllocPeerIPv6Unlocked(peerID, announced string) (addr string, rejectErr, err error) {
+	prefix, ok := c.vpnPrefixV6Unlocked()
+	if !ok {
+		return "", nil, ErrIPv6Disabled
+	}
+	id, err := peer.Decode(peerID)
+	if err != nil {
+		return "", nil, fmt.Errorf("decode peer id: %w", err)
+	}
+
+	picked, rejectErr, err := pickPeerAddr(id, prefix, announced, func(a netip.Addr) error {
+		return c.checkPeerIPv6Unlocked(a, peerID)
+	})
+	if err != nil {
+		return "", rejectErr, err
+	}
+
+	return picked.String(), rejectErr, nil
+}
+
+// checkPeerIPv6Unlocked reports whether addr may be our view of the IPv6
+// address of peer exceptPeerID: an IPv6 address inside our subnet that is not
+// reserved, not our own and not used by another known peer.
+func (c *Config) checkPeerIPv6Unlocked(addr netip.Addr, exceptPeerID string) error {
+	prefix, ok := c.vpnPrefixV6Unlocked()
+	if !ok {
+		return ErrIPv6Disabled
+	}
+
+	if !addr.Is6() || addr.Is4In6() {
+		return fmt.Errorf("%s is not an IPv6 address", addr)
+	}
+	if !prefix.Contains(addr) {
+		return fmt.Errorf("%s does not belong to subnet %s", addr, prefix.Masked())
+	}
+	if addr == prefix.Masked().Addr() {
+		return fmt.Errorf("%s is the Subnet-Router anycast address of %s", addr, prefix.Masked())
+	}
+	if addr == prefix.Addr() {
+		return fmt.Errorf("%s is the local node's own address", addr)
+	}
+	for _, known := range c.KnownPeers {
+		if known.PeerID == exceptPeerID {
+			continue
+		}
+		if used, err := netip.ParseAddr(known.IPAddrV6); err == nil && used == addr {
+			return fmt.Errorf("%s is already used by peer %s", addr, known.Alias)
+		}
+	}
+
+	return nil
+}
+
+// PeerIPv6Unlocked returns the IPv6 address of kp for routing and DNS. ok is
+// false while either side has IPv6 off. The stored address is not re-validated:
+// it was checked when assigned (AllocPeerIPv6Unlocked), and editing it by hand
+// is on whoever does it.
+func (c *Config) PeerIPv6Unlocked(kp KnownPeer) (netip.Addr, bool) {
+	if !kp.RemoteIPv6Enabled || c.VPNConfig.IPNetV6 == "" {
+		return netip.Addr{}, false
+	}
+	addr, err := netip.ParseAddr(kp.IPAddrV6)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+
+	return addr, true
 }
 
 // NetstackDNSIP returns the in-subnet IP reserved for the awl DNS server,
