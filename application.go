@@ -122,6 +122,10 @@ func New() *Application {
 func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.logger.Info("Application initialization started")
 
+	if err := a.Conf.ValidateForStartup(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
 	a.ctx, a.ctxCancel = context.WithCancel(ctx)
 	if a.NetManager == nil {
 		a.NetManager = netstate.NewManager()

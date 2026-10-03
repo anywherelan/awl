@@ -184,7 +184,10 @@ func (t *Tunnel) RefreshPeersList() {
 			t.logger.Errorf("Known peer %q has invalid IP %s in conf", knownPeer.DisplayName(), knownPeer.IPAddr)
 			continue
 		}
-		newLocalIPv6 := net.ParseIP(knownPeer.IPAddrV6)
+		var newLocalIPv6 net.IP
+		if addr, ok := t.conf.PeerIPv6Unlocked(knownPeer); ok {
+			newLocalIPv6 = addr.AsSlice()
+		}
 
 		prevPeer, exists := t.peerIDToPeer[peerID]
 		if !exists {
@@ -775,6 +778,12 @@ func (t *Tunnel) emitGatewayConnectivity(connected bool, gatewayPeerID peer.ID) 
 // awl subnet inspection is intentionally absent here. The on-wire tag carries
 // the sender's intent explicitly, so this side does not need to re-derive it
 // from packet IPs and is not exposed to a subnet mismatch between peers.
+//
+// The rewrite is what makes awl addressing local to each node: src always
+// becomes our view of the sender (KnownPeer.IPAddr / IPAddrV6, which lie in
+// our subnet) and dst our own address. Correctness therefore never depends on
+// peers agreeing on addresses: an IPv6 address a peer announces for itself is
+// only a hint that we may or may not adopt (see Config.AllocPeerIPv6Unlocked).
 func (t *Tunnel) writeInboundBatch(packets []*vpn.Packet, bufs [][]byte, senderIP net.IP, vp *VpnPeer) error {
 	t.peersLock.RLock()
 	serverEnabled := t.vpnGatewayServerEnabled

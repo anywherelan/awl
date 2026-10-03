@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -236,15 +236,13 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 
 	// IPv6 support is a significant change, so it's opt-in for existing users
 	// to ensure a safe upgrade path. We only set the default for new configs.
+	// An invalid value is kept as is: it aborts startup, see ValidateForStartup.
 	if isEmptyConfig && conf.VPNConfig.IPNetV6 == "" {
 		conf.VPNConfig.IPNetV6 = DefaultVPNNetworkSubnet6
 	}
-	conf.ensureIPv6AddressLocked()
+	conf.deriveOwnIPv6Unlocked()
 	if ip, _ := conf.VPNLocalIPMask(); ip == nil {
 		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
-	}
-	if ip, _ := conf.VPNLocalIPMaskV6(); conf.VPNConfig.IPNetV6 != "" && ip == nil {
-		conf.VPNConfig.IPNetV6 = DefaultVPNNetworkSubnet6
 	}
 	if conf.VPNConfig.InterfaceName == "" {
 		if runtime.GOOS == "darwin" {
@@ -363,17 +361,41 @@ func writeFileAtomic(path string, data []byte) error {
 	return nil
 }
 
-func (c *Config) ensureIPv6AddressLocked() {
-	if c.VPNConfig.IPNetV6 == "" || c.P2pNode.PeerID == "" {
-		return
-	}
-	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNetV6)
-	if err == nil && localIP.Equal(ipNet.IP) {
-		if pid, err := peer.Decode(c.P2pNode.PeerID); err == nil {
-			if derived := DeriveIPv6FromPeerID(pid, ipNet); derived != nil {
-				maskLen, _ := ipNet.Mask.Size()
-				c.VPNConfig.IPNetV6 = fmt.Sprintf("%s/%d", derived.String(), maskLen)
-			}
+// ValidateForStartup returns config errors that must abort startup;
+// recoverable problems are fixed up in setDefaults.
+func (c *Config) ValidateForStartup() error {
+	c.RLock()
+	defer c.RUnlock()
+
+	if s := c.VPNConfig.IPNetV6; s != "" {
+		if _, err := parseIPNetV6(s); err != nil {
+			return fmt.Errorf("vpn.ipNetV6 %q: %w", s, err)
 		}
 	}
+
+	return nil
+}
+
+// deriveOwnIPv6Unlocked replaces a zero host part of vpnConfig.ipNetV6 (as in
+// the default, meaning "not chosen yet") with an address derived from our peer
+// ID. The result is stored, so it does not change afterwards; an address set
+// by hand is kept. An invalid value is left for ValidateForStartup to report.
+func (c *Config) deriveOwnIPv6Unlocked() {
+	if c.P2pNode.PeerID == "" {
+		return
+	}
+	prefix, ok := c.vpnPrefixV6Unlocked()
+	if !ok || prefix.Addr() != prefix.Masked().Addr() {
+		return
+	}
+	id, err := peer.Decode(c.P2pNode.PeerID)
+	if err != nil {
+		return
+	}
+
+	addr := deriveAddr(id, prefix)
+	if addr == prefix.Masked().Addr() {
+		addr = nextAddr(addr, prefix)
+	}
+	c.VPNConfig.IPNetV6 = netip.PrefixFrom(addr, prefix.Bits()).String()
 }

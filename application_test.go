@@ -1736,6 +1736,227 @@ func TestTunnelPackets(t *testing.T) {
 	ts.EqualValues(ipv6PacketsCount, receivedIPv6, "peer2 should receive exactly %d IPv6 packets", ipv6PacketsCount)
 }
 
+// ownIPv6 returns the peer's own IPv6 overlay address.
+func ownIPv6(p TestPeer) netip.Addr {
+	ip, _ := p.app.Conf.VPNLocalIPMaskV6()
+	addr, _ := netip.AddrFromSlice(ip)
+	return addr
+}
+
+// waitPeerIPv6 waits until owner has an IPv6 address for peer that it routes
+// to, and returns it.
+func waitPeerIPv6(ts *TestSuite, owner, peer TestPeer) netip.Addr {
+	var addr netip.Addr
+	ts.Eventually(func() bool {
+		kp, ok := owner.app.Conf.GetPeer(peer.PeerID())
+		if !ok || !kp.RemoteIPv6Enabled || kp.IPAddrV6 == "" {
+			return false
+		}
+		addr = netip.MustParseAddr(kp.IPAddrV6)
+		return true
+	}, 5*time.Second, 20*time.Millisecond)
+	return addr
+}
+
+// setOwnIPNetV6 changes vpnConfig.ipNetV6 of a running peer. Only the address
+// the peer announces in its status changes: its TUN and tunnel keep the one
+// they started with.
+func setOwnIPNetV6(p TestPeer, ipNetV6 string) {
+	p.app.Conf.Lock()
+	p.app.Conf.VPNConfig.IPNetV6 = ipNetV6
+	p.app.Conf.Unlock()
+}
+
+// exchangeStatus makes owner ask peer for its status and returns owner's view
+// of peer afterwards; the reply is processed before the exchange returns.
+func exchangeStatus(ts *TestSuite, owner, peer TestPeer) config.KnownPeer {
+	kp, _ := owner.app.Conf.GetPeer(peer.PeerID())
+	ts.NoError(owner.app.AuthStatus.ExchangeNewStatusInfo(context.Background(), peer.app.P2p.PeerID(), kp))
+	owner.app.Tunnel.RefreshPeersList()
+	kp, _ = owner.app.Conf.GetPeer(peer.PeerID())
+	return kp
+}
+
+// TestIPv6DifferentSubnets checks that peers with different IPv6 subnets can
+// talk: each rejects the address the other announced (outside its own subnet),
+// assigns one in its own subnet, and the rewrite on receive makes both views
+// work.
+func TestIPv6DifferentSubnets(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	subnet1 := netip.MustParsePrefix("fd00:77::/48")
+	subnet2 := netip.MustParsePrefix(config.DefaultVPNNetworkSubnet6)
+	peer1 := ts.NewTestPeerWithConfig(func(c *config.Config) {
+		c.VPNConfig.IPNetV6 = subnet1.String()
+	})
+	peer2 := ts.NewTestPeer(true)
+	ts.makeFriends(peer1, peer2)
+
+	own1, own2 := ownIPv6(peer1), ownIPv6(peer2)
+	ts.True(subnet1.Contains(own1), own1)
+	ts.True(subnet2.Contains(own2), own2)
+
+	peer2InPeer1 := waitPeerIPv6(ts, peer1, peer2)
+	peer1InPeer2 := waitPeerIPv6(ts, peer2, peer1)
+	ts.True(subnet1.Contains(peer2InPeer1), peer2InPeer1)
+	ts.True(subnet2.Contains(peer1InPeer2), peer1InPeer2)
+
+	send := func(from, to TestPeer, src, dst, wantSrc, wantDst netip.Addr) {
+		ch := captureInbound(to, 10)
+		from.tun.Outbound <- [][]byte{testPacketWithSrcDestV6(gatewayTestPacketSize, src.String(), dst.String())}
+		pkt, ok := recvPacketWithTimeout(ch)
+		ts.True(ok, "packet was not delivered")
+		gotSrc, gotDst := parsePacketIPs(pkt)
+		ts.Equal(wantSrc.String(), gotSrc.String(), "src must be the receiver's view of the sender")
+		ts.Equal(wantDst.String(), gotDst.String(), "dst must be the receiver's own address")
+	}
+	send(peer1, peer2, own1, peer2InPeer1, peer1InPeer2, own2)
+	send(peer2, peer1, own2, peer1InPeer2, peer2InPeer1, own1)
+}
+
+// TestIPv6AssignedOnceAndCapability checks that the announced address is
+// adopted once and kept (TOFU), and that a peer that stops announcing IPv6 is
+// no longer routed or resolved over IPv6 but gets the same address back later.
+func TestIPv6AssignedOnceAndCapability(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(true)
+	peer2 := ts.NewTestPeer(true)
+	ts.makeFriends(peer1, peer2)
+
+	assigned := waitPeerIPv6(ts, peer2, peer1)
+	ts.Equal(ownIPv6(peer1), assigned, "a valid announced address is adopted")
+
+	peer1.app.Conf.RLock()
+	origIPNetV6 := peer1.app.Conf.VPNConfig.IPNetV6
+	peer1.app.Conf.RUnlock()
+
+	// A different announced address does not replace the assigned one.
+	setOwnIPNetV6(peer1, "fd00:66::5/48")
+	kp := exchangeStatus(ts, peer2, peer1)
+	ts.True(kp.RemoteIPv6Enabled)
+	ts.Equal(assigned.String(), kp.IPAddrV6)
+
+	// The peer stops announcing IPv6: the address is kept but not used.
+	setOwnIPNetV6(peer1, "")
+	kp = exchangeStatus(ts, peer2, peer1)
+	ts.False(kp.RemoteIPv6Enabled)
+	ts.Equal(assigned.String(), kp.IPAddrV6)
+	ts.NotContains(peer2.app.Conf.DNSNamesMappingV6(), peer1.PeerID())
+
+	resetInboundCounter(peer1)
+	peer2.tun.Outbound <- [][]byte{testPacketWithSrcDestV6(gatewayTestPacketSize, ownIPv6(peer2).String(), assigned.String())}
+	expectNoInbound(ts, peer1, time.Second, "IPv6 must not be routed to a peer that does not announce it")
+
+	// IPv6 enabled again: the same address is used.
+	setOwnIPNetV6(peer1, origIPNetV6)
+	kp = exchangeStatus(ts, peer2, peer1)
+	ts.True(kp.RemoteIPv6Enabled)
+	ts.Equal(assigned.String(), kp.IPAddrV6)
+	ts.Equal(assigned.String(), peer2.app.Conf.DNSNamesMappingV6()[peer1.PeerID()])
+}
+
+// TestIPv6AnnouncedAddressRejected checks that an announced address which is
+// not a free address in our subnet is neither adopted nor routed: the peer gets
+// the address derived from its peer ID, and other peers keep theirs.
+func TestIPv6AnnouncedAddressRejected(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(true)
+	peer2 := ts.NewTestPeer(true)
+	peer3 := ts.NewTestPeer(true)
+	ts.makeFriends(peer1, peer2)
+	ts.makeFriendsWithAliases(peer3, peer2, "peer_3", "peer_2")
+
+	subnet := netip.MustParsePrefix(config.DefaultVPNNetworkSubnet6)
+	own2 := ownIPv6(peer2)
+	peer3InPeer2 := waitPeerIPv6(ts, peer2, peer3)
+	// Both use the default subnet, so the address peer1 derived for itself is
+	// also the one peer2 falls back to.
+	derived1 := waitPeerIPv6(ts, peer2, peer1)
+	ts.Equal(ownIPv6(peer1), derived1)
+
+	cases := []struct {
+		name      string
+		announced netip.Addr
+	}{
+		{"AnotherPeersAddress", peer3InPeer2},
+		{"OurOwnAddress", own2},
+		{"SubnetRouterAnycast", subnet.Masked().Addr()},
+		{"OutsideSubnet", netip.MustParseAddr("fd00:77::5")},
+		{"PublicAddress", netip.MustParseAddr("2606:4700:4700::1111")},
+		{"Loopback", netip.IPv6Loopback()},
+	}
+	for _, tc := range cases {
+		// peer1 announces the address, and peer2 has none assigned to it yet.
+		setOwnIPNetV6(peer1, netip.PrefixFrom(tc.announced, subnet.Bits()).String())
+		peer2.app.Conf.UpdatePeerFields(peer1.PeerID(), func(p *config.KnownPeer) {
+			p.IPAddrV6 = ""
+		})
+		kp := exchangeStatus(ts, peer2, peer1)
+		ts.True(kp.RemoteIPv6Enabled, tc.name)
+		ts.Equal(derived1.String(), kp.IPAddrV6, "%s: must fall back to the derived address", tc.name)
+
+		kp3, _ := peer2.app.Conf.GetPeer(peer3.PeerID())
+		ts.Equal(peer3InPeer2.String(), kp3.IPAddrV6, tc.name)
+		dnsMapping := peer2.app.Conf.DNSNamesMappingV6()
+		ts.Equal(derived1.String(), dnsMapping[peer1.PeerID()], tc.name)
+		ts.Equal(peer3InPeer2.String(), dnsMapping[peer3.PeerID()], tc.name)
+
+		// A packet to the announced address does not reach peer1: it still goes
+		// to the peer that owns the address, if any.
+		resetInboundCounter(peer1)
+		peer3Inbound := captureInbound(peer3, 10)
+		peer2.tun.Outbound <- [][]byte{testPacketWithSrcDestV6(gatewayTestPacketSize, own2.String(), tc.announced.String())}
+		if tc.announced == peer3InPeer2 {
+			_, ok := recvPacketWithTimeout(peer3Inbound)
+			ts.True(ok, "%s: packet must still be delivered to the owner of the address", tc.name)
+		}
+		expectNoInbound(ts, peer1, 500*time.Millisecond, "%s: packet to the announced address must not be routed to the announcer", tc.name)
+
+		// peer1 is reachable by the address assigned instead.
+		peer1Inbound := captureInbound(peer1, 10)
+		peer2.tun.Outbound <- [][]byte{testPacketWithSrcDestV6(gatewayTestPacketSize, own2.String(), derived1.String())}
+		_, ok := recvPacketWithTimeout(peer1Inbound)
+		ts.True(ok, "%s: packet to the assigned address must be delivered", tc.name)
+	}
+}
+
+// TestIPv6DisabledOnOneSide checks that no IPv6 address is assigned when
+// either side has IPv6 off.
+func TestIPv6DisabledOnOneSide(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeerWithConfig(func(c *config.Config) {
+		c.VPNConfig.IPNetV6 = ""
+	})
+	peer2 := ts.NewTestPeer(true)
+	ts.makeFriends(peer1, peer2)
+
+	// peer2 announces IPv6, but peer1 has no subnet to assign it an address in.
+	var kp config.KnownPeer
+	ts.Eventually(func() bool {
+		kp, _ = peer1.app.Conf.GetPeer(peer2.PeerID())
+		return kp.RemoteIPv6Enabled
+	}, 5*time.Second, 20*time.Millisecond)
+	ts.Empty(kp.IPAddrV6)
+
+	// peer1 announces nothing, so peer2 assigns nothing.
+	kp, _ = peer2.app.Conf.GetPeer(peer1.PeerID())
+	ts.False(kp.RemoteIPv6Enabled)
+	ts.Empty(kp.IPAddrV6)
+	ts.Empty(peer2.app.Conf.DNSNamesMappingV6())
+}
+
+func TestIPv6InvalidIPNetV6FailsInit(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	_, err := ts.NewTestPeerExpectingInitError(func(c *config.Config) {
+		c.VPNConfig.IPNetV6 = "10.66.0.1/16"
+	}, nil)
+	ts.ErrorContains(err, "vpn.ipNetV6")
+}
+
 func BenchmarkTunnelPackets(b *testing.B) {
 	packetSizes := []int{40, 300, 800, 1300, 1800, 2300, 2800, 3500}
 	for _, packetSize := range packetSizes {
