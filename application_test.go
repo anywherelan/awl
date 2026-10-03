@@ -1670,8 +1670,8 @@ func TestTunnelPackets(t *testing.T) {
 
 	ts := NewTestSuite(t)
 
-	peer1 := ts.NewTestPeer(false)
-	peer2 := ts.NewTestPeer(false)
+	peer1 := ts.NewTestPeerWithConfig(enableIPv6)
+	peer2 := ts.NewTestPeerWithConfig(enableIPv6)
 
 	ts.makeFriends(peer2, peer1)
 
@@ -1716,9 +1716,6 @@ func TestTunnelPackets(t *testing.T) {
 	peer1IPv6Str := peer1ConfigInPeer2.IPAddrV6
 	peer2IPv6Str := peer2ConfigInPeer1.IPAddrV6
 
-	ts.t.Logf("DEBUG: peer1 IPNetV6: %v", peer1.app.Conf.VPNConfig.IPNetV6)
-	ts.t.Logf("DEBUG: peer1IPv6 calculated: %s, peer2IPv6 calculated: %s", peer1IPv6Str, peer2IPv6Str)
-
 	peer1.tun.ClearInboundCount()
 	peer2.tun.ClearInboundCount()
 
@@ -1734,6 +1731,12 @@ func TestTunnelPackets(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	receivedIPv6 := peer2.tun.InboundCount()
 	ts.EqualValues(ipv6PacketsCount, receivedIPv6, "peer2 should receive exactly %d IPv6 packets", ipv6PacketsCount)
+}
+
+// enableIPv6 is a ConfigModifier that turns the IPv6 overlay on, in the default
+// subnet: a new config has it off.
+func enableIPv6(c *config.Config) {
+	c.VPNConfig.IPNetV6 = config.DefaultVPNNetworkSubnet6
 }
 
 // ownIPv6 returns the peer's own IPv6 overlay address.
@@ -1788,7 +1791,7 @@ func TestIPv6DifferentSubnets(t *testing.T) {
 	peer1 := ts.NewTestPeerWithConfig(func(c *config.Config) {
 		c.VPNConfig.IPNetV6 = subnet1.String()
 	})
-	peer2 := ts.NewTestPeer(true)
+	peer2 := ts.NewTestPeerWithConfig(enableIPv6)
 	ts.makeFriends(peer1, peer2)
 
 	own1, own2 := ownIPv6(peer1), ownIPv6(peer2)
@@ -1819,8 +1822,8 @@ func TestIPv6DifferentSubnets(t *testing.T) {
 func TestIPv6AssignedOnceAndCapability(t *testing.T) {
 	ts := NewTestSuite(t)
 
-	peer1 := ts.NewTestPeer(true)
-	peer2 := ts.NewTestPeer(true)
+	peer1 := ts.NewTestPeerWithConfig(enableIPv6)
+	peer2 := ts.NewTestPeerWithConfig(enableIPv6)
 	ts.makeFriends(peer1, peer2)
 
 	assigned := waitPeerIPv6(ts, peer2, peer1)
@@ -1861,9 +1864,9 @@ func TestIPv6AssignedOnceAndCapability(t *testing.T) {
 func TestIPv6AnnouncedAddressRejected(t *testing.T) {
 	ts := NewTestSuite(t)
 
-	peer1 := ts.NewTestPeer(true)
-	peer2 := ts.NewTestPeer(true)
-	peer3 := ts.NewTestPeer(true)
+	peer1 := ts.NewTestPeerWithConfig(enableIPv6)
+	peer2 := ts.NewTestPeerWithConfig(enableIPv6)
+	peer3 := ts.NewTestPeerWithConfig(enableIPv6)
 	ts.makeFriends(peer1, peer2)
 	ts.makeFriendsWithAliases(peer3, peer2, "peer_3", "peer_2")
 
@@ -1921,16 +1924,17 @@ func TestIPv6AnnouncedAddressRejected(t *testing.T) {
 	}
 }
 
-// TestIPv6DisabledOnOneSide checks that no IPv6 address is assigned when
-// either side has IPv6 off.
+// TestIPv6DisabledOnOneSide checks that IPv6 is off in a new config, and that
+// no IPv6 address is assigned when either side has IPv6 off.
 func TestIPv6DisabledOnOneSide(t *testing.T) {
 	ts := NewTestSuite(t)
 
-	peer1 := ts.NewTestPeerWithConfig(func(c *config.Config) {
-		c.VPNConfig.IPNetV6 = ""
-	})
-	peer2 := ts.NewTestPeer(true)
+	peer1 := ts.NewTestPeer(true)
+	peer2 := ts.NewTestPeerWithConfig(enableIPv6)
 	ts.makeFriends(peer1, peer2)
+
+	_, hasIPv6 := peer1.app.Conf.VPNPrefixV6()
+	ts.False(hasIPv6, "IPv6 must be off by default")
 
 	// peer2 announces IPv6, but peer1 has no subnet to assign it an address in.
 	var kp config.KnownPeer

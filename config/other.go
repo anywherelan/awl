@@ -234,12 +234,8 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 	}
 
-	// IPv6 support is a significant change, so it's opt-in for existing users
-	// to ensure a safe upgrade path. We only set the default for new configs.
-	// An invalid value is kept as is: it aborts startup, see ValidateForStartup.
-	if isEmptyConfig && conf.VPNConfig.IPNetV6 == "" {
-		conf.VPNConfig.IPNetV6 = DefaultVPNNetworkSubnet6
-	}
+	// The IPv6 overlay is opt-in: it stays off until vpn.ipNetV6 is set by hand, see DefaultVPNNetworkSubnet6.
+	// TODO: enable IPv6 for isEmptyConfig once Windows, macOS, Android support is landed
 	conf.deriveOwnIPv6Unlocked()
 	if !conf.vpnPrefixUnlocked().IsValid() {
 		logger.Errorf("invalid vpn.ipNet %q, using the default %s", conf.VPNConfig.IPNet, DefaultVPNNetworkSubnet)
@@ -378,9 +374,10 @@ func (c *Config) ValidateForStartup() error {
 }
 
 // deriveOwnIPv6Unlocked replaces a zero host part of vpnConfig.ipNetV6 (as in
-// the default, meaning "not chosen yet") with an address derived from our peer
-// ID. The result is stored, so it does not change afterwards; an address set
-// by hand is kept. An invalid value is left for ValidateForStartup to report.
+// DefaultVPNNetworkSubnet6, meaning "not chosen yet") with an address derived
+// from our peer ID. The result is stored, so it does not change afterwards; an
+// address set by hand is kept. An invalid value is left for ValidateForStartup
+// to report.
 func (c *Config) deriveOwnIPv6Unlocked() {
 	if c.P2pNode.PeerID == "" {
 		return

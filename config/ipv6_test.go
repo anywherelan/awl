@@ -252,7 +252,8 @@ func TestSetDefaultsIPv6(t *testing.T) {
 		want      string
 		validErr  bool
 	}{
-		{name: "NewConfigWithoutIdentity", newConfig: true, want: DefaultVPNNetworkSubnet6},
+		{name: "NewConfigHasNoIPv6", newConfig: true, want: ""},
+		{name: "PrefixWithoutIdentityIsKept", newConfig: true, ipNetV6: DefaultVPNNetworkSubnet6, want: DefaultVPNNetworkSubnet6},
 		{name: "ExistingConfigStaysWithoutIPv6", want: ""},
 		{name: "DefaultPrefixIsDerived", ipNetV6: DefaultVPNNetworkSubnet6, want: testPeerIDDerived + "/48"},
 		{name: "CustomPrefixIsDerived", ipNetV6: "fd00:66::/64", want: "fd00:66::10ba:fb1c:ef80:180c/64"},
@@ -325,7 +326,7 @@ func TestSetIdentityDerivesIPv6(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(AppDataDirEnvKey, dir)
 
-	conf := &Config{dataDir: dir}
+	conf := &Config{dataDir: dir, VPNConfig: VPNConfig{IPNetV6: DefaultVPNNetworkSubnet6}}
 	setDefaults(conf, eventbus.NewBus())
 	conf.startWriter()
 	t.Cleanup(conf.Close)
