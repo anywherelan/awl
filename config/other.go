@@ -241,7 +241,8 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.VPNConfig.IPNetV6 = DefaultVPNNetworkSubnet6
 	}
 	conf.deriveOwnIPv6Unlocked()
-	if ip, _ := conf.VPNLocalIPMask(); ip == nil {
+	if !conf.vpnPrefixUnlocked().IsValid() {
+		logger.Errorf("invalid vpn.ipNet %q, using the default %s", conf.VPNConfig.IPNet, DefaultVPNNetworkSubnet)
 		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 	}
 	if conf.VPNConfig.InterfaceName == "" {

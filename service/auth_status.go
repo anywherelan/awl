@@ -179,8 +179,8 @@ func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, de
 	s.conf.RUnlock()
 
 	var ipv6Addr string
-	if ipV6, _ := s.conf.VPNLocalIPMaskV6(); ipV6 != nil {
-		ipv6Addr = ipV6.String()
+	if prefix, ok := s.conf.VPNPrefixV6(); ok {
+		ipv6Addr = prefix.Addr().String()
 	}
 
 	return protocol.PeerStatusInfo{

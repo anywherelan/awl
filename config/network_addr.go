@@ -17,36 +17,44 @@ const (
 	DefaultVPNNetworkSubnet6 = "fd00:66:0::/48"
 )
 
-func (c *Config) VPNLocalIPMask() (net.IP, net.IPMask) {
+// VPNPrefix returns our IPv4 address with the prefix length of the awl subnet.
+// setDefaults replaces an invalid vpn.ipNet with the default, so the result is
+// valid for any config built by NewConfig or LoadConfig.
+func (c *Config) VPNPrefix() netip.Prefix {
 	c.RLock()
 	defer c.RUnlock()
 
-	return c.VPNLocalIPMaskUnlocked()
+	return c.vpnPrefixUnlocked()
 }
 
+// TODO: remove after unification with ipv6
 func (c *Config) VPNLocalIPMaskUnlocked() (net.IP, net.IPMask) {
-	localIP, ipNet, err := net.ParseCIDR(c.VPNConfig.IPNet)
-	if err != nil {
-		logger.Errorf("parse CIDR %s: %v", c.VPNConfig.IPNet, err)
+	prefix := c.vpnPrefixUnlocked()
+	if !prefix.IsValid() {
+		logger.Errorf("invalid vpn.ipNet %q", c.VPNConfig.IPNet)
 		return nil, nil
 	}
-	return localIP.To4(), ipNet.Mask
+
+	return net.IP(prefix.Addr().AsSlice()), net.CIDRMask(prefix.Bits(), net.IPv4len*8)
 }
 
-func (c *Config) VPNLocalIPMaskV6() (net.IP, net.IPMask) {
+// vpnPrefixUnlocked parses vpn.ipNet; the zero Prefix means it is invalid.
+func (c *Config) vpnPrefixUnlocked() netip.Prefix {
+	prefix, err := netip.ParsePrefix(c.VPNConfig.IPNet)
+	if err != nil || !prefix.Addr().Is4() {
+		return netip.Prefix{}
+	}
+
+	return prefix
+}
+
+// VPNPrefixV6 returns our IPv6 address with the prefix length of the awl IPv6
+// subnet. When IPv6 is off, ok is false and the prefix is invalid.
+func (c *Config) VPNPrefixV6() (prefix netip.Prefix, ok bool) {
 	c.RLock()
 	defer c.RUnlock()
 
-	return c.VPNLocalIPMaskV6Unlocked()
-}
-
-func (c *Config) VPNLocalIPMaskV6Unlocked() (net.IP, net.IPMask) {
-	prefix, ok := c.vpnPrefixV6Unlocked()
-	if !ok {
-		return nil, nil
-	}
-
-	return net.IP(prefix.Addr().AsSlice()), net.CIDRMask(prefix.Bits(), net.IPv6len*8)
+	return c.vpnPrefixV6Unlocked()
 }
 
 // ErrIPv6Disabled is returned by AllocPeerIPv6Unlocked when the IPv6 overlay is

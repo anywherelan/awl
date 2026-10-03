@@ -5,7 +5,6 @@ package vpn
 
 import (
 	"fmt"
-	"net"
 	"net/netip"
 	"time"
 
@@ -29,7 +28,7 @@ func init() {
 	tun.WintunStaticRequestedGUID = &guid
 }
 
-func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask, localIPv6 net.IP, ipMaskv6 net.IPMask) (tun.Device, error) {
+func newTUN(ifname string, mtu int, prefix, _ netip.Prefix) (tun.Device, error) {
 	logger := log.Logger("awl/vpn")
 
 	var tunDevice tun.Device
@@ -71,10 +70,6 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask, localIPv6
 	if err := setInterfaceMTU(logger, luid, winipcfg.AddressFamily(windows.AF_INET6), uint32(mtu)); err != nil {
 		logger.Warnf("set IPv6 MTU on tun (best-effort, ipv6 unused by awl): %v", err)
 	}
-
-	ones, _ := ipMask.Size()
-	netipAddr := netip.MustParseAddr(localIP.String())
-	prefix := netip.PrefixFrom(netipAddr, ones)
 
 	err = luid.SetIPAddresses([]netip.Prefix{prefix})
 	if err != nil {

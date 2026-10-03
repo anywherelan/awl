@@ -3,7 +3,7 @@ package vpn
 import (
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -30,18 +30,21 @@ const (
 type Device struct {
 	tun      tun.Device
 	mtu      int64
-	localIP  net.IP
-	localIP6 net.IP // may be nil when IPv6 is not configured
+	localIP  netip.Addr
+	localIP6 netip.Addr // invalid when IPv6 is not configured
 
 	packetsPool sync.Pool
 	logger      *log.ZapEventLogger
 }
 
-func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipMask net.IPMask, localIPv6 net.IP, ipMaskv6 net.IPMask) (*Device, error) {
+// NewDevice creates the TUN device, or uses existingTun when it is not nil.
+// prefix and prefixV6 are our addresses with the prefix lengths of the awl
+// subnets; an invalid prefixV6 means IPv6 is not configured.
+func NewDevice(existingTun tun.Device, interfaceName string, prefix, prefixV6 netip.Prefix) (*Device, error) {
 	var tunDevice tun.Device
 	var err error
 	if existingTun == nil {
-		tunDevice, err = newTUN(interfaceName, InterfaceMTU, localIP, ipMask, localIPv6, ipMaskv6)
+		tunDevice, err = newTUN(interfaceName, InterfaceMTU, prefix, prefixV6)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create TUN device: %v", err)
 		}
@@ -57,8 +60,8 @@ func NewDevice(existingTun tun.Device, interfaceName string, localIP net.IP, ipM
 	dev := &Device{
 		tun:      tunDevice,
 		mtu:      int64(realMtu),
-		localIP:  localIP,
-		localIP6: localIPv6,
+		localIP:  prefix.Addr(),
+		localIP6: prefixV6.Addr(),
 		packetsPool: sync.Pool{
 			New: func() interface{} {
 				return new(Packet)
@@ -80,13 +83,13 @@ func (d *Device) PutTempPacket(data *Packet) {
 }
 
 // LocalIP returns the awl IPv4 address assigned to this device. Set once in NewDevice.
-func (d *Device) LocalIP() net.IP {
+func (d *Device) LocalIP() netip.Addr {
 	return d.localIP
 }
 
-// LocalIP6 returns the awl IPv6 address assigned to this device, or nil if
+// LocalIP6 returns the awl IPv6 address assigned to this device, invalid if
 // IPv6 is not configured. Set once in NewDevice.
-func (d *Device) LocalIP6() net.IP {
+func (d *Device) LocalIP6() netip.Addr {
 	return d.localIP6
 }
 

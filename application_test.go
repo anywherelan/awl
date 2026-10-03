@@ -1738,9 +1738,8 @@ func TestTunnelPackets(t *testing.T) {
 
 // ownIPv6 returns the peer's own IPv6 overlay address.
 func ownIPv6(p TestPeer) netip.Addr {
-	ip, _ := p.app.Conf.VPNLocalIPMaskV6()
-	addr, _ := netip.AddrFromSlice(ip)
-	return addr
+	prefix, _ := p.app.Conf.VPNPrefixV6()
+	return prefix.Addr()
 }
 
 // waitPeerIPv6 waits until owner has an IPv6 address for peer that it routes
@@ -2120,7 +2119,8 @@ func TestDNSHandlerTunnelFilter(t *testing.T) {
 	ts.NotNil(dnsIP)
 
 	intercepted := make(chan []byte, 16)
-	peer1.app.Tunnel.SetDNSHandler(dnsIP, dnsHandlerFunc(func(packet []byte) {
+	dnsAddr, _ := netip.AddrFromSlice(dnsIP)
+	peer1.app.Tunnel.SetDNSHandler(dnsAddr, dnsHandlerFunc(func(packet []byte) {
 		intercepted <- append([]byte{}, packet...)
 	}))
 
@@ -2183,7 +2183,7 @@ func TestDNSAndroidInterceptor(t *testing.T) {
 	payload, err := query.Pack()
 	ts.NoError(err)
 
-	localIP, _ := peer1.app.Conf.VPNLocalIPMask()
+	localIP := net.IP(peer1.app.Conf.VPNPrefix().Addr().AsSlice())
 	const clientPort = 40000
 	queryPacket := testUDPPacket(localIP, dnsIP, clientPort, 53, payload)
 	peer1.tun.Outbound <- [][]byte{queryPacket}

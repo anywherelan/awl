@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
@@ -206,6 +207,46 @@ func (data *Packet) recalculateChecksumIPv6() {
 	}
 }
 
+// SrcAddr returns the parsed source address without allocating. Its family
+// follows the IP header: an IPv4-mapped source of an IPv6 packet stays an IPv6
+// address.
+func (data *Packet) SrcAddr() netip.Addr {
+	addr, _ := netip.AddrFromSlice(data.Src)
+	return addr
+}
+
+// DstAddr is SrcAddr for the destination address.
+func (data *Packet) DstAddr() netip.Addr {
+	addr, _ := netip.AddrFromSlice(data.Dst)
+	return addr
+}
+
+// SetSrc writes addr into the source address of the parsed packet without
+// allocating. addr must be of the packet's IP version: in an IPv4 packet any
+// other address is ignored, in an IPv6 packet an IPv4 one is written mapped.
+// The checksums are not updated, see RecalculateChecksum.
+func (data *Packet) SetSrc(addr netip.Addr) {
+	putAddr(data.Src, addr)
+}
+
+// SetDst is SetSrc for the destination address.
+func (data *Packet) SetDst(addr netip.Addr) {
+	putAddr(data.Dst, addr)
+}
+
+func putAddr(dst net.IP, addr netip.Addr) {
+	switch len(dst) {
+	case net.IPv4len:
+		if addr.Is4() {
+			b := addr.As4()
+			copy(dst, b[:])
+		}
+	case net.IPv6len:
+		b := addr.As16()
+		copy(dst, b[:])
+	}
+}
+
 func (data *Packet) setAddrs() {
 	if data.IsIPv6 {
 		data.Src = data.Packet[device.IPv6offsetSrc : device.IPv6offsetSrc+net.IPv6len]
@@ -301,12 +342,13 @@ func tcpipChecksum(data []byte, csum uint32) uint16 {
 	return ^uint16(csum)
 }
 
-func GetIPv4BroadcastAddress(ipNet *net.IPNet) net.IP {
-	ip := make(net.IP, len(ipNet.IP.To4()))
-	// calculate broadcast: network | ^mask
-	for i := 0; i < len(ipNet.IP.To4()); i++ {
-		ip[i] = ipNet.IP[i] | ^ipNet.Mask[i]
-	}
+// GetIPv4BroadcastAddress returns the broadcast address of an IPv4 prefix: the
+// network address with all host bits set.
+func GetIPv4BroadcastAddress(prefix netip.Prefix) netip.Addr {
+	network := prefix.Masked().Addr().As4()
+	hostBits := ^uint32(0) >> prefix.Bits()
+	var broadcast [4]byte
+	binary.BigEndian.PutUint32(broadcast[:], binary.BigEndian.Uint32(network[:])|hostBits)
 
-	return ip
+	return netip.AddrFrom4(broadcast)
 }
