@@ -2,6 +2,7 @@ package awldns
 
 import (
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -47,9 +48,9 @@ type Resolver struct {
 
 type config struct {
 	upstreamDNS     string
-	directMapping   map[string]string
-	directMappingV6 map[string]string
-	reverseMapping  map[string]string
+	directMapping   map[string]netip.Addr
+	directMappingV6 map[string]netip.Addr
+	reverseMapping  map[netip.Addr]string
 }
 
 // NewResolver creates a resolver that binds its own UDP and TCP sockets on
@@ -142,42 +143,32 @@ func serveDNSServer(srv *dns.Server) error {
 	return srv.ListenAndServe()
 }
 
-func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping map[string]string, namesMappingV6 map[string]string) {
-	reverseMapping := make(map[string]string, len(namesMapping)+len(namesMappingV6))
-	directMapping := make(map[string]string, len(namesMapping))
-	directMappingV6 := make(map[string]string, len(namesMappingV6))
-
-	for key, ip := range namesMapping {
-		canonicalName := dns.CanonicalName(key + "." + LocalDomain)
-		directMapping[canonicalName] = ip
-		existedName, exists := reverseMapping[ip]
-		// we always have at least two names for one ip: peerName and peerID
-		// for consistency we will take the shortest one (usually peerName, which is more human-readable)
-		if !exists {
-			reverseMapping[ip] = canonicalName
-		} else if exists && len(canonicalName) < len(existedName) {
-			reverseMapping[ip] = canonicalName
-		}
-	}
-
-	for key, ip := range namesMappingV6 {
-		canonicalName := dns.CanonicalName(key + "." + LocalDomain)
-		directMappingV6[canonicalName] = ip
-		existedName, exists := reverseMapping[ip]
-		if !exists {
-			reverseMapping[ip] = canonicalName
-		} else if exists && len(canonicalName) < len(existedName) {
-			reverseMapping[ip] = canonicalName
-		}
-	}
-
+// ReceiveConfiguration replaces the names the resolver serves: namesMapping
+// holds IPv4 and namesMappingV6 IPv6 addresses, by names without the .awl
+// suffix.
+func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping, namesMappingV6 map[string]netip.Addr) {
 	cfg := config{
 		upstreamDNS:     upstreamDNS,
-		directMapping:   directMapping,
-		directMappingV6: directMappingV6,
-		reverseMapping:  reverseMapping,
+		directMapping:   make(map[string]netip.Addr, len(namesMapping)),
+		directMappingV6: make(map[string]netip.Addr, len(namesMappingV6)),
+		reverseMapping:  make(map[netip.Addr]string, len(namesMapping)+len(namesMappingV6)),
 	}
+	cfg.addNames(cfg.directMapping, namesMapping)
+	cfg.addNames(cfg.directMappingV6, namesMappingV6)
 	r.cfg.Store(&cfg)
+}
+
+// addNames adds names to direct and to the reverse mapping.
+func (cfg *config) addNames(direct, names map[string]netip.Addr) {
+	for name, addr := range names {
+		canonicalName := dns.CanonicalName(name + "." + LocalDomain)
+		direct[canonicalName] = addr
+		// we always have at least two names for one ip: peerName and peerID
+		// for consistency we will take the shortest one (usually peerName, which is more human-readable)
+		if existing, ok := cfg.reverseMapping[addr]; !ok || len(canonicalName) < len(existing) {
+			cfg.reverseMapping[addr] = canonicalName
+		}
+	}
 }
 
 func (r *Resolver) DNSAddress() string {
@@ -215,83 +206,27 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 	m.SetReply(req)
 
 	for _, question := range req.Question {
-		hostname := question.Name
-		qtype := question.Qtype
-		hostnameLower := strings.ToLower(hostname)
-		mappedIP, found := cfg.directMapping[hostnameLower]
-		mappedIPv6, foundV6 := cfg.directMappingV6[hostnameLower]
+		wantA := question.Qtype == dns.TypeA || question.Qtype == dns.TypeANY
+		wantAAAA := question.Qtype == dns.TypeAAAA || question.Qtype == dns.TypeANY
+		if !wantA && !wantAAAA {
+			continue
+		}
 
-		switch qtype {
-		case dns.TypeA:
-			if !found {
-				if foundV6 {
-					continue // domain exists but no A record, return NOERROR with 0 answers (NODATA)
-				}
-				m.SetRcode(req, dns.RcodeNameError)
-				continue
-			}
-			if ip := net.ParseIP(mappedIP).To4(); ip != nil {
-				m.Answer = append(m.Answer, &dns.A{
-					Hdr: dns.RR_Header{
-						// we should return original name from the request as some clients expect that
-						Name:   hostname,
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
-						Ttl:    defaultTTLSeconds,
-					},
-					A: ip,
-				})
-			}
-		case dns.TypeAAAA:
-			if !foundV6 {
-				if found {
-					continue // domain exists but no AAAA record, return NOERROR with 0 answers (NODATA)
-				}
-				m.SetRcode(req, dns.RcodeNameError)
-				continue
-			}
-			if ip := net.ParseIP(mappedIPv6).To16(); ip != nil {
-				m.Answer = append(m.Answer, &dns.AAAA{
-					Hdr: dns.RR_Header{
-						Name:   hostname,
-						Rrtype: dns.TypeAAAA,
-						Class:  dns.ClassINET,
-						Ttl:    defaultTTLSeconds,
-					},
-					AAAA: ip,
-				})
-			}
-		case dns.TypeANY:
-			if !found && !foundV6 {
-				m.SetRcode(req, dns.RcodeNameError)
-				continue
-			}
-			if found {
-				if ip := net.ParseIP(mappedIP).To4(); ip != nil {
-					m.Answer = append(m.Answer, &dns.A{
-						Hdr: dns.RR_Header{
-							Name:   hostname,
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
-							Ttl:    defaultTTLSeconds,
-						},
-						A: ip,
-					})
-				}
-			}
-			if foundV6 {
-				if ip := net.ParseIP(mappedIPv6).To16(); ip != nil {
-					m.Answer = append(m.Answer, &dns.AAAA{
-						Hdr: dns.RR_Header{
-							Name:   hostname,
-							Rrtype: dns.TypeAAAA,
-							Class:  dns.ClassINET,
-							Ttl:    defaultTTLSeconds,
-						},
-						AAAA: ip,
-					})
-				}
-			}
+		hostname := question.Name
+		hostnameLower := strings.ToLower(hostname)
+		addr, found := cfg.directMapping[hostnameLower]
+		addrV6, foundV6 := cfg.directMappingV6[hostnameLower]
+		if !found && !foundV6 {
+			m.SetRcode(req, dns.RcodeNameError)
+			continue
+		}
+
+		// A name without an address of the asked family gets NOERROR with no answers (NODATA).
+		if wantA && found {
+			m.Answer = append(m.Answer, addrRR(hostname, addr))
+		}
+		if wantAAAA && foundV6 {
+			m.Answer = append(m.Answer, addrRR(hostname, addrV6))
 		}
 	}
 
@@ -315,19 +250,9 @@ func (r *Resolver) ptrHandler(resp dns.ResponseWriter, req *dns.Msg) {
 	name := req.Question[0].Name
 	cfg := r.loadConfig()
 
-	var ip net.IP
-	if strings.HasSuffix(strings.ToLower(name), ptrV6Suffix) {
-		ip = ptrV6NameToIP(name)
-	} else {
-		ip = ptrV4NameToIP(name)
-	}
-
-	if ip == nil {
-		r.dnsProxyHandler(resp, req)
-		return
-	}
-	mappedName, found := cfg.reverseMapping[ip.String()]
-	if !found {
+	addr := ptrNameToAddr(name)
+	mappedName, found := cfg.reverseMapping[addr]
+	if !addr.IsValid() || !found {
 		r.dnsProxyHandler(resp, req)
 		return
 	}
@@ -421,30 +346,64 @@ func IsValidDomainName(domain string) bool {
 	return ok && domain == TrimDomainName(domain)
 }
 
-func ptrV4NameToIP(name string) net.IP {
-	s := strings.TrimSuffix(strings.ToLower(name), ptrV4Suffix)
-	revIp := net.ParseIP(s)
-	revIp = revIp.To4()
-	if revIp == nil {
-		return nil
+// addrRR returns the record, A or AAAA by the family of addr, mapping name to addr.
+func addrRR(name string, addr netip.Addr) dns.RR {
+	hdr := dns.RR_Header{
+		// we should return original name from the request as some clients expect that
+		Name:  name,
+		Class: dns.ClassINET,
+		Ttl:   defaultTTLSeconds,
 	}
-	return net.IP{revIp[3], revIp[2], revIp[1], revIp[0]}
+	if addr.Is4() {
+		hdr.Rrtype = dns.TypeA
+		return &dns.A{Hdr: hdr, A: addr.AsSlice()}
+	}
+	hdr.Rrtype = dns.TypeAAAA
+	return &dns.AAAA{Hdr: hdr, AAAA: addr.AsSlice()}
 }
 
-func ptrV6NameToIP(name string) net.IP {
-	s := strings.TrimSuffix(strings.ToLower(name), ptrV6Suffix)
-	parts := strings.Split(s, ".")
-	if len(parts) != 32 {
-		return nil
+// ptrNameToAddr returns the address a PTR query name (in-addr.arpa or
+// ip6.arpa) is about, or an invalid address if the name is malformed.
+func ptrNameToAddr(name string) netip.Addr {
+	name = strings.ToLower(name)
+	if labels, ok := strings.CutSuffix(name, ptrV6Suffix); ok {
+		return ptrV6LabelsToAddr(labels)
 	}
-	ip := make(net.IP, 16)
-	for i := 0; i < 16; i++ {
-		high, err1 := strconv.ParseUint(parts[31-(i*2)], 16, 8)
-		low, err2 := strconv.ParseUint(parts[31-(i*2)-1], 16, 8)
-		if err1 != nil || err2 != nil {
-			return nil
+	return ptrV4LabelsToAddr(strings.TrimSuffix(name, ptrV4Suffix))
+}
+
+// ptrV4LabelsToAddr parses the octets of an in-addr.arpa name, in reverse
+// order: "4.3.2.1" is 1.2.3.4.
+func ptrV4LabelsToAddr(labels string) netip.Addr {
+	reversed, err := netip.ParseAddr(labels)
+	if err != nil || !reversed.Is4() {
+		return netip.Addr{}
+	}
+	b := reversed.As4()
+	return netip.AddrFrom4([4]byte{b[3], b[2], b[1], b[0]})
+}
+
+// ptrV6LabelsToAddr parses the 32 nibbles of an ip6.arpa name, one hex digit
+// per label, least significant first.
+func ptrV6LabelsToAddr(labels string) netip.Addr {
+	nibbles := strings.Split(labels, ".")
+	if len(nibbles) != 32 {
+		return netip.Addr{}
+	}
+	var b [16]byte
+	for i, nibble := range nibbles {
+		if len(nibble) != 1 {
+			return netip.Addr{}
 		}
-		ip[i] = byte((high << 4) | low)
+		v, err := strconv.ParseUint(nibble, 16, 8)
+		if err != nil {
+			return netip.Addr{}
+		}
+		pos := 31 - i // nibble position in the address, most significant first
+		if pos%2 == 0 {
+			v <<= 4
+		}
+		b[pos/2] |= byte(v)
 	}
-	return ip
+	return netip.AddrFrom16(b)
 }

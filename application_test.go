@@ -1852,7 +1852,7 @@ func TestIPv6AssignedOnceAndCapability(t *testing.T) {
 	kp = exchangeStatus(ts, peer2, peer1)
 	ts.True(kp.RemoteIPv6Enabled)
 	ts.Equal(assigned.String(), kp.IPAddrV6)
-	ts.Equal(assigned.String(), peer2.app.Conf.DNSNamesMappingV6()[peer1.PeerID()])
+	ts.Equal(assigned, peer2.app.Conf.DNSNamesMappingV6()[peer1.PeerID()])
 }
 
 // TestIPv6AnnouncedAddressRejected checks that an announced address which is
@@ -1899,8 +1899,8 @@ func TestIPv6AnnouncedAddressRejected(t *testing.T) {
 		kp3, _ := peer2.app.Conf.GetPeer(peer3.PeerID())
 		ts.Equal(peer3InPeer2.String(), kp3.IPAddrV6, tc.name)
 		dnsMapping := peer2.app.Conf.DNSNamesMappingV6()
-		ts.Equal(derived1.String(), dnsMapping[peer1.PeerID()], tc.name)
-		ts.Equal(peer3InPeer2.String(), dnsMapping[peer3.PeerID()], tc.name)
+		ts.Equal(derived1, dnsMapping[peer1.PeerID()], tc.name)
+		ts.Equal(peer3InPeer2, dnsMapping[peer3.PeerID()], tc.name)
 
 		// A packet to the announced address does not reach peer1: it still goes
 		// to the peer that owns the address, if any.

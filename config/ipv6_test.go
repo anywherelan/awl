@@ -237,9 +237,9 @@ func TestDNSNamesMappingV6(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, map[string]string{
-		testPeerID: "fd00:66::5",
-		"one":      "fd00:66::5",
+	assert.Equal(t, map[string]netip.Addr{
+		testPeerID: netip.MustParseAddr("fd00:66::5"),
+		"one":      netip.MustParseAddr("fd00:66::5"),
 	}, conf.DNSNamesMappingV6())
 }
 

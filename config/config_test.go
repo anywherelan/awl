@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -186,6 +187,22 @@ func TestLoadConfigMissing(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	assert.Empty(t, entries)
+}
+
+func TestDNSNamesMapping(t *testing.T) {
+	conf := &Config{
+		KnownPeers: map[string]KnownPeer{
+			testPeerID:  {PeerID: testPeerID, DomainName: "one", IPAddr: "10.66.0.2"},
+			testPeerID2: {PeerID: testPeerID2, IPAddr: "10.66.0.3"},
+			testPeerID3: {PeerID: testPeerID3, DomainName: "invalid", IPAddr: "fd00:66::4"},
+		},
+	}
+
+	assert.Equal(t, map[string]netip.Addr{
+		testPeerID:  netip.MustParseAddr("10.66.0.2"),
+		"one":       netip.MustParseAddr("10.66.0.2"),
+		testPeerID2: netip.MustParseAddr("10.66.0.3"),
+	}, conf.DNSNamesMapping(), "a peer without a valid IPv4 address is left out")
 }
 
 func newTestConfig(t *testing.T) (*Config, string) {

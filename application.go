@@ -620,7 +620,7 @@ func (a *DNSService) refreshDNSConfigLocked() {
 	// not reachable on AdminHttpServerIP there (the API listens elsewhere and
 	// port 80 cannot be bound), so don't advertise a dead name.
 	if runtime.GOOS != "android" {
-		dnsNamesMapping[config.AdminHttpServerDomainName] = config.AdminHttpServerIP
+		dnsNamesMapping[config.AdminHttpServerDomainName] = netip.MustParseAddr(config.AdminHttpServerIP)
 	}
 	dnsNamesMappingV6 := a.conf.DNSNamesMappingV6()
 	a.dnsResolver.ReceiveConfiguration(a.upstreamDNS, dnsNamesMapping, dnsNamesMappingV6)

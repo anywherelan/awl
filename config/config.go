@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync"
@@ -496,24 +497,30 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 	return result
 }
 
-func (c *Config) DNSNamesMapping() map[string]string {
-	mapping := make(map[string]string)
+// DNSNamesMapping returns the IPv4 addresses of known peers by peer ID and by
+// domain name. Peers with an invalid IP are left out.
+func (c *Config) DNSNamesMapping() map[string]netip.Addr {
+	mapping := make(map[string]netip.Addr)
 	c.RLock()
 	defer c.RUnlock()
 
 	for _, knownPeer := range c.KnownPeers {
-		mapping[knownPeer.PeerID] = knownPeer.IPAddr
+		addr, err := netip.ParseAddr(knownPeer.IPAddr)
+		if err != nil || !addr.Is4() {
+			continue
+		}
+		mapping[knownPeer.PeerID] = addr
 		if knownPeer.DomainName != "" {
-			mapping[knownPeer.DomainName] = knownPeer.IPAddr
+			mapping[knownPeer.DomainName] = addr
 		}
 	}
 
 	return mapping
 }
 
-func (c *Config) DNSNamesMappingV6() map[string]string {
-	// TODO: return map[string]netip.Addr, same for IPv4
-	mapping := make(map[string]string)
+// DNSNamesMappingV6 is DNSNamesMapping for IPv6, see PeerIPv6Unlocked.
+func (c *Config) DNSNamesMappingV6() map[string]netip.Addr {
+	mapping := make(map[string]netip.Addr)
 	c.RLock()
 	defer c.RUnlock()
 
@@ -522,9 +529,9 @@ func (c *Config) DNSNamesMappingV6() map[string]string {
 		if !ok {
 			continue
 		}
-		mapping[knownPeer.PeerID] = addr.String()
+		mapping[knownPeer.PeerID] = addr
 		if knownPeer.DomainName != "" {
-			mapping[knownPeer.DomainName] = addr.String()
+			mapping[knownPeer.DomainName] = addr
 		}
 	}
 
