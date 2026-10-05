@@ -6,12 +6,13 @@ package vpn
 import (
 	"fmt"
 	"net"
+	"net/netip"
 
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask, localIPv6 net.IP, ipMaskv6 net.IPMask) (tun.Device, error) {
+func newTUN(ifname string, mtu int, prefix, prefixV6 netip.Prefix) (tun.Device, error) {
 	tunDevice, err := tun.CreateTUN(ifname, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("create tun: %v", err)
@@ -30,25 +31,15 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask, localIPv6
 		return nil, fmt.Errorf("unable to get interface info: %v", err)
 	}
 
-	addr := &netlink.Addr{
-		IPNet: &net.IPNet{
-			IP:   localIP,
-			Mask: ipMask,
-		},
-	}
+	addr := &netlink.Addr{IPNet: prefixToIPNet(prefix)}
 	if err := netlink.AddrAdd(link, addr); err != nil {
-		return nil, fmt.Errorf("unable to set IP (%s) to (%v on interface): %v", localIP, addr.IPNet, err)
+		return nil, fmt.Errorf("unable to set IP (%s) to (%v on interface): %v", prefix.Addr(), addr.IPNet, err)
 	}
 
-	if localIPv6 != nil {
-		addr := &netlink.Addr{
-			IPNet: &net.IPNet{
-				IP:   localIPv6,
-				Mask: ipMaskv6,
-			},
-		}
+	if prefixV6.IsValid() {
+		addr := &netlink.Addr{IPNet: prefixToIPNet(prefixV6)}
 		if err := netlink.AddrAdd(link, addr); err != nil {
-			return nil, fmt.Errorf("unable to set IPv6 (%s) to (%v on interface): %v", localIPv6, addr.IPNet, err)
+			return nil, fmt.Errorf("unable to set IPv6 (%s) to (%v on interface): %v", prefixV6.Addr(), addr.IPNet, err)
 		}
 	}
 
@@ -58,6 +49,13 @@ func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask, localIPv6
 
 	success = true
 	return tunDevice, nil
+}
+
+func prefixToIPNet(prefix netip.Prefix) *net.IPNet {
+	return &net.IPNet{
+		IP:   prefix.Addr().AsSlice(),
+		Mask: net.CIDRMask(prefix.Bits(), prefix.Addr().BitLen()),
+	}
 }
 
 func (d *Device) InterfaceName() (string, error) {

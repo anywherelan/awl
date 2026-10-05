@@ -294,9 +294,9 @@ func TestGatewayHostNetRoutesStalenessReconcile(t *testing.T) {
 // The IPv6 counterpart of R4. RA re-advertising a new router/prefix changes the
 // v6 default far more often than IPv4 changes, so the monitor must mirror v6
 // default changes into tableID too (marked libp2p v6 sockets otherwise fall
-// through to the TUN default and exit the VPN). We simulate a
+// through to the `unreachable ::/0` fence and get EHOSTUNREACH). We simulate a
 // new v6 uplink with a high-metric default via a dummy interface and assert the
-// awl table follows both edges without disturbing the TUN default.
+// awl table follows both edges without disturbing the fence or the TUN default.
 func TestGatewayHostNetRoutesStalenessReconcileV6(t *testing.T) {
 	verifyNoLeaks(t)
 	requireRoot(t)
@@ -332,7 +332,7 @@ func TestGatewayHostNetRoutesStalenessReconcileV6(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond,
 		"the monitor must copy the new host IPv6 default into the awl exemption table")
 
-	// The IPv6 TUN route must be untouched by the reconcile.
+	// The unreachable fence and TUN default must be untouched by the reconcile.
 	assertRoutesApplied(t)
 
 	// Remove the second v6 default; the awl table copy must follow.
@@ -479,11 +479,11 @@ func assertRoutesApplied(t *testing.T) {
 	require.Contains(t, rules6, fmt.Sprintf("fwmark 0x%x", awlMark), "v6 fwmark ip rule")
 	require.Contains(t, rules6, fmt.Sprintf("lookup %d", tableID), "v6 ip rule must steer to the awl table")
 
-	// Anchor the metric to the awl0 route so an unrelated host route can't
+	// Anchor the metric to the unreachable line so an unrelated host route can't
 	// satisfy it.
 	main6 := cmdOut(t, "ip", "-6", "route", "show")
-	require.Regexp(t, fmt.Sprintf(`default dev %s.*metric %d`, testTunIf, tunRouteMetric), main6,
-		"IPv6 TUN route present at the expected metric")
+	require.Regexp(t, fmt.Sprintf(`unreachable default.*metric %d`, tunRouteMetric), main6,
+		"IPv6 unreachable fence present at the expected metric")
 }
 
 // ---------------------------------------------------------------------------

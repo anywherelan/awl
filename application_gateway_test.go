@@ -2,6 +2,7 @@ package awl
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -1161,7 +1162,8 @@ func TestGatewayDNSInterception(t *testing.T) {
 	ts.NotNil(dnsIP)
 
 	intercepted := make(chan []byte, 16)
-	client.app.Tunnel.SetDNSHandler(dnsIP, dnsHandlerFunc(func(packet []byte) {
+	dnsAddr, _ := netip.AddrFromSlice(dnsIP)
+	client.app.Tunnel.SetDNSHandler(dnsAddr, dnsHandlerFunc(func(packet []byte) {
 		intercepted <- append([]byte{}, packet...)
 	}))
 

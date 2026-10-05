@@ -5,13 +5,13 @@ package vpn
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/tun/tuntest"
 )
 
-func newTUN(ifname string, mtu int, localIP net.IP, ipMask net.IPMask, _ net.IP, _ net.IPMask) (tun.Device, error) {
+func newTUN(ifname string, mtu int, _, _ netip.Prefix) (tun.Device, error) {
 	fmt.Println("WARN: TUN is unimplemented for !linux,!windows,!darwin")
 	tt := tuntest.NewChannelTUN()
 

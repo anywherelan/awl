@@ -122,6 +122,10 @@ func New() *Application {
 func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.logger.Info("Application initialization started")
 
+	if err := a.Conf.ValidateForStartup(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
 	a.ctx, a.ctxCancel = context.WithCancel(ctx)
 	if a.NetManager == nil {
 		a.NetManager = netstate.NewManager()
@@ -146,16 +150,16 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	if a.Conf.VPNConfig.DisableVPNInterface {
 		a.logger.Info("VPN interface is disabled from config")
 	} else {
-		localIP, netMask := a.Conf.VPNLocalIPMask()
-		localIPv6, netMaskv6 := a.Conf.VPNLocalIPMaskV6()
+		prefix := a.Conf.VPNPrefix()
+		prefixV6, hasIPv6 := a.Conf.VPNPrefixV6()
 		interfaceName := a.Conf.VPNConfig.InterfaceName
-		a.vpnDevice, err = vpn.NewDevice(tunDevice, interfaceName, localIP, netMask, localIPv6, netMaskv6)
+		a.vpnDevice, err = vpn.NewDevice(tunDevice, interfaceName, prefix, prefixV6)
 		if err != nil {
 			return fmt.Errorf("failed to init vpn: %v", err)
 		}
-		a.logger.Infof("VPN interface created. Name: %s CIDR: %s", interfaceName, &net.IPNet{IP: localIP, Mask: netMask})
-		if localIPv6 != nil {
-			a.logger.Infof("VPN interface IPv6: %s", &net.IPNet{IP: localIPv6, Mask: netMaskv6})
+		a.logger.Infof("VPN interface created. Name: %s CIDR: %s", interfaceName, prefix)
+		if hasIPv6 {
+			a.logger.Infof("VPN interface IPv6: %s", prefixV6)
 		}
 
 		a.Tunnel = service.NewTunnel(a.P2p, a.vpnDevice, a.Conf, a.Eventbus)
@@ -497,7 +501,7 @@ func (a *DNSService) initDNSAndroid(vpnDevice *vpn.Device, tunnel *service.Tunne
 		a.refreshDNSConfigLocked()
 	}, a.eventbus, new(awlevent.KnownPeerChanged))
 
-	tunnel.SetDNSHandler(dnsIP, bridge)
+	tunnel.SetDNSHandler(dnsAddr, bridge)
 	// The interceptor now handles all device DNS — the host sets the same IP
 	// via addDnsServer — which is exactly what this flag means to the UI.
 	// (dnsIP is config.NetstackDNSIP, reserved from peers since setDefaults.)
@@ -616,7 +620,7 @@ func (a *DNSService) refreshDNSConfigLocked() {
 	// not reachable on AdminHttpServerIP there (the API listens elsewhere and
 	// port 80 cannot be bound), so don't advertise a dead name.
 	if runtime.GOOS != "android" {
-		dnsNamesMapping[config.AdminHttpServerDomainName] = config.AdminHttpServerIP
+		dnsNamesMapping[config.AdminHttpServerDomainName] = netip.MustParseAddr(config.AdminHttpServerIP)
 	}
 	dnsNamesMappingV6 := a.conf.DNSNamesMappingV6()
 	a.dnsResolver.ReceiveConfiguration(a.upstreamDNS, dnsNamesMapping, dnsNamesMappingV6)

@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"net"
 	"runtime"
 	"slices"
 	"strings"
@@ -316,13 +315,12 @@ func (g *VPNGateway) applyServer() error {
 	if err != nil {
 		return fmt.Errorf("get TUN name for NAT: %w", err)
 	}
-	localIP, netMask := g.conf.VPNLocalIPMask()
-	awlSubnet := (&net.IPNet{IP: localIP.Mask(netMask), Mask: netMask}).String()
+	awlSubnet := g.conf.VPNPrefix().Masked().String()
 
 	// Derive the IPv6 awl subnet for NAT6 (may be empty if IPv6 is unconfigured).
 	awlSubnet6 := ""
-	if localIPv6, netMaskv6 := g.conf.VPNLocalIPMaskV6(); localIPv6 != nil {
-		awlSubnet6 = (&net.IPNet{IP: localIPv6.Mask(netMaskv6), Mask: netMaskv6}).String()
+	if prefix, ok := g.conf.VPNPrefixV6(); ok {
+		awlSubnet6 = prefix.Masked().String()
 	}
 
 	if err := g.netManager.EnableServerNAT(awlSubnet, awlSubnet6, tunName); err != nil {

@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net"
-	"reflect"
+	"net/netip"
 	"sync"
 	"testing"
 	"time"
@@ -212,6 +212,27 @@ func TestPacket_CopyTo_SrcDstAliasCopyBuffer(t *testing.T) {
 	a.NotPanics(func() { cp.RecalculateChecksum() })
 }
 
+func TestPacket_Addrs(t *testing.T) {
+	a := require.New(t)
+	v4, _ := testUDPPacket()
+	v6, _ := testUDPPacketIPv6()
+	a.Equal("10.66.0.1", v4.SrcAddr().String())
+	a.Equal("10.66.0.2", v4.DstAddr().String())
+	a.True(v6.SrcAddr().Is6())
+
+	v4.SetSrc(netip.MustParseAddr("10.66.0.7"))
+	v4.SetDst(netip.MustParseAddr("10.66.0.8"))
+	a.Equal("10.66.0.7", v4.SrcAddr().String())
+	a.Equal("10.66.0.8", v4.DstAddr().String())
+	v4.SetSrc(netip.MustParseAddr("fd00:66::7"))
+	a.Equal("10.66.0.7", v4.SrcAddr().String(), "an IPv6 address does not fit an IPv4 packet")
+
+	v6.SetSrc(netip.MustParseAddr("fd00:66::7"))
+	v6.SetDst(netip.MustParseAddr("10.66.0.8"))
+	a.Equal("fd00:66::7", v6.SrcAddr().String())
+	a.Equal("::ffff:10.66.0.8", v6.DstAddr().String(), "an IPv4 address is written mapped")
+}
+
 func testUDPPacket() (*Packet, []byte) {
 	data, err := hex.DecodeString("4500002828f540004011fd490a4200010a420002a9d0238200148bfd68656c6c6f20776f726c6421")
 	if err != nil {
@@ -240,39 +261,20 @@ func testUDPPacketIPv6() (*Packet, []byte) {
 
 func TestGetIPv4BroadcastAddress(t *testing.T) {
 	tests := []struct {
-		name  string
-		ipNet *net.IPNet
-		want  net.IP
+		name   string
+		prefix string
+		want   string
 	}{
-		{
-			name:  "awl-default",
-			ipNet: getIPNet("10.66.0.1/16"),
-			want:  net.IPv4(10, 66, 255, 255).To4(),
-		},
-		{
-			name:  "local-network",
-			ipNet: getIPNet("192.168.1.19/24"),
-			want:  net.IPv4(192, 168, 1, 255).To4(),
-		},
-		{
-			name:  "docker-network",
-			ipNet: getIPNet("172.17.0.1/16"),
-			want:  net.IPv4(172, 17, 255, 255).To4(),
-		},
+		{name: "awl-default", prefix: "10.66.0.1/16", want: "10.66.255.255"},
+		{name: "local-network", prefix: "192.168.1.19/24", want: "192.168.1.255"},
+		{name: "docker-network", prefix: "172.17.0.1/16", want: "172.17.255.255"},
+		{name: "not-byte-aligned", prefix: "10.64.0.1/11", want: "10.95.255.255"},
+		{name: "single-host", prefix: "10.66.0.1/32", want: "10.66.0.1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := GetIPv4BroadcastAddress(tt.ipNet); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetIPv4BroadcastAddress() = %v, want %v", got, tt.want)
-			}
+			got := GetIPv4BroadcastAddress(netip.MustParsePrefix(tt.prefix))
+			require.Equal(t, tt.want, got.String())
 		})
 	}
-}
-
-func getIPNet(s string) *net.IPNet {
-	_, ipNet, err := net.ParseCIDR(s)
-	if err != nil {
-		panic(err)
-	}
-	return ipNet
 }
