@@ -182,7 +182,7 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 				dht.BootstrapPeers(p.bootstrapPeers...),
 			}
 			opts = append(opts, hostConfig.DHTOpts...)
-			kademliaDHT, err := dht.New(p.ctx, h, opts...)
+			kademliaDHT, err := dht.New(h, opts...)
 			p.dht = kademliaDHT
 			p.basicHost = h.(*basichost.BasicHost)
 			return p.dht, err
