@@ -22,7 +22,7 @@ jobs:
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
-          tool-cache: false
+          preinstalled-runtimes: false
           android: false
           swap-storage: false
           docker-images: true
@@ -30,22 +30,22 @@ jobs:
           haskell: true
           large-packages: true
       - name: Checkout awl code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref || github.ref }}
           path: 'awl'
       - name: Checkout awl-flutter code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: 'anywherelan/awl-flutter'
           ref: ${{ github.event.inputs.awl_flutter_ref || github.ref }}
           path: 'awl-flutter'
 
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: 1.26.4
+          go-version: 1.26.8
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -133,7 +133,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout awl code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref }}
@@ -145,9 +145,9 @@ jobs:
           path: awl/static
 
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: 1.26.4
+          go-version: 1.26.8
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -175,7 +175,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout awl code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # also fetch tags for 'git describe'
           ref: ${{ github.event.inputs.awl_ref }}
@@ -189,8 +189,8 @@ jobs:
       - name: Download and setup go-legacy-win7
         run: |
           mkdir -p /tmp/go-legacy-setup
-          wget -P /tmp/go-legacy-setup https://github.com/thongtech/go-legacy-win7/releases/download/v1.26.4-1/go-legacy-win7-1.26.4-1.linux_amd64.tar.gz
-          tar -xzf /tmp/go-legacy-setup/go-legacy-win7-1.26.4-1.linux_amd64.tar.gz -C /tmp/go-legacy-setup
+          wget -P /tmp/go-legacy-setup https://github.com/thongtech/go-legacy-win7/releases/download/v1.26.8-1/go-legacy-win7-1.26.8-1.linux_amd64.tar.gz
+          tar -xzf /tmp/go-legacy-setup/go-legacy-win7-1.26.8-1.linux_amd64.tar.gz -C /tmp/go-legacy-setup
           export GOROOT=/tmp/go-legacy-setup/go-legacy-win7
           export PATH=$GOROOT/bin:$PATH
           go version
