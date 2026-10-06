@@ -34,15 +34,18 @@ package netstate
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-reuseport"
 	"github.com/stretchr/testify/require"
 	"github.com/vishvananda/netlink"
 	"go.uber.org/goleak"
@@ -524,6 +527,62 @@ var volatileExpires = regexp.MustCompile(`expires \d+sec`)
 
 func stripVolatile(s string) string {
 	return volatileExpires.ReplaceAllString(s, "expires")
+}
+
+// ---- Marked TCP dial from the listen port ----
+
+// TestGatewayHostNetMarkedDialReusesListenPort checks the socket setup that
+// p2p.reuseportDialer performs, with the real SO_MARK instead of the no-op
+// control func its own tests use: a dial bound to the port of a live listener,
+// with SO_REUSEPORT and the mark both applied before bind. Outbound TCP has to
+// leave from the listen port for TCP hole punching to work at all — see
+// plans/tcp-hole-punching.md.
+func TestGatewayHostNetMarkedDialReusesListenPort(t *testing.T) {
+	verifyNoLeaks(t)
+	requireRoot(t)
+
+	listener, err := reuseport.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	target, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = target.Close() })
+
+	mark := NewManager().ControlFunc()
+	dialer := net.Dialer{
+		LocalAddr: listener.Addr(),
+		Timeout:   5 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			if err := reuseport.Control(network, address, c); err != nil {
+				return err
+			}
+			return mark(network, address, c)
+		},
+	}
+	conn, err := dialer.Dial("tcp4", target.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	require.Equal(t, listener.Addr().(*net.TCPAddr).Port, conn.LocalAddr().(*net.TCPAddr).Port)
+
+	raw, err := conn.(*net.TCPConn).SyscallConn()
+	require.NoError(t, err)
+	var gotMark int
+	var sockErr error
+	require.NoError(t, raw.Control(func(fd uintptr) {
+		gotMark, sockErr = syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK)
+	}))
+	require.NoError(t, sockErr)
+	require.Equal(t, awlMark, gotMark)
+
+	// The listener keeps accepting while a dialed connection shares its port.
+	inbound, err := net.DialTimeout("tcp4", listener.Addr().String(), 5*time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inbound.Close() })
+	require.NoError(t, listener.(*net.TCPListener).SetDeadline(time.Now().Add(5*time.Second)))
+	accepted, err := listener.Accept()
+	require.NoError(t, err)
+	_ = accepted.Close()
 }
 
 // ---------------------------------------------------------------------------

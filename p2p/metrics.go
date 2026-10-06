@@ -161,6 +161,19 @@ func (p *P2p) OpenStreamsCount() int64 {
 	return count
 }
 
+// TCPDialStats returns the dial counters of the main host. The AutoNAT
+// dial-back hosts are left out: they never reuse a port by design.
+func (p *P2p) TCPDialStats() TCPDialStats {
+	p.tcpDialersMu.Lock()
+	defer p.tcpDialersMu.Unlock()
+	for _, dialer := range p.tcpDialers {
+		if network.Network(dialer.sw) == p.host.Network() {
+			return dialer.stats()
+		}
+	}
+	return TCPDialStats{}
+}
+
 func (p *P2p) OpenStreamStats() map[protocol.ID]map[string]int {
 	stats := make(map[protocol.ID]map[string]int)
 
