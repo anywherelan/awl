@@ -26,6 +26,11 @@ const (
 	CliCommandName     = "cli"
 )
 
+const (
+	flagPeerID   = "pid"
+	flagPeerName = "name"
+)
+
 var defaultApiAddr = "127.0.0.1:" + strconv.Itoa(config.DefaultHTTPPort)
 
 var binaryName = path.Base(os.Args[0])
@@ -177,23 +182,12 @@ func (a *Application) init() {
 					{
 						Name:  "set_proxy",
 						Usage: "Sets SOCKS5 proxy for your peer, empty pid/name means disable proxy",
-						Flags: []cli.Flag{
-							&cli.StringFlag{
-								Name:     "pid",
-								Usage:    "peer id",
-								Required: false,
-							},
-							&cli.StringFlag{
-								Name:     "name",
-								Usage:    "peer name",
-								Required: false,
-							},
-						},
+						Flags: peerSelectorFlags(),
 						Before: func(c *cli.Context) error {
 							return a.initApiAndPeerId(c, false)
 						},
 						Action: func(c *cli.Context) error {
-							return setProxy(a.api, c.String("pid"), c.App.Writer)
+							return setProxy(a.api, c.String(flagPeerID), c.App.Writer)
 						},
 					},
 				},
@@ -239,12 +233,12 @@ func (a *Application) init() {
 								Required: false,
 							},
 							&cli.StringFlag{
-								Name:     "pid",
+								Name:     flagPeerID,
 								Usage:    "peer id",
 								Required: false,
 							},
 							&cli.StringFlag{
-								Name:     "name",
+								Name:     flagPeerName,
 								Usage:    "peer name, required unless the link carries one",
 								Required: false,
 							},
@@ -263,131 +257,80 @@ func (a *Application) init() {
 						Action: func(c *cli.Context) error {
 							return addPeer(a.api, addPeerParams{
 								Link:                 c.String("link"),
-								PeerID:               c.String("pid"),
-								Alias:                c.String("name"),
+								PeerID:               c.String(flagPeerID),
+								Alias:                c.String(flagPeerName),
 								IPAddr:               c.String("ip"),
 								AllowUsingAsExitNode: c.Bool("allow-exit-node"),
 							}, c.App.Writer)
 						},
 					},
 					{
-						Name:  "remove",
-						Usage: "Remove peer from the friends list",
-						Flags: []cli.Flag{
-							&cli.StringFlag{
-								Name:     "pid",
-								Usage:    "peer id",
-								Required: false,
-							},
-							&cli.StringFlag{
-								Name:     "name",
-								Usage:    "peer name",
-								Required: false,
-							},
-						},
+						Name:   "remove",
+						Usage:  "Remove peer from the friends list",
+						Flags:  peerSelectorFlags(),
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return removePeer(a.api, c.String("pid"), c.App.Writer)
+							return removePeer(a.api, c.String(flagPeerID), c.App.Writer)
 						},
 					},
 					{
 						Name:  "rename",
 						Usage: "Change known peer name",
-						Flags: []cli.Flag{
-							&cli.StringFlag{
-								Name:     "pid",
-								Usage:    "peer id",
-								Required: false,
-							},
-							&cli.StringFlag{
-								Name:     "name",
-								Usage:    "peer name",
-								Required: false,
-							},
+						Flags: peerSelectorFlags(
 							&cli.StringFlag{
 								Name:     "new_name",
 								Usage:    "peer new name",
 								Required: true,
 							},
-						},
+						),
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return changePeerAlias(a.api, c.String("pid"), c.String("new_name"), c.App.Writer)
+							return changePeerAlias(a.api, c.String(flagPeerID), c.String("new_name"), c.App.Writer)
 						},
 					},
 					{
 						Name:  "update_domain",
 						Usage: "Change known peer domain name",
-						Flags: []cli.Flag{
-							&cli.StringFlag{
-								Name:     "pid",
-								Usage:    "peer id",
-								Required: false,
-							},
-							&cli.StringFlag{
-								Name:     "name",
-								Usage:    "peer name",
-								Required: false,
-							},
+						Flags: peerSelectorFlags(
 							&cli.StringFlag{
 								Name:     "domain",
 								Usage:    "peer domain name",
 								Required: true,
 							},
-						},
+						),
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return changePeerDomain(a.api, c.String("pid"), c.String("domain"), c.App.Writer)
+							return changePeerDomain(a.api, c.String(flagPeerID), c.String("domain"), c.App.Writer)
 						},
 					},
 					{
 						Name:  "update_ip",
 						Usage: "Change known peer IP address",
-						Flags: []cli.Flag{
-							&cli.StringFlag{
-								Name:     "pid",
-								Usage:    "peer id",
-								Required: false,
-							},
-							&cli.StringFlag{
-								Name:     "name",
-								Usage:    "peer name",
-								Required: false,
-							},
+						Flags: peerSelectorFlags(
 							&cli.StringFlag{
 								Name:     "ip",
 								Usage:    "peer IP address",
 								Required: true,
 							},
-						},
+						),
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return changePeerIP(a.api, c.String("pid"), c.String("ip"), c.App.Writer)
+							return changePeerIP(a.api, c.String(flagPeerID), c.String("ip"), c.App.Writer)
 						},
 					},
 					{
 						Name:  "allow_exit_node",
 						Usage: "Allow known peer to use this device as exit node (as socks5 proxy)",
-						Flags: []cli.Flag{
-							&cli.StringFlag{
-								Name:     "pid",
-								Usage:    "peer id",
-								Required: false,
-							},
-							&cli.StringFlag{
-								Name:     "name",
-								Usage:    "peer name",
-								Required: false,
-							},
+						Flags: peerSelectorFlags(
 							&cli.BoolFlag{
 								Name:     "allow",
 								Usage:    "allow",
 								Required: false,
 							},
-						},
+						),
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
-							return setAllowUsingAsExitNode(a.api, c.String("pid"), c.Bool("allow"), c.App.Writer)
+							return setAllowUsingAsExitNode(a.api, c.String(flagPeerID), c.Bool("allow"), c.App.Writer)
 						},
 					},
 					{
@@ -498,19 +441,19 @@ func (a *Application) init() {
 								Usage: "Route all traffic through the given peer. If already enabled with a different peer, atomically switches to the new one.",
 								Flags: []cli.Flag{
 									&cli.StringFlag{
-										Name:     "pid",
+										Name:     flagPeerID,
 										Usage:    "VPN gateway peer id",
 										Required: false,
 									},
 									&cli.StringFlag{
-										Name:     "name",
+										Name:     flagPeerName,
 										Usage:    "VPN gateway peer name",
 										Required: false,
 									},
 								},
 								Before: a.initApiAndPeerIdRequired,
 								Action: func(c *cli.Context) error {
-									return gatewayClientUse(a.api, c.String("pid"), c.App.Writer)
+									return gatewayClientUse(a.api, c.String(flagPeerID), c.App.Writer)
 								},
 							},
 							{
@@ -705,6 +648,25 @@ func (a *Application) initApiFromAddr(addr, username, password string) error {
 	return nil
 }
 
+// peerSelectorFlags returns flags to select a known peer either by id or by name,
+// followed by extra flags. Use with initApiAndPeerId to resolve the name into flagPeerID.
+func peerSelectorFlags(extra ...cli.Flag) []cli.Flag {
+	flags := make([]cli.Flag, 0, 2+len(extra))
+	flags = append(flags,
+		&cli.StringFlag{
+			Name:     flagPeerID,
+			Usage:    "peer id",
+			Required: false,
+		},
+		&cli.StringFlag{
+			Name:     flagPeerName,
+			Usage:    "peer name",
+			Required: false,
+		},
+	)
+	return append(flags, extra...)
+}
+
 func (a *Application) initApiAndPeerIdRequired(c *cli.Context) error {
 	return a.initApiAndPeerId(c, true)
 }
@@ -715,11 +677,11 @@ func (a *Application) initApiAndPeerId(c *cli.Context, isRequired bool) error {
 		return err
 	}
 
-	pid := c.String("pid")
+	pid := c.String(flagPeerID)
 	if pid != "" {
 		return nil
 	}
-	alias := c.String("name")
+	alias := c.String(flagPeerName)
 	if alias == "" && isRequired {
 		return fmt.Errorf("peerID or name should be defined")
 	} else if alias == "" && !isRequired {
@@ -730,7 +692,7 @@ func (a *Application) initApiAndPeerId(c *cli.Context, isRequired bool) error {
 	if err != nil {
 		return err
 	}
-	return c.Set("pid", pid)
+	return c.Set(flagPeerID, pid)
 }
 
 func (a *Application) yesNoPrompt(message string, def bool) (bool, error) {

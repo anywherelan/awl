@@ -43,6 +43,10 @@ linters:
   settings:
     exhaustive:
       default-signifies-exhaustive: true
+    goconst:
+      ignore-string-values:
+        # command name and table column, not the same entity
+        - ^status$
     gocritic:
       disabled-checks:
         - hugeParam
@@ -67,6 +71,10 @@ linters:
           - errcheck
           - goconst
         path: _test\.go
+      # repeated subsystem and label names in metrics declarations
+      - linters:
+          - goconst
+        path: ^metrics/
       - linters:
           - gosec
         text: 'G101:'
