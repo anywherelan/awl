@@ -136,6 +136,10 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	if err := a.NetManager.Start(a.ctx); err != nil {
 		return fmt.Errorf("start socket marker: %v", err)
 	}
+	// Not fatal: without it the node only lacks the libp2p_kad_dht_* metrics.
+	if err := metrics.ExportKadDHTMetrics(); err != nil {
+		a.logger.Errorf("failed to export kad-dht metrics: %v", err)
+	}
 	a.P2p = p2p.NewP2p(a.ctx)
 	p2pHost, err := a.P2p.InitHost(a.makeP2pHostConfig())
 	if err != nil {

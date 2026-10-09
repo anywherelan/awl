@@ -112,6 +112,24 @@ Enabled via `libp2p.PrometheusRegisterer`. Prefixed with `libp2p_`. Includes swa
 
 Pre-built Grafana dashboards for these metrics are included in `dashboards/`.
 
+### DHT Metrics (`libp2p_kad_dht_*`)
+
+RPC metrics of `go-libp2p-kad-dht`. The library reports them through OpenTelemetry; `metrics.ExportKadDHTMetrics` attaches a Prometheus exporter that writes into the same registry. All `rpc_*` metrics carry the label `message_type` (`FIND_NODE`, `PING`, ...). A metric shows up once it has data.
+
+| Metric | Type | Description |
+|---|---|---|
+| `libp2p_kad_dht_rpc_outbound_requests_total` | Counter | Requests sent, failed ones included |
+| `libp2p_kad_dht_rpc_outbound_request_errors_total` | Counter | Requests that failed |
+| `libp2p_kad_dht_rpc_outbound_request_latency_milliseconds` | Histogram | Time until the response |
+| `libp2p_kad_dht_rpc_outbound_messages_total` | Counter | One-way messages sent, no response expected |
+| `libp2p_kad_dht_rpc_outbound_message_errors_total` | Counter | One-way messages that failed |
+| `libp2p_kad_dht_rpc_outbound_bytes` | Histogram | Size of sent messages |
+| `libp2p_kad_dht_rpc_inbound_messages_total` | Counter | Messages received, i.e. requests served for other peers |
+| `libp2p_kad_dht_rpc_inbound_message_errors_total` | Counter | Received messages that could not be read or handled |
+| `libp2p_kad_dht_rpc_inbound_bytes` | Histogram | Size of received messages |
+| `libp2p_kad_dht_rpc_inbound_request_latency_milliseconds` | Histogram | Time to handle a received request |
+| `libp2p_kad_dht_network_size` | Gauge | Estimated number of peers in the DHT |
+
 ## Dashboards
 
 The `dashboards/` directory contains Grafana dashboards copied from [libp2p/go-libp2p](https://github.com/libp2p/go-libp2p/tree/master/dashboards):

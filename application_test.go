@@ -2009,18 +2009,7 @@ func TestMetricsEndpoint(t *testing.T) {
 	// Make some API requests first so counter metrics get populated
 	_, _ = peer1.api.PeerInfo()
 
-	// Query the /metrics endpoint
-	metricsURL := fmt.Sprintf("http://%s/metrics", peer1.app.Api.Address())
-	resp, err := http.Get(metricsURL) //nolint:gosec
-	ts.NoError(err)
-	defer resp.Body.Close()
-
-	ts.Equal(http.StatusOK, resp.StatusCode)
-
-	body, err := io.ReadAll(resp.Body)
-	ts.NoError(err)
-
-	metricsOutput := string(body)
+	metricsOutput := ts.fetchMetrics(peer1)
 
 	// Verify AWL-specific metrics are present
 	ts.Contains(metricsOutput, "awl_node_info")
@@ -2031,6 +2020,26 @@ func TestMetricsEndpoint(t *testing.T) {
 
 	// Verify libp2p built-in metrics are present
 	ts.Contains(metricsOutput, "libp2p_")
+}
+
+func TestMetricsEndpointKadDHT(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(true)
+	peer2 := ts.NewTestPeer(true)
+
+	// A lookup makes the peers send FIND_NODE requests and the bootstrap node,
+	// which lives in the same process, serve them
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+
+	metricsOutput := ts.fetchMetrics(peer1)
+
+	ts.Contains(metricsOutput, `libp2p_kad_dht_rpc_outbound_requests_total{message_type="FIND_NODE"}`)
+	ts.Contains(metricsOutput, `libp2p_kad_dht_rpc_inbound_messages_total{message_type="FIND_NODE"}`)
+
+	// The exporter is set up to keep its own labels and metrics out
+	ts.NotContains(metricsOutput, "otel_scope")
+	ts.NotContains(metricsOutput, "target_info")
 }
 
 func TestChooseDNSPolicy(t *testing.T) {
