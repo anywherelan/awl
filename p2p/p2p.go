@@ -108,6 +108,11 @@ type P2p struct {
 	tcpDialersMu sync.Mutex
 	tcpDialers   []*reuseportDialer
 
+	// known peers with a redial pending, see redialOnDisconnect
+	redials sync.Map
+	// not a constant for the tests to shorten it
+	maxRedialDelay time.Duration
+
 	dhtBootstrapFinishedChan chan struct{}
 }
 
@@ -117,6 +122,8 @@ func NewP2p(ctx context.Context) *P2p {
 		ctx:       newCtx,
 		ctxCancel: ctxCancel,
 		logger:    log.Logger("awl/p2p"),
+
+		maxRedialDelay: defaultMaxRedialDelay,
 
 		dhtBootstrapFinishedChan: make(chan struct{}),
 	}
@@ -428,6 +435,9 @@ func (p *P2p) Bootstrap() {
 func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.Duration, knownPeersIdsFunc func() []peer.ID) {
 	const timeout = 5 * time.Second
 	const firstRetryDelay = 5 * time.Second
+
+	stopRedial := p.redialOnDisconnect(ctx, knownPeersIdsFunc)
+	defer stopRedial()
 
 	// wait for bootstrapping
 	select {
