@@ -252,6 +252,7 @@ type (
 		OpenConnectionsCount int
 		OpenStreamsCount     int64
 		LastTrimAgo          string
+		TCPDials             p2p.TCPDialStats
 	}
 	BandwidthDebugInfo struct {
 		Total      BandwidthInfo

@@ -114,6 +114,25 @@ jobs:
 
           echo $CONFIG_LIBRESPEED > config_librespeed.json
 
+          # save_debug snapshots p2p debug info and prometheus metrics of the
+          # running awl for the artifact uploaded at the end of the job. The
+          # steps below call it right before stopping awl and also from an
+          # EXIT trap, so a failed run has a snapshot too; a call after awl is
+          # gone keeps the files already written.
+          cat > save_debug.sh <<'EOF'
+          save_debug() {
+            local awl=./awl addr user pass
+            [ "$RUNNER_OS" == "Windows" ] && awl=./awl.exe
+            $awl cli p2p_info > p2p_info.json.tmp 2>/dev/null && mv p2p_info.json.tmp p2p_info.json
+            addr=$(jq -r '.httpListenAddress // empty' config_awl.json 2>/dev/null || true)
+            user=$(jq -r '.httpBasicAuth.username // empty' config_awl.json 2>/dev/null || true)
+            pass=$(jq -r '.httpBasicAuth.password // empty' config_awl.json 2>/dev/null || true)
+            curl -sf --max-time 5 ${user:+-u "$user:$pass"} "http://${addr:-127.0.0.1:8639}/metrics" -o metrics.txt.tmp \
+              && mv metrics.txt.tmp metrics.txt
+            return 0
+          }
+          EOF
+
       - name: Run librespeed-cli, awl, librespeed-cli through awl
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -122,6 +141,7 @@ jobs:
           jq '.vpn.ipNetV6 = "fd00:66::/48"' config_awl.json > config_awl.json.tmp
           mv config_awl.json.tmp config_awl.json
           sudo ./awl &
+          source ./save_debug.sh; trap save_debug EXIT
 
           ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
 
@@ -213,6 +233,7 @@ jobs:
           ./awl cli gateway client use --name awl-tester
 
           sleep 1
+          save_debug
           sudo kill -SIGINT $awl_pid
           sleep 2
           # awl is gone: its TUN and the default route via it vanished with the
@@ -224,6 +245,7 @@ jobs:
         run: |
           chmod +x awl
           sudo ./awl &
+          source ./save_debug.sh; trap save_debug EXIT
 
           ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
 
@@ -238,6 +260,7 @@ jobs:
           echo "IPv6 VPN gateway is currently supported on Linux only, skipping IPv6 ping test on macOS."
 
           sleep 1
+          save_debug
           sudo kill -SIGINT $awl_pid
           sleep 1
       - name: Run librespeed-cli, awl, librespeed-cli through awl
@@ -245,6 +268,7 @@ jobs:
         run: |
           chmod +x awl.exe
           ./awl.exe &
+          source ./save_debug.sh; trap save_debug EXIT
 
           ./librespeed-cli.exe --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
 
@@ -348,6 +372,7 @@ jobs:
           # CRASH semantics instead.
           ./awl.exe cli gateway client use --name awl-tester
           sleep 1
+          save_debug
           taskkill //F //IM awl.exe
 
           # Crash fail-open: the /1 routes (v4 + v6 fence) are bound to the
@@ -373,3 +398,13 @@ jobs:
           # all DNS at a resolver that no longer exists — remove it so the
           # runner's post-job steps keep working DNS.
           powershell -NoProfile -Command 'Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq "." } | Remove-DnsClientNrptRule -Force'
+      - name: Upload p2p debug info and metrics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: awl-debug-${{ runner.os }}
+          path: |
+            p2p_info.json
+            metrics.txt
+          if-no-files-found: warn
+          retention-days: 14

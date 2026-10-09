@@ -50,11 +50,13 @@ import (
 	"net"
 	"net/netip"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-reuseport"
 	"github.com/stretchr/testify/require"
 	"github.com/tailscale/wf"
 	"go.uber.org/goleak"
@@ -268,6 +270,70 @@ func TestGatewayHostNetMarkerRebind(t *testing.T) {
 		return getUnicastIF4(t, conn) == realIdx
 	}, 5*time.Second, 50*time.Millisecond,
 		"the watcher must re-detect the uplink and re-bind the registered socket")
+}
+
+// ---- Marked TCP dial from the listen port ----
+
+// markedDialTarget is a public TCP endpoint for the dial below. It must be
+// reached through the real uplink: the socket is pinned to it by UNICAST_IF,
+// exactly like libp2p dials to internet peers.
+const markedDialTarget = "1.1.1.1:443"
+
+// TestGatewayHostNetMarkedDialReusesListenPort checks the socket setup that
+// p2p.reuseportDialer performs, with the real UNICAST_IF marking instead of
+// the no-op control func its own tests use: a dial bound to the port of a live
+// listener, with SO_REUSEADDR and the marking both applied before bind.
+// Outbound TCP has to leave from the listen port for TCP hole punching to work
+// at all — see plans/tcp-hole-punching.md.
+//
+// Windows documents sockets sharing a port via SO_REUSEADDR as
+// "indeterminate" for inbound delivery, so the second half asserts what
+// libp2p relies on in practice: the listener still gets its connections.
+func TestGatewayHostNetMarkedDialReusesListenPort(t *testing.T) {
+	verifyNoLeaks(t)
+	mgr := NewManager()
+	startManager(t, mgr)
+	realIdx := mgr.index4.Load()
+
+	listener, err := reuseport.Listen("tcp4", "0.0.0.0:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	listenPort := listener.Addr().(*net.TCPAddr).Port
+
+	mark := mgr.ControlFunc()
+	dialer := net.Dialer{
+		LocalAddr: listener.Addr(),
+		Timeout:   10 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			if err := reuseport.Control(network, address, c); err != nil {
+				return err
+			}
+			return mark(network, address, c)
+		},
+	}
+	conn, err := dialer.Dial("tcp4", markedDialTarget)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	require.Equal(t, listenPort, conn.LocalAddr().(*net.TCPAddr).Port)
+
+	raw, err := conn.(*net.TCPConn).SyscallConn()
+	require.NoError(t, err)
+	var gotIdx int
+	var sockErr error
+	require.NoError(t, raw.Control(func(fd uintptr) {
+		gotIdx, sockErr = windows.GetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, ipUnicastIF)
+	}))
+	require.NoError(t, sockErr)
+	require.Equal(t, realIdx, uint32(gotIdx))
+
+	inbound, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(listenPort)), 5*time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inbound.Close() })
+	require.NoError(t, listener.(*net.TCPListener).SetDeadline(time.Now().Add(5*time.Second)))
+	accepted, err := listener.Accept()
+	require.NoError(t, err)
+	_ = accepted.Close()
 }
 
 // ---- Server: NAT lifecycle ----

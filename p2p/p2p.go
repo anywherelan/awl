@@ -25,6 +25,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/core/routing"
+	"github.com/libp2p/go-libp2p/core/transport"
 	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	basichost "github.com/libp2p/go-libp2p/p2p/host/basic"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
@@ -33,6 +34,7 @@ import (
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
+	"github.com/libp2p/go-libp2p/p2p/transport/tcpreuse"
 	"github.com/multiformats/go-multiaddr"
 	msmux "github.com/multiformats/go-multistream"
 )
@@ -100,6 +102,11 @@ type P2p struct {
 	bootstrapPeers   []peer.AddrInfo
 	startedAt        time.Time
 	bootstrapsInfo   atomic.Pointer[map[string]BootstrapPeerDebugInfo]
+
+	// one per TCP transport instance: the main host plus the AutoNAT
+	// dial-back hosts go-libp2p builds from the same transport options
+	tcpDialersMu sync.Mutex
+	tcpDialers   []*reuseportDialer
 
 	dhtBootstrapFinishedChan chan struct{}
 }
@@ -204,6 +211,12 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 // libp2p lets us: TCP dials (WithDialerForAddr) and UDP listen sockets
 // (quicreuse.OverrideListenUDP — QUIC dials share the listen socket).
 //
+// WithDialerForAddr disables the stock reuseport dialing, so TCP dials go
+// through reuseportDialer, which restores it. The TCP transport is built by
+// our own constructor rather than by passing the option to libp2p.Transport:
+// the dialer needs the swarm of the very transport it serves, and libp2p
+// creates several from these options (see reuseportDialer).
+//
 // TODO(gateway): the TCP *listener* is NOT covered — go-libp2p's TCP
 // transport has no listen hook (Listen goes straight to manet.Listen), so
 // sockets accepted from it stay unmarked on every platform. With gateway
@@ -219,9 +232,18 @@ func (p *P2p) buildTransportOpts(controlFunc func(network, address string, c sys
 		}
 	}
 
-	dialer := &net.Dialer{Control: controlFunc}
-	tcpDialer := func(raddr multiaddr.Multiaddr) (tcp.ContextDialer, error) {
-		return dialer, nil
+	newTCPTransport := func(
+		upgrader transport.Upgrader, rcmgr network.ResourceManager, sharedTCP *tcpreuse.ConnMgr, sw *swarm.Swarm,
+	) (*tcp.TcpTransport, error) {
+		dialer := &reuseportDialer{control: controlFunc, listenAddrs: sw.ListenAddresses, sw: sw}
+		p.tcpDialersMu.Lock()
+		p.tcpDialers = append(p.tcpDialers, dialer)
+		p.tcpDialersMu.Unlock()
+
+		tcpDialer := func(multiaddr.Multiaddr) (tcp.ContextDialer, error) {
+			return dialer, nil
+		}
+		return tcp.NewTCPTransport(upgrader, rcmgr, sharedTCP, tcp.WithDialerForAddr(tcpDialer))
 	}
 
 	listenUDP := func(network string, laddr *net.UDPAddr) (net.PacketConn, error) {
@@ -244,7 +266,7 @@ func (p *P2p) buildTransportOpts(controlFunc func(network, address string, c sys
 	return []libp2p.Option{
 		libp2p.QUICReuse(quicreuse.NewConnManager, quicreuse.OverrideListenUDP(listenUDP)),
 		libp2p.Transport(libp2pquic.NewTransport),
-		libp2p.Transport(tcp.NewTCPTransport, tcp.WithDialerForAddr(tcpDialer)),
+		libp2p.Transport(newTCPTransport),
 	}
 }
 

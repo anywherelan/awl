@@ -51,6 +51,7 @@ func (h *Handler) GetP2pDebugInfo(c echo.Context) (err error) {
 			OpenConnectionsCount: h.p2p.OpenConnectionsCount(),
 			OpenStreamsCount:     h.p2p.OpenStreamsCount(),
 			LastTrimAgo:          h.p2p.ConnectionsLastTrimAgo().String(),
+			TCPDials:             h.p2p.TCPDialStats(),
 		},
 		Bandwidth: entity.BandwidthDebugInfo{
 			Total:      makeBandwidthInfo(h.p2p.NetworkStats()),
