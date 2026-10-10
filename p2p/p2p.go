@@ -48,6 +48,11 @@ const (
 	protectedBootstrapPeerTag = "bootstrap"
 	protectedPeerTag          = "known"
 
+	// enoughBootstrapPeers is how many connected bootstrap peers make the
+	// unreachable rest not worth trying every round: both the DHT and autorelay
+	// want two.
+	enoughBootstrapPeers = 2
+
 	// Port is unassigned by IANA and seems quite unused.
 	// https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.txt
 	defaultP2pPort = 4363
@@ -108,10 +113,14 @@ type P2p struct {
 	tcpDialersMu sync.Mutex
 	tcpDialers   []*reuseportDialer
 
+	// when to try the known and the bootstrap peers that could not be reached
+	retries        *retrySchedule
+	networkChanged chan struct{}
 	// known peers with a redial pending, see redialOnDisconnect
 	redials sync.Map
-	// not a constant for the tests to shorten it
-	maxRedialDelay time.Duration
+	// not constants for the tests to shorten them
+	maxRedialDelay  time.Duration
+	firstRetryDelay time.Duration
 
 	dhtBootstrapFinishedChan chan struct{}
 }
@@ -123,7 +132,10 @@ func NewP2p(ctx context.Context) *P2p {
 		ctxCancel: ctxCancel,
 		logger:    log.Logger("awl/p2p"),
 
-		maxRedialDelay: defaultMaxRedialDelay,
+		retries:         newRetrySchedule(),
+		networkChanged:  make(chan struct{}, 1),
+		maxRedialDelay:  defaultMaxRedialDelay,
+		firstRetryDelay: defaultFirstRetryDelay,
 
 		dhtBootstrapFinishedChan: make(chan struct{}),
 	}
@@ -400,7 +412,7 @@ func (p *P2p) Bootstrap() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := p.host.Connect(ctx, peerAddr); err != nil && !errors.Is(err, context.Canceled) {
+			if err := p.basicHost.Connect(ctx, peerAddr); err != nil && !errors.Is(err, context.Canceled) {
 				p.logger.Warnf("Failed to connect to bootstrap node %s: %v", peerAddr.ID, err)
 			} else if err == nil {
 				p.logger.Infof("Connection established with bootstrap node: %s", peerAddr.ID)
@@ -432,11 +444,22 @@ func (p *P2p) Bootstrap() {
 	}()
 }
 
-func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.Duration, knownPeersIdsFunc func() []peer.ID) {
-	const timeout = 5 * time.Second
-	const firstRetryDelay = 5 * time.Second
+// KnownPeer is a peer MaintainBackgroundConnections keeps a connection to.
+type KnownPeer struct {
+	ID peer.ID
+	// Eager peers are tried every round with no backoff, however long they have
+	// been unreachable.
+	Eager bool
+}
 
-	stopRedial := p.redialOnDisconnect(ctx, knownPeersIdsFunc)
+// MaintainBackgroundConnections keeps the node connected to its known and
+// bootstrap peers. A peer that cannot be reached is retried less and less
+// often, see retrySchedule; interval is both the pace of the rounds and the
+// first pause of that backoff.
+func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.Duration, knownPeersFunc func() []KnownPeer) {
+	const timeout = 5 * time.Second
+
+	stopRedial := p.redialOnDisconnect(ctx, knownPeersFunc)
 	defer stopRedial()
 
 	// wait for bootstrapping
@@ -446,16 +469,28 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 	case <-p.dhtBootstrapFinishedChan:
 	}
 
-	p.connectToKnownPeers(ctx, timeout, knownPeersIdsFunc())
-
-	// retry once after a short delay in case of network instability
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(firstRetryDelay):
+	round := func(force bool) (bootstrapBefore, bootstrapAfter int) {
+		return p.connectToKnownPeers(ctx, timeout, interval, knownPeersFunc(), force)
 	}
-	p.connectToKnownPeers(ctx, timeout, knownPeersIdsFunc())
+	// startOver is for the start and for every time the network comes back,
+	// which is no different from a start: whatever the schedule remembers about
+	// the peers is stale, so everyone is tried again.
+	startOver := func() (bootstrapConnected int) {
+		p.retries.reset()
+		round(true)
 
+		// retry once after a short delay in case of network instability
+		select {
+		case <-ctx.Done():
+			return 0
+		case <-time.After(p.firstRetryDelay):
+		}
+		_, bootstrapConnected = round(true)
+
+		return bootstrapConnected
+	}
+
+	bootstrapConnected := startOver()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -463,34 +498,65 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 		select {
 		case <-ctx.Done():
 			return
+		case <-p.networkChanged:
+			bootstrapConnected = startOver()
 		case <-ticker.C:
+			before, after := round(false)
+			// Having no bootstrap peer at all and then getting one back is how
+			// the return of the network looks from here
+			if after > 0 && (before == 0 || bootstrapConnected == 0) {
+				p.NotifyNetworkChanged()
+			}
+			bootstrapConnected = after
 		}
-
-		p.connectToKnownPeers(ctx, timeout, knownPeersIdsFunc())
 		ticker.Reset(interval)
 	}
 }
 
-func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, peerIds []peer.ID) {
+// NotifyNetworkChanged tells P2p that the network of the host has changed, for
+// the case when the caller knows better than P2p can find out. Every known and
+// bootstrap peer is then tried right away, with no regard to its backoff.
+// It does not block, and calls that pile up are handled as one.
+func (p *P2p) NotifyNetworkChanged() {
+	select {
+	case p.networkChanged <- struct{}{}:
+	default:
+	}
+}
+
+// connectToKnownPeers makes one round over the known and the bootstrap peers:
+// tries the ones whose turn has come, or all of them with force, and pings the
+// connected ones. It returns the number of connected bootstrap peers before and
+// after the round.
+func (p *P2p) connectToKnownPeers(
+	ctx context.Context, timeout, retryBase time.Duration, knownPeers []KnownPeer, force bool,
+) (bootstrapBefore, bootstrapAfter int) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	now := time.Now()
 	var wg sync.WaitGroup
-	for _, peerID := range peerIds {
+	for _, knownPeer := range knownPeers {
 		wg.Add(1)
-		p.ProtectPeer(peerID)
-		go func(peerID peer.ID) {
+		p.ProtectPeer(knownPeer.ID)
+		go func() {
 			defer wg.Done()
-			err := p.ConnectPeer(ctx, peerID)
-			if err != nil {
+			if force {
+				p.ClearBackoff(knownPeer.ID)
+			}
+			attempted, err := p.tryConnect(knownPeer.ID, now, force || knownPeer.Eager, retryBase, func() error {
+				return p.ConnectPeer(ctx, knownPeer.ID)
+			})
+			if !attempted || err != nil {
 				return
 			}
 
-			p.pingPeer(ctx, peerID)
-		}(peerID)
+			p.pingPeer(ctx, knownPeer.ID)
+		}()
 	}
 
-	_, connectedBootstrapPeersCount := p.BootstrapPeersStats()
+	_, bootstrapBefore = p.BootstrapPeersStats()
+	lastBootstrapsInfo := p.bootstrapsInfo.Load()
 	bootstrapsInfo := make(map[string]BootstrapPeerDebugInfo)
 	var mu sync.Mutex
 
@@ -501,21 +567,39 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 		go func() {
 			defer wg.Done()
 
-			if connectedBootstrapPeersCount <= 2 {
+			// Short of bootstrap peers, each of them is tried every round: the
+			// problem may well be our network. With enough of them connected the
+			// network is evidently fine and it is the peer that is down, so it
+			// waits for its turn like any other.
+			needMore := bootstrapBefore < enoughBootstrapPeers
+			if force || needMore {
 				p.ClearBackoff(peerAddr.ID)
 			}
 
-			err := p.host.Connect(ctx, peerAddr)
-			var info BootstrapPeerDebugInfo
-			if err != nil {
-				info.Error = err.Error()
-			}
-			info.Connections = p.peerAddressesString(peerAddr.ID)
+			attempted, err := p.tryConnect(peerAddr.ID, now, force || needMore, retryBase, func() error {
+				// Not p.host: the routed host answers a failed dial with a DHT
+				// lookup of the peer, and the addresses of a bootstrap peer come
+				// from the config, the DHT has nothing to add
+				return p.basicHost.Connect(ctx, peerAddr)
+			})
 
-			if err == nil {
-				p.pingPeer(ctx, peerAddr.ID)
+			var info BootstrapPeerDebugInfo
+			if !attempted {
+				// not its turn, keep what the last attempt reported
+				if lastBootstrapsInfo != nil {
+					info = (*lastBootstrapsInfo)[peerAddr.ID.String()]
+				}
+			} else {
+				if err != nil {
+					info.Error = err.Error()
+				}
+				info.Connections = p.peerAddressesString(peerAddr.ID)
+
+				if err == nil {
+					p.pingPeer(ctx, peerAddr.ID)
+				}
+				info.Ping = Duration(p.host.Peerstore().LatencyEWMA(peerAddr.ID))
 			}
-			info.Ping = Duration(p.host.Peerstore().LatencyEWMA(peerAddr.ID))
 
 			mu.Lock()
 			bootstrapsInfo[peerAddr.ID.String()] = info
@@ -526,6 +610,38 @@ func (p *P2p) connectToKnownPeers(ctx context.Context, timeout time.Duration, pe
 	wg.Wait()
 
 	p.bootstrapsInfo.Store(&bootstrapsInfo)
+	_, bootstrapAfter = p.BootstrapPeersStats()
+
+	return bootstrapBefore, bootstrapAfter
+}
+
+// tryConnect runs connect for a peer that is not connected, provided its turn
+// has come by the schedule or force is set. attempted is false when the
+// schedule held the attempt back or a redial is on the peer; a peer that is
+// connected already counts as attempted with no error.
+func (p *P2p) tryConnect(
+	peerID peer.ID, now time.Time, force bool, retryBase time.Duration, connect func() error,
+) (attempted bool, err error) {
+	if p.IsConnected(peerID) {
+		p.retries.forget(peerID)
+		return true, nil
+	}
+	if _, redialing := p.redials.Load(peerID); redialing {
+		// leave it to the redial, see redialOnDisconnect
+		return false, nil
+	}
+	if !force && !p.retries.due(peerID, now) {
+		return false, nil
+	}
+
+	err = connect()
+	if err != nil {
+		p.retries.failed(peerID, time.Now(), retryBase)
+	} else {
+		p.retries.forget(peerID)
+	}
+
+	return true, err
 }
 
 func (p *P2p) pingPeer(ctx context.Context, peerID peer.ID) {

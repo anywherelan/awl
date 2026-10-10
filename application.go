@@ -202,7 +202,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		return fmt.Errorf("failed to setup api: %v", err)
 	}
 
-	go a.P2p.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second, a.Conf.KnownPeersIds)
+	go a.P2p.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second, a.knownPeersToMaintain)
 	go a.AuthStatus.BackgroundRetryAuthRequests(a.ctx)
 	go a.AuthStatus.BackgroundExchangeStatusInfo(a.ctx)
 	go a.SOCKS5.ServeConns(a.ctx)
@@ -397,6 +397,24 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		Peerstore:    peerstore,
 		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
 	}
+}
+
+// knownPeersToMaintain lists the known peers for P2p to keep connected.
+func (a *Application) knownPeersToMaintain() []p2p.KnownPeer {
+	a.Conf.RLock()
+	defer a.Conf.RUnlock()
+
+	now := time.Now()
+	knownPeers := make([]p2p.KnownPeer, 0, len(a.Conf.KnownPeers))
+	for _, kp := range a.Conf.KnownPeers {
+		p := p2p.KnownPeer{
+			ID:    kp.PeerId(),
+			Eager: kp.ReconnectEagerly(now),
+		}
+		knownPeers = append(knownPeers, p)
+	}
+
+	return knownPeers
 }
 
 type DNSService struct {

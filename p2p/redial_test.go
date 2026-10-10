@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +19,9 @@ func TestRedialOnDisconnect(t *testing.T) {
 	b := newTestP2p(t, nil, "/ip4/127.0.0.1/tcp/0")
 	a.maxRedialDelay = 20 * time.Millisecond
 
-	stop := a.redialOnDisconnect(t.Context(), func() []peer.ID { return []peer.ID{b.PeerID()} })
+	stop := a.redialOnDisconnect(t.Context(), func() []KnownPeer {
+		return []KnownPeer{{ID: b.PeerID()}}
+	})
 	t.Cleanup(stop)
 
 	oldConn := connectTCP(t, a, b, "/ip4/127.0.0.1")
@@ -31,6 +33,26 @@ func TestRedialOnDisconnect(t *testing.T) {
 			return conn.ID() != oldConn.ID()
 		})
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestRedial_FailureIsNotCounted(t *testing.T) {
+	a := newTestP2p(t, nil, "/ip4/127.0.0.1/tcp/0")
+	a.maxRedialDelay = 20 * time.Millisecond
+	gone := unreachablePeer(t)
+	a.Host().Peerstore().AddAddrs(gone.ID, gone.Addrs, peerstore.TempAddrTTL)
+	// What the schedule remembers from before the peer was connected
+	a.retries.failed(gone.ID, time.Now(), time.Hour)
+
+	calls := 0
+	a.redial(t.Context(), gone.ID, func() []KnownPeer {
+		calls++
+		return []KnownPeer{{ID: gone.ID}}
+	})
+	require.Equal(t, 2, calls, "the redial did not get as far as the dial")
+	require.False(t, a.IsConnected(gone.ID))
+
+	// The next round is to try the peer at once, not after a pause
+	require.True(t, a.retries.due(gone.ID, time.Now()))
 }
 
 func TestRedialOnDisconnect_SkipsNotKnownPeer(t *testing.T) {
@@ -49,11 +71,11 @@ func TestRedialOnDisconnect_SkipsNotKnownPeer(t *testing.T) {
 			a.maxRedialDelay = 20 * time.Millisecond
 
 			var calls atomic.Int32
-			stop := a.redialOnDisconnect(t.Context(), func() []peer.ID {
+			stop := a.redialOnDisconnect(t.Context(), func() []KnownPeer {
 				if calls.Add(1) > tt.knownCalls {
 					return nil
 				}
-				return []peer.ID{b.PeerID()}
+				return []KnownPeer{{ID: b.PeerID()}}
 			})
 			t.Cleanup(stop)
 

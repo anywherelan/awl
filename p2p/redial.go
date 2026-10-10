@@ -14,6 +14,9 @@ const (
 	// defaultMaxRedialDelay bounds the random pause before a redial.
 	defaultMaxRedialDelay = 3 * time.Second
 	redialTimeout         = 5 * time.Second
+	// defaultFirstRetryDelay is the pause between the two rounds made at the
+	// start and whenever the network comes back.
+	defaultFirstRetryDelay = 5 * time.Second
 )
 
 // redialOnDisconnect reconnects to a known peer as soon as its last connection
@@ -23,12 +26,12 @@ const (
 // whole round, several hundred times a day.
 //
 // The returned func removes the subscription.
-func (p *P2p) redialOnDisconnect(ctx context.Context, knownPeersIdsFunc func() []peer.ID) (stop func()) {
+func (p *P2p) redialOnDisconnect(ctx context.Context, knownPeersFunc func() []KnownPeer) (stop func()) {
 	notifee := &network.NotifyBundle{
 		DisconnectedF: func(_ network.Network, conn network.Conn) {
 			// Fires for every connection of every peer, DHT servers included,
 			// and the swarm waits for it to return.
-			go p.redial(ctx, conn.RemotePeer(), knownPeersIdsFunc)
+			go p.redial(ctx, conn.RemotePeer(), knownPeersFunc)
 		},
 	}
 	p.host.Network().Notify(notifee)
@@ -36,19 +39,22 @@ func (p *P2p) redialOnDisconnect(ctx context.Context, knownPeersIdsFunc func() [
 	return func() { p.host.Network().StopNotify(notifee) }
 }
 
-func (p *P2p) redial(ctx context.Context, peerID peer.ID, knownPeersIdsFunc func() []peer.ID) {
-	if p.IsConnected(peerID) || !slices.Contains(knownPeersIdsFunc(), peerID) {
+func (p *P2p) redial(ctx context.Context, peerID peer.ID, knownPeersFunc func() []KnownPeer) {
+	if p.IsConnected(peerID) || !isKnownPeer(knownPeersFunc(), peerID) {
 		return
 	}
 	if _, pending := p.redials.LoadOrStore(peerID, struct{}{}); pending {
 		return
 	}
 	defer p.redials.Delete(peerID)
+	// The peer was connected a moment ago, whatever the schedule remembers about
+	// it is out of date. The redial itself leaves no record there: it is a quick
+	// try of the addresses we already have, and if it fails, the next round makes
+	// a regular attempt instead of waiting out a pause.
+	p.retries.forget(peerID)
 
 	// Both sides see the connection go at the same moment and would dial each
-	// other head-on every time. The pause is random rather than decided by peer
-	// ID: who dials through a relay decides who then starts the upgrade to a
-	// direct connection, and that should not be fixed for a pair of peers.
+	// other head-on every time.
 	timer := time.NewTimer(rand.N(p.maxRedialDelay))
 	defer timer.Stop()
 	select {
@@ -58,17 +64,29 @@ func (p *P2p) redial(ctx context.Context, peerID peer.ID, knownPeersIdsFunc func
 	}
 
 	// The other side may have dialed first, or the peer was removed meanwhile
-	if p.IsConnected(peerID) || !slices.Contains(knownPeersIdsFunc(), peerID) {
+	if p.IsConnected(peerID) || !isKnownPeer(knownPeersFunc(), peerID) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, redialTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, redialTimeout)
 	defer cancel()
-	// Unlike ConnectPeer, no DHT lookup first: p.host is a routed host, it dials
-	// the addresses still in the peerstore and asks the DHT only if that fails.
-	// We were connected a moment ago, the DHT cannot know anything newer.
-	err := p.host.Connect(ctx, peer.AddrInfo{ID: peerID})
-	if err != nil {
-		p.logger.Debugf("redial %s after disconnect: %v", peerID, err)
+	start := time.Now()
+	// Unlike ConnectPeer, no DHT lookup: we were connected a moment ago, the DHT
+	// cannot know anything newer than the addresses still in the peerstore.
+	// Not p.host either: the routed host would answer a failed dial with a
+	// lookup. If these addresses do not work, the next round is to find out.
+	err := p.basicHost.Connect(dialCtx, peer.AddrInfo{ID: peerID})
+	took := time.Since(start).Round(100 * time.Millisecond)
+	if err == nil {
+		p.logger.Debugf("successfully redialed peer %s after disconnect in %s", peerID, took)
+	} else if ctx.Err() == nil && !p.IsConnected(peerID) {
+		// not a failure to report if the peer has dialed us meanwhile
+		p.logger.Infof("redial to peer %s after disconnect failed in %s: %v", peerID, took, err)
 	}
+}
+
+func isKnownPeer(knownPeers []KnownPeer, peerID peer.ID) bool {
+	return slices.ContainsFunc(knownPeers, func(knownPeer KnownPeer) bool {
+		return knownPeer.ID == peerID
+	})
 }
