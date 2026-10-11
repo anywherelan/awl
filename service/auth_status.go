@@ -588,21 +588,16 @@ func (s *AuthStatus) ExchangeStatusInfoWithAllKnownPeers(ctx context.Context) {
 		if !exists {
 			continue
 		}
+		// A peer that is not connected gets our status info as soon as it is,
+		// see onPeerConnected. P2p maintains background connections to all known peers.
+		if !s.p2p.IsConnected(knownPeer.PeerId()) {
+			continue
+		}
 		_ = s.ExchangeNewStatusInfo(ctx, knownPeer.PeerId(), knownPeer)
 	}
 }
 
 func (s *AuthStatus) BackgroundRetryAuthRequests(ctx context.Context) {
-	f := func() {
-		s.authsLock.RLock()
-		outgoingAuthsCopy := maps.Clone(s.outgoingAuths)
-		s.authsLock.RUnlock()
-
-		for peerID, auth := range outgoingAuthsCopy {
-			_ = s.SendAuthRequest(ctx, peerID, auth)
-		}
-	}
-
 	ticker := time.NewTicker(backgroundRetryAuthRequests)
 	defer ticker.Stop()
 
@@ -611,9 +606,23 @@ func (s *AuthStatus) BackgroundRetryAuthRequests(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			f()
+			s.retryAuthRequests(ctx)
 			ticker.Reset(backgroundRetryAuthRequests)
 		}
+	}
+}
+
+func (s *AuthStatus) retryAuthRequests(ctx context.Context) {
+	s.authsLock.RLock()
+	outgoingAuthsCopy := maps.Clone(s.outgoingAuths)
+	s.authsLock.RUnlock()
+
+	for peerID, auth := range outgoingAuthsCopy {
+		// as with the status info, onPeerConnected sends it to a peer that is not connected now
+		if !s.p2p.IsConnected(peerID) {
+			continue
+		}
+		_ = s.SendAuthRequest(ctx, peerID, auth)
 	}
 }
 
