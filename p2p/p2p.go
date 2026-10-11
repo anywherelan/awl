@@ -658,7 +658,11 @@ func (p *P2p) tryConnect(
 }
 
 func (p *P2p) pingPeer(ctx context.Context, peerID peer.ID) {
-	const desiredPings = 5
+	// Every connected known and bootstrap peer is pinged every round, so each
+	// ping here is traffic for all of them. The latency is an average where a
+	// new sample weighs 0.1: with two samples a round it takes a few minutes to
+	// follow a change, such as a relayed connection replaced by a direct one.
+	const desiredPings = 2
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
