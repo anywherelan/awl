@@ -189,6 +189,27 @@ func TestLoadConfigMissing(t *testing.T) {
 	assert.Empty(t, entries)
 }
 
+func TestKnownPeer_ReconnectEagerly(t *testing.T) {
+	now := time.Now()
+	recently := now.Add(-time.Hour)
+	tests := []struct {
+		name string
+		peer KnownPeer
+		want bool
+	}{
+		{name: "added recently, has not confirmed us", peer: KnownPeer{CreatedAt: recently}, want: true},
+		{name: "confirmed", peer: KnownPeer{CreatedAt: recently, Confirmed: true}, want: false},
+		{name: "declined", peer: KnownPeer{CreatedAt: recently, Declined: true}, want: false},
+		{name: "added long ago", peer: KnownPeer{CreatedAt: now.Add(-eagerRetryWindow - time.Minute)}, want: false},
+		{name: "from a config that had no CreatedAt yet", peer: KnownPeer{}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.peer.ReconnectEagerly(now))
+		})
+	}
+}
+
 func TestDNSNamesMapping(t *testing.T) {
 	conf := &Config{
 		KnownPeers: map[string]KnownPeer{

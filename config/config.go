@@ -88,10 +88,13 @@ type (
 		Identity       string   `json:"identity"`
 		BootstrapPeers []string `json:"bootstrapPeers"`
 		// With this option only BootstrapPeers from config will be used
-		IgnoreDefaultBootstrapPeers *bool         `json:"ignoreDefaultBootstrapPeers,omitempty"`
-		ListenAddresses             []string      `json:"listenAddresses"`
-		ReconnectionIntervalSec     time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"` //nolint:staticcheck
-		AutoAcceptAuthRequests      bool          `json:"autoAcceptAuthRequests"`
+		IgnoreDefaultBootstrapPeers *bool    `json:"ignoreDefaultBootstrapPeers,omitempty"`
+		ListenAddresses             []string `json:"listenAddresses"`
+		// Pace of the reconnection rounds, and the first pause before a peer that
+		// could not be reached is tried again. Each next pause is twice as long,
+		// up to 10 minutes
+		ReconnectionIntervalSec time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"` //nolint:staticcheck
+		AutoAcceptAuthRequests  bool          `json:"autoAcceptAuthRequests"`
 
 		UseDedicatedConnForEachStream bool `json:"useDedicatedConnForEachStream"`
 		ParallelSendingStreamsCount   int  `json:"parallelSendingStreamsCount"`
@@ -274,16 +277,6 @@ func (c *Config) GenUniqPeerAlias(name, alias string) string {
 // GenUniqPeerAliasUnlocked is GenUniqPeerAlias without locking; the caller must hold the lock.
 func (c *Config) GenUniqPeerAliasUnlocked(name, alias string) string {
 	return c.genUniqPeerAlias(name, alias, nil)
-}
-
-func (c *Config) KnownPeersIds() []peer.ID {
-	c.RLock()
-	ids := make([]peer.ID, 0, len(c.KnownPeers))
-	for _, known := range c.KnownPeers {
-		ids = append(ids, known.PeerId())
-	}
-	c.RUnlock()
-	return ids
 }
 
 func (c *Config) GetPeer(peerID string) (KnownPeer, bool) {
@@ -702,4 +695,16 @@ func (kp KnownPeer) DisplayName() string {
 // service/auth_status.go.
 func (kp KnownPeer) CanUseAsVPNGateway() bool {
 	return kp.AllowedUsingAsExitNode && kp.RemoteVPNGatewayServerEnabled
+}
+
+// eagerRetryWindow is for how long after a peer was added it is retried eagerly.
+const eagerRetryWindow = 24 * time.Hour
+
+// ReconnectEagerly reports whether the peer is to be retried at full pace, with
+// no backoff. A peer that has not confirmed us yet does not know about us and
+// will not connect on its own, so we are the only side that can make the
+// connection happen. The window is there for the peer that never shows up: it
+// is not looked up at full pace forever.
+func (kp KnownPeer) ReconnectEagerly(now time.Time) bool {
+	return !kp.Confirmed && !kp.Declined && now.Sub(kp.CreatedAt) < eagerRetryWindow
 }

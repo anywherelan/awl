@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -304,6 +306,20 @@ func (ts *TestSuite) ensurePeersAvailableInDHT(peer1, peer2 TestPeer) {
 
 		return err1 == nil && err2 == nil
 	}, 20*time.Second, 100*time.Millisecond)
+}
+
+func (ts *TestSuite) fetchMetrics(peer TestPeer) string {
+	metricsURL := fmt.Sprintf("http://%s/metrics", peer.app.Api.Address())
+	resp, err := http.Get(metricsURL) //nolint:gosec
+	ts.NoError(err)
+	defer resp.Body.Close()
+
+	ts.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	ts.NoError(err)
+
+	return string(body)
 }
 
 func (ts *TestSuite) makeFriends(peer1, peer2 TestPeer) {

@@ -211,12 +211,20 @@ func TestReuseportDialer_localAddr(t *testing.T) {
 // application passes in production, minus the ones that touch the network.
 func newTestP2p(t *testing.T, control func(network, address string, c syscall.RawConn) error, listenAddr string) *P2p {
 	t.Helper()
+	return newTestP2pWithBootstrap(t, control, listenAddr, nil)
+}
+
+func newTestP2pWithBootstrap(
+	t *testing.T, control func(network, address string, c syscall.RawConn) error, listenAddr string, bootstrapPeers []peer.AddrInfo,
+) *P2p {
+	t.Helper()
 	peerstore, err := pstoremem.NewPeerstore()
 	require.NoError(t, err)
 
 	p := NewP2p(context.Background())
 	_, err = p.InitHost(HostConfig{
 		ListenAddrs:              []multiaddr.Multiaddr{multiaddr.StringCast(listenAddr)},
+		BootstrapPeers:           bootstrapPeers,
 		AllowEmptyBootstrapPeers: true,
 		SocketControlFunc:        control,
 		Peerstore:                peerstore,

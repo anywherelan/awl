@@ -89,6 +89,9 @@ You can also browse profiles directly in the Pyroscope UI at http://localhost:40
 | `awl_p2p_open_streams` | Gauge | Open streams |
 | `awl_p2p_connected_peers` | Gauge | All connected peers |
 | `awl_p2p_peer_latency_seconds` | GaugeVec | Peer latency, labels: `peer_id` |
+| `awl_p2p_redials_total` | CounterVec | Redials of a known peer right after it disconnected, labels: `result` (`success`, `failure`, `peer_connected` — the peer came back on its own first) |
+| `awl_p2p_redial_duration_seconds` | HistogramVec | How long the dial of a redial took, labels: `result` |
+| `awl_p2p_reconnect_resets_total` | CounterVec | Times the reconnection schedule was reset because the network came back, labels: `reason` (`bootstrap_returned`, `notified`) |
 
 ### DNS Metrics (`awl_dns_*`)
 
@@ -111,6 +114,24 @@ You can also browse profiles directly in the Pyroscope UI at http://localhost:40
 Enabled via `libp2p.PrometheusRegisterer`. Prefixed with `libp2p_`. Includes swarm, identify, autonat, autorelay, holepunch, relay service, eventbus, and resource manager metrics.
 
 Pre-built Grafana dashboards for these metrics are included in `dashboards/`.
+
+### DHT Metrics (`libp2p_kad_dht_*`)
+
+RPC metrics of `go-libp2p-kad-dht`. The library reports them through OpenTelemetry; `metrics.ExportKadDHTMetrics` attaches a Prometheus exporter that writes into the same registry. All `rpc_*` metrics carry the label `message_type` (`FIND_NODE`, `PING`, ...). A metric shows up once it has data.
+
+| Metric | Type | Description |
+|---|---|---|
+| `libp2p_kad_dht_rpc_outbound_requests_total` | Counter | Requests sent, failed ones included |
+| `libp2p_kad_dht_rpc_outbound_request_errors_total` | Counter | Requests that failed |
+| `libp2p_kad_dht_rpc_outbound_request_latency_milliseconds` | Histogram | Time until the response |
+| `libp2p_kad_dht_rpc_outbound_messages_total` | Counter | One-way messages sent, no response expected |
+| `libp2p_kad_dht_rpc_outbound_message_errors_total` | Counter | One-way messages that failed |
+| `libp2p_kad_dht_rpc_outbound_bytes` | Histogram | Size of sent messages |
+| `libp2p_kad_dht_rpc_inbound_messages_total` | Counter | Messages received, i.e. requests served for other peers |
+| `libp2p_kad_dht_rpc_inbound_message_errors_total` | Counter | Received messages that could not be read or handled |
+| `libp2p_kad_dht_rpc_inbound_bytes` | Histogram | Size of received messages |
+| `libp2p_kad_dht_rpc_inbound_request_latency_milliseconds` | Histogram | Time to handle a received request |
+| `libp2p_kad_dht_network_size` | Gauge | Estimated number of peers in the DHT |
 
 ## Dashboards
 

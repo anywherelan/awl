@@ -136,6 +136,10 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	if err := a.NetManager.Start(a.ctx); err != nil {
 		return fmt.Errorf("start socket marker: %v", err)
 	}
+	// Not fatal: without it the node only lacks the libp2p_kad_dht_* metrics.
+	if err := metrics.ExportKadDHTMetrics(); err != nil {
+		a.logger.Errorf("failed to export kad-dht metrics: %v", err)
+	}
 	a.P2p = p2p.NewP2p(a.ctx)
 	p2pHost, err := a.P2p.InitHost(a.makeP2pHostConfig())
 	if err != nil {
@@ -198,7 +202,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		return fmt.Errorf("failed to setup api: %v", err)
 	}
 
-	go a.P2p.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second, a.Conf.KnownPeersIds)
+	go a.P2p.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second, a.knownPeersToMaintain)
 	go a.AuthStatus.BackgroundRetryAuthRequests(a.ctx)
 	go a.AuthStatus.BackgroundExchangeStatusInfo(a.ctx)
 	go a.SOCKS5.ServeConns(a.ctx)
@@ -393,6 +397,24 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		Peerstore:    peerstore,
 		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
 	}
+}
+
+// knownPeersToMaintain lists the known peers for P2p to keep connected.
+func (a *Application) knownPeersToMaintain() []p2p.KnownPeer {
+	a.Conf.RLock()
+	defer a.Conf.RUnlock()
+
+	now := time.Now()
+	knownPeers := make([]p2p.KnownPeer, 0, len(a.Conf.KnownPeers))
+	for _, kp := range a.Conf.KnownPeers {
+		p := p2p.KnownPeer{
+			ID:    kp.PeerId(),
+			Eager: kp.ReconnectEagerly(now),
+		}
+		knownPeers = append(knownPeers, p)
+	}
+
+	return knownPeers
 }
 
 type DNSService struct {
