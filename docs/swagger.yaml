@@ -107,7 +107,11 @@ definitions:
         description: IPAddr used for forwarding
         type: string
       ipAddrV6:
-        description: IPAddrV6 used for IPv6 overlay forwarding (derived from peerID)
+        description: |-
+          IPAddrV6 is our view of the peer's IPv6 overlay address: the address the
+          peer announced if it is valid in our subnet, otherwise one derived from
+          its peer ID. Assigned once and not changed by later announcements, see
+          Config.AllocPeerIPv6Unlocked. Used only while RemoteIPv6Enabled.
         type: string
       lastSeen:
         description: Time of last connection
@@ -124,6 +128,12 @@ definitions:
           we present it in every auth request until the peer confirms us, then it
           is dropped. Set only on the side that used the link.
         type: string
+      remoteIPv6Enabled:
+        description: |-
+          RemoteIPv6Enabled is whether the remote peer announces an IPv6 overlay
+          address via the status protocol. IPAddrV6 is kept while it is false, so
+          the peer gets the same address back when it enables IPv6 again.
+        type: boolean
       remoteVPNGatewayServerEnabled:
         description: |-
           RemoteVPNGatewayServerEnabled is the remote peer's VPNGatewayConfig.ServerEnabled
@@ -160,6 +170,10 @@ definitions:
           Identity
         type: string
       reconnectionIntervalSec:
+        description: |-
+          Pace of the reconnection rounds, and the first pause before a peer that
+          could not be reached is tried again. Each next pause is twice as long,
+          up to 10 minutes
         type: integer
       useDedicatedConnForEachStream:
         type: boolean
@@ -280,6 +294,8 @@ definitions:
       openStreamsCount:
         format: int64
         type: integer
+      tcpdials:
+        $ref: '#/definitions/p2p.TCPDialStats'
     type: object
   entity.CreateInviteRequest:
     properties:
@@ -355,6 +371,7 @@ definitions:
   entity.FriendRequest:
     properties:
       alias:
+        maxLength: 100
         type: string
       allowUsingAsExitNode:
         description: 'optional: allow the peer to use us as an exit node'
@@ -377,6 +394,7 @@ definitions:
   entity.FriendRequestReply:
     properties:
       alias:
+        maxLength: 100
         type: string
       allowUsingAsExitNode:
         description: 'optional: allow the peer to use us as an exit node'
@@ -435,6 +453,23 @@ definitions:
       usedCount:
         type: integer
     type: object
+  entity.KnownPeerReconnectInfo:
+    properties:
+      eager:
+        description: Eager peers are tried every round, whatever NextAttemptIn says
+        type: boolean
+      failures:
+        description: Failures in a row
+        type: integer
+      lastAttemptAgo:
+        type: string
+      lastError:
+        type: string
+      nextAttemptIn:
+        description: NextAttemptIn is zero when the peer is to be tried on the next
+          round
+        type: string
+    type: object
   entity.KnownPeersResponse:
     properties:
       alias:
@@ -476,8 +511,19 @@ definitions:
         $ref: '#/definitions/entity.StatsInUnits'
       peerID:
         type: string
+      peerstoreAddrs:
+        description: |-
+          PeerstoreAddrs are the addresses a dial to the peer goes through.
+          There are none for a peer that has been away for a while.
+        items:
+          type: string
+        type: array
       ping:
         type: integer
+      reconnect:
+        allOf:
+          - $ref: '#/definitions/entity.KnownPeerReconnectInfo'
+        description: Reconnect is set for a peer we fail to reach.
       remoteVPNGatewayServerEnabled:
         type: boolean
       version:
@@ -604,11 +650,13 @@ definitions:
   entity.UpdateMySettingsRequest:
     properties:
       name:
+        maxLength: 100
         type: string
     type: object
   entity.UpdatePeerSettingsRequest:
     properties:
       alias:
+        maxLength: 100
         type: string
       allowUsingAsExitNode:
         type: boolean
@@ -744,8 +792,17 @@ definitions:
         type: array
       error:
         type: string
+      peerstoreAddrs:
+        description: PeerstoreAddrs are the addresses a dial to the peer goes through
+        items:
+          type: string
+        type: array
       ping:
         type: string
+      reconnect:
+        allOf:
+          - $ref: '#/definitions/p2p.ReconnectDebugInfo'
+        description: Reconnect is set while the peer cannot be reached
     type: object
   p2p.ConnectionInfo:
     properties:
@@ -765,6 +822,32 @@ definitions:
         type: boolean
       transient:
         type: boolean
+    type: object
+  p2p.ReconnectDebugInfo:
+    properties:
+      failures:
+        description: Failures in a row
+        type: integer
+      lastAttemptAgo:
+        type: string
+      lastError:
+        type: string
+      nextAttemptIn:
+        description: NextAttemptIn is zero when the peer is to be tried on the next
+          round
+        type: string
+    type: object
+  p2p.TCPDialStats:
+    properties:
+      fromListenPort:
+        description: |-
+          FromListenPort is what hole punching needs. If it stays at zero while
+          FromRandomPort grows, port reuse is silently broken.
+        format: int64
+        type: integer
+      fromRandomPort:
+        format: int64
+        type: integer
     type: object
 host: localhost:8639
 info:
@@ -1040,6 +1123,33 @@ paths:
           schema:
             $ref: '#/definitions/api.Error'
       summary: Remove known peer
+      tags:
+        - Peers
+  /peers/unblock:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.PeerIDRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Unblock peer
       tags:
       - Peers
   /peers/update_settings:

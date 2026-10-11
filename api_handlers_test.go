@@ -280,6 +280,25 @@ func TestRemovePeer_PeerNotFound(t *testing.T) {
 	ts.ErrorContains(err, "peer not found")
 }
 
+func TestUnblockPeer_ErrorCases(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+
+	t.Run("NotBlocked", func(t *testing.T) {
+		// peer2 is not blocked by peer1
+		err := peer1.api.UnblockPeer(peer2.PeerID())
+		ts.EqualError(err, "status code: 404, error: peer is not blocked")
+	})
+
+	t.Run("InvalidPeerID", func(t *testing.T) {
+		err := peer1.api.UnblockPeer("not-a-valid-peer-id")
+		ts.Error(err)
+		ts.ErrorContains(err, "Invalid hex-encoded multihash")
+	})
+}
+
 func TestUpdatePeerSettings_ErrorCases(t *testing.T) {
 	ts := NewTestSuite(t)
 

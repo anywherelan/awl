@@ -148,6 +148,11 @@ func (c *Client) BlockedPeers() ([]config.BlockedPeer, error) {
 	return blocked, nil
 }
 
+func (c *Client) UnblockPeer(peerID string) error {
+	request := entity.PeerIDRequest{PeerID: peerID}
+	return c.sendPostRequest(api.UnblockPeerPath, request, nil)
+}
+
 func (c *Client) UpdatePeerSettings(request entity.UpdatePeerSettingsRequest) error {
 	return c.sendPostRequest(api.UpdatePeerSettingsPath, request, nil)
 }

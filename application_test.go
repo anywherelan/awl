@@ -135,6 +135,65 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	ts.Equal(peer1.PeerID(), blocked[0].PeerID)
 }
 
+// TestUnblockPeer: unblocking only drops the block. The peer is not added, and
+// it is not told: it keeps seeing itself as declined until it asks again.
+func TestUnblockPeer(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	ts.NoError(err)
+
+	var authRequests []entity.AuthRequest
+	ts.Eventually(func() bool {
+		authRequests, err = peer2.api.AuthRequests()
+		ts.NoError(err)
+		return len(authRequests) == 1
+	}, 15*time.Second, 50*time.Millisecond)
+	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Alias: "peer_1", Decline: true})
+	ts.NoError(err)
+
+	// The declined status is what tells us peer2 is done with blocking.
+	ts.Eventually(func() bool {
+		knownPeer, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+		return knownPeer.Declined
+	}, 15*time.Second, 50*time.Millisecond)
+
+	err = peer2.api.UnblockPeer(peer1.PeerID())
+	ts.NoError(err)
+
+	blocked, err := peer2.api.BlockedPeers()
+	ts.NoError(err)
+	ts.Empty(blocked)
+	_, known := peer2.app.Conf.GetPeer(peer1.PeerID())
+	ts.False(known)
+	authRequests, err = peer2.api.AuthRequests()
+	ts.NoError(err)
+	ts.Empty(authRequests)
+
+	// peer1 is a stranger to peer2 now and gets no answer, so nothing changes on its side.
+	knownPeer, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+	err = peer1.app.AuthStatus.ExchangeNewStatusInfo(context.Background(), peer2.app.P2p.PeerID(), knownPeer)
+	ts.Error(err)
+	knownPeer, _ = peer1.app.Conf.GetPeer(peer2.PeerID())
+	ts.False(knownPeer.Confirmed)
+	ts.True(knownPeer.Declined)
+
+	// A new request from peer1 is an ordinary incoming one again.
+	err = peer1.api.RemovePeer(peer2.PeerID())
+	ts.NoError(err)
+	err = peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	ts.NoError(err)
+	ts.Eventually(func() bool {
+		authRequests, err = peer2.api.AuthRequests()
+		ts.NoError(err)
+		return len(authRequests) == 1 && authRequests[0].PeerID == peer1.PeerID()
+	}, 15*time.Second, 50*time.Millisecond)
+}
+
 func TestAutoAcceptFriendRequest(t *testing.T) {
 	ts := NewTestSuite(t)
 
