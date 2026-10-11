@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -37,6 +38,7 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 	h.conf.RUnlock()
 	sort.Strings(peers)
 
+	now := time.Now()
 	for _, peerID := range peers {
 		knownPeer, _ := h.conf.GetPeer(peerID)
 
@@ -63,6 +65,13 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 			NetworkStats:                  netStats,
 			NetworkStatsInIECUnits:        getStatsInIECUnits(netStats),
 			Ping:                          h.p2p.GetPeerLatency(id),
+			PeerstoreAddrs:                h.p2p.PeerstoreAddrs(id),
+		}
+		if info := h.p2p.ReconnectInfo(id); info != nil {
+			kpr.Reconnect = &entity.KnownPeerReconnectInfo{
+				ReconnectDebugInfo: *info,
+				Eager:              knownPeer.ReconnectEagerly(now),
+			}
 		}
 		result = append(result, kpr)
 	}

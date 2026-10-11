@@ -1,12 +1,15 @@
 package p2p
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/require"
 )
+
+var errUnreachable = errors.New("unreachable")
 
 // failuresOf is how many times in a row the peer could not be reached.
 func (s *retrySchedule) failuresOf(id peer.ID) int {
@@ -49,7 +52,7 @@ func TestRetrySchedule(t *testing.T) {
 
 	fail := func(s *retrySchedule, id peer.ID, times int) {
 		for range times {
-			s.failed(id, now, base)
+			s.failed(id, now, base, errUnreachable)
 		}
 	}
 
@@ -61,11 +64,24 @@ func TestRetrySchedule(t *testing.T) {
 			maxRetryInterval, maxRetryInterval,
 		} {
 			require.True(t, s.due(id, at))
-			s.failed(id, at, base)
+			s.failed(id, at, base, errUnreachable)
 
 			require.False(t, s.due(id, at.Add(pause*8/10-time.Second)), "pause: %s", pause)
 			at = at.Add(pause)
 		}
+	})
+
+	t.Run("state", func(t *testing.T) {
+		s := newRetrySchedule()
+		_, ok := s.state(id)
+		require.False(t, ok)
+
+		fail(s, id, 2)
+		state, ok := s.state(id)
+		require.True(t, ok)
+		require.Equal(t, 2, state.failures)
+		require.Equal(t, now, state.lastAttempt)
+		require.Equal(t, errUnreachable.Error(), state.lastErr)
 	})
 
 	t.Run("forget", func(t *testing.T) {
@@ -88,7 +104,7 @@ func TestRetrySchedule(t *testing.T) {
 
 		require.True(t, s.due(id, now))
 		require.True(t, s.due(otherID, now))
-		// and the count starts anew
+		// and the count starts over
 		fail(s, id, 1)
 		require.Equal(t, 1, s.failuresOf(id))
 	})

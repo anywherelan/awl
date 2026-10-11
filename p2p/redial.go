@@ -8,6 +8,8 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	awlmetrics "github.com/anywherelan/awl/metrics"
 )
 
 const (
@@ -17,6 +19,11 @@ const (
 	// defaultFirstRetryDelay is the pause between the two rounds made at the
 	// start and whenever the network comes back.
 	defaultFirstRetryDelay = 5 * time.Second
+
+	// how a redial ended, a metric label
+	redialSuccess       = "success"
+	redialFailure       = "failure"
+	redialPeerConnected = "peer_connected"
 )
 
 // redialOnDisconnect reconnects to a known peer as soon as its last connection
@@ -64,7 +71,11 @@ func (p *P2p) redial(ctx context.Context, peerID peer.ID, knownPeersFunc func() 
 	}
 
 	// The other side may have dialed first, or the peer was removed meanwhile
-	if p.IsConnected(peerID) || !isKnownPeer(knownPeersFunc(), peerID) {
+	if p.IsConnected(peerID) {
+		awlmetrics.P2PRedialsTotal.WithLabelValues(redialPeerConnected).Inc()
+		return
+	}
+	if !isKnownPeer(knownPeersFunc(), peerID) {
 		return
 	}
 
@@ -76,13 +87,24 @@ func (p *P2p) redial(ctx context.Context, peerID peer.ID, knownPeersFunc func() 
 	// Not p.host either: the routed host would answer a failed dial with a
 	// lookup. If these addresses do not work, the next round is to find out.
 	err := p.basicHost.Connect(dialCtx, peer.AddrInfo{ID: peerID})
-	took := time.Since(start).Round(100 * time.Millisecond)
-	if err == nil {
-		p.logger.Debugf("successfully redialed peer %s after disconnect in %s", peerID, took)
-	} else if ctx.Err() == nil && !p.IsConnected(peerID) {
-		// not a failure to report if the peer has dialed us meanwhile
-		p.logger.Infof("redial to peer %s after disconnect failed in %s: %v", peerID, took, err)
+	took := time.Since(start)
+	var result string
+	switch {
+	case err == nil:
+		result = redialSuccess
+		p.logger.Debugf("successfully redialed peer %s after disconnect in %s", peerID, took.Round(time.Millisecond))
+	case ctx.Err() != nil:
+		// it is us shutting down
+		return
+	case p.IsConnected(peerID):
+		// not a failure to report: the peer has dialed us meanwhile
+		result = redialPeerConnected
+	default:
+		result = redialFailure
+		p.logger.Infof("redial to peer %s after disconnect failed in %s: %v", peerID, took.Round(time.Millisecond), err)
 	}
+	awlmetrics.P2PRedialsTotal.WithLabelValues(result).Inc()
+	awlmetrics.P2PRedialDurationSeconds.WithLabelValues(result).Observe(took.Seconds())
 }
 
 func isKnownPeer(knownPeers []KnownPeer, peerID peer.ID) bool {

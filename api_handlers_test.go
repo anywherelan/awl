@@ -1,12 +1,16 @@
 package awl
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/config"
@@ -57,6 +61,56 @@ func TestGetP2pDebugInfo(t *testing.T) {
 	ts.GreaterOrEqual(debugInfo.Connections.OpenConnectionsCount, 0)
 	ts.GreaterOrEqual(debugInfo.Connections.OpenStreamsCount, int64(0))
 	ts.NotEmpty(debugInfo.DHT.Reachability)
+}
+
+func TestGetKnownPeers_Reconnect(t *testing.T) {
+	ts := NewTestSuite(t)
+	peer1 := ts.NewTestPeerWithConfig(func(c *config.Config) {
+		c.P2pNode.ReconnectionIntervalSec = 1
+	})
+
+	// A peer we have just invited and that is nowhere to be found
+	_, pubKey, err := crypto.GenerateEd25519Key(rand.Reader)
+	ts.NoError(err)
+	offlineID, err := peer.IDFromPublicKey(pubKey)
+	ts.NoError(err)
+	peer1.app.Conf.UpsertPeer(config.KnownPeer{PeerID: offlineID.String(), CreatedAt: time.Now()})
+
+	var offline entity.KnownPeersResponse
+	ts.Eventually(func() bool {
+		knownPeers, err := peer1.api.KnownPeers()
+		ts.NoError(err)
+		ts.Len(knownPeers, 1)
+		offline = knownPeers[0]
+		return offline.Reconnect != nil
+	}, 15*time.Second, 100*time.Millisecond)
+	ts.GreaterOrEqual(offline.Reconnect.Failures, 1)
+	ts.NotEmpty(offline.Reconnect.LastError)
+	ts.True(offline.Reconnect.Eager)
+	// Nobody has told us where to look for it
+	ts.Empty(offline.PeerstoreAddrs)
+
+	// The debug info has the same list of known peers
+	debugInfo, err := peer1.api.P2pDebugInfo()
+	ts.NoError(err)
+	ts.Len(debugInfo.KnownPeers, 1)
+	ts.NotNil(debugInfo.KnownPeers[0].Reconnect)
+}
+
+func TestGetKnownPeers_PeerstoreAddrs(t *testing.T) {
+	ts := NewTestSuite(t)
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.makeFriends(peer1, peer2)
+
+	knownPeers, err := peer1.api.KnownPeers()
+	ts.NoError(err)
+	ts.Len(knownPeers, 1)
+	ts.True(knownPeers[0].Connected)
+	ts.Nil(knownPeers[0].Reconnect)
+	for _, addr := range peer2.app.P2p.AnnouncedAs() {
+		ts.Contains(knownPeers[0].PeerstoreAddrs, addr.String())
+	}
 }
 
 func TestGetDebugLog(t *testing.T) {

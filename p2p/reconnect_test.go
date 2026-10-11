@@ -45,6 +45,22 @@ func TestConnectToKnownPeers_BacksOff(t *testing.T) {
 	require.InDelta(t, 5, a.retries.failuresOf(offline.ID), 1)
 }
 
+func TestReconnectInfo(t *testing.T) {
+	a := newTestP2p(t, nil, "/ip4/127.0.0.1/tcp/0")
+	offline := KnownPeer{ID: test.RandPeerIDFatal(t)}
+	require.Nil(t, a.ReconnectInfo(offline.ID), "nothing is held against a peer that was not tried yet")
+
+	a.connectToKnownPeers(t.Context(), time.Second, time.Hour, []KnownPeer{offline}, false)
+	info := a.ReconnectInfo(offline.ID)
+	require.NotNil(t, info)
+	require.Equal(t, 1, info.Failures)
+	require.NotEmpty(t, info.LastError)
+	require.Less(t, time.Duration(info.LastAttemptAgo), time.Minute)
+	// an hour is over the cap: the pause is maxRetryInterval, shortened by up to 20%
+	require.Greater(t, time.Duration(info.NextAttemptIn), maxRetryInterval*7/10)
+	require.LessOrEqual(t, time.Duration(info.NextAttemptIn), maxRetryInterval)
+}
+
 func TestConnectToKnownPeers_SkipsPeerBeingRedialed(t *testing.T) {
 	a := newTestP2p(t, nil, "/ip4/127.0.0.1/tcp/0")
 	offline := KnownPeer{ID: test.RandPeerIDFatal(t)}
@@ -101,13 +117,22 @@ func TestConnectToKnownPeers_Bootstrap(t *testing.T) {
 	require.Equal(t, 1, a.retries.failuresOf(dead.ID))
 	deadInfo := a.BootstrapPeersStatsDetailed()[dead.ID.String()]
 	require.NotEmpty(t, deadInfo.Error)
+	require.Equal(t, 1, deadInfo.Reconnect.Failures)
+	require.Equal(t, deadInfo.Error, deadInfo.Reconnect.LastError)
+	// The address of the dead one is known all the same, it just does not answer
+	require.Contains(t, deadInfo.PeerstoreAddrs, dead.Addrs[0].String())
+	for _, peer := range alive {
+		info := a.BootstrapPeersStatsDetailed()[peer.PeerID().String()]
+		require.Nil(t, info.Reconnect)
+		require.Contains(t, info.PeerstoreAddrs, addrInfo(peer).Addrs[0].String())
+	}
 
 	// Enough of them are connected: the dead one waits for its turn, and what
 	// its last attempt reported stays on record
 	round()
 	round()
 	require.Equal(t, 1, a.retries.failuresOf(dead.ID))
-	require.Equal(t, deadInfo, a.BootstrapPeersStatsDetailed()[dead.ID.String()])
+	require.Equal(t, deadInfo.Error, a.BootstrapPeersStatsDetailed()[dead.ID.String()].Error)
 
 	// One more is gone and they are not enough: back to trying every round
 	require.NoError(t, alive[1].Close())
@@ -144,12 +169,14 @@ func TestMaintainBackgroundConnections_NetworkReturns(t *testing.T) {
 		return a.retries.failuresOf(offline.ID) >= manyFailures
 	}, 10*time.Second, 5*time.Millisecond)
 
+	resetsBefore := metricValue(t, "awl_p2p_reconnect_resets_total", networkBootstrapReturned)
 	require.NoError(t, bootstrapSwarm.Listen(listenAddrs...))
 
-	// Failures only add up, unless the schedule was started anew
+	// Failures only add up, unless the schedule was reset
 	require.Eventually(t, func() bool {
 		return a.IsConnected(bootstrap.PeerID()) && a.retries.failuresOf(offline.ID) < manyFailures
 	}, 10*time.Second, time.Millisecond)
+	require.Greater(t, metricValue(t, "awl_p2p_reconnect_resets_total", networkBootstrapReturned), resetsBefore)
 }
 
 func TestMaintainBackgroundConnections_NotifyNetworkChanged(t *testing.T) {
@@ -173,9 +200,11 @@ func TestMaintainBackgroundConnections_NotifyNetworkChanged(t *testing.T) {
 
 	// As if the peer has been failing for long
 	for range 5 {
-		a.retries.failed(offline.ID, time.Now(), time.Hour)
+		a.retries.failed(offline.ID, time.Now(), time.Hour, errUnreachable)
 	}
 
+	resetsBefore := metricValue(t, "awl_p2p_reconnect_resets_total", networkNotified)
 	a.NotifyNetworkChanged()
 	require.Eventually(t, startedAnew(4), 10*time.Second, 5*time.Millisecond)
+	require.Equal(t, resetsBefore+1, metricValue(t, "awl_p2p_reconnect_resets_total", networkNotified))
 }

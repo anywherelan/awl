@@ -8,6 +8,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,7 +42,9 @@ func TestRedial_FailureIsNotCounted(t *testing.T) {
 	gone := unreachablePeer(t)
 	a.Host().Peerstore().AddAddrs(gone.ID, gone.Addrs, peerstore.TempAddrTTL)
 	// What the schedule remembers from before the peer was connected
-	a.retries.failed(gone.ID, time.Now(), time.Hour)
+	a.retries.failed(gone.ID, time.Now(), time.Hour, errUnreachable)
+	failuresBefore := metricValue(t, "awl_p2p_redials_total", redialFailure)
+	dialsBefore := metricValue(t, "awl_p2p_redial_duration_seconds", redialFailure)
 
 	calls := 0
 	a.redial(t.Context(), gone.ID, func() []KnownPeer {
@@ -53,6 +56,33 @@ func TestRedial_FailureIsNotCounted(t *testing.T) {
 
 	// The next round is to try the peer at once, not after a pause
 	require.True(t, a.retries.due(gone.ID, time.Now()))
+
+	require.Equal(t, failuresBefore+1, metricValue(t, "awl_p2p_redials_total", redialFailure))
+	require.Equal(t, dialsBefore+1, metricValue(t, "awl_p2p_redial_duration_seconds", redialFailure))
+}
+
+// metricValue reads a metric of this process by the value of its only label: the
+// value of a counter, the number of observations of a histogram. The registry
+// is shared by all the tests of the package, so compare it before and after.
+func metricValue(t *testing.T, name, labelValue string) float64 {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			if metric.GetLabel()[0].GetValue() != labelValue {
+				continue
+			}
+			if histogram := metric.GetHistogram(); histogram != nil {
+				return float64(histogram.GetSampleCount())
+			}
+			return metric.GetCounter().GetValue()
+		}
+	}
+	return 0
 }
 
 func TestRedialOnDisconnect_SkipsNotKnownPeer(t *testing.T) {

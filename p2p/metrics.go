@@ -3,6 +3,7 @@ package p2p
 import (
 	"encoding/json"
 	"net"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,6 +49,21 @@ type BootstrapPeerDebugInfo struct {
 	Error       string   `json:",omitempty"`
 	Connections []string `json:",omitempty"`
 	Ping        Duration `json:",omitempty" swaggertype:"string"`
+	// PeerstoreAddrs are the addresses a dial to the peer goes through
+	PeerstoreAddrs []string `json:",omitempty"`
+	// Reconnect is set while the peer cannot be reached
+	Reconnect *ReconnectDebugInfo `json:",omitempty"`
+}
+
+// ReconnectDebugInfo is what MaintainBackgroundConnections remembers about a
+// peer it could not reach.
+type ReconnectDebugInfo struct {
+	// Failures in a row
+	Failures       int
+	LastAttemptAgo Duration `swaggertype:"string"`
+	// NextAttemptIn is zero when the peer is to be tried on the next round
+	NextAttemptIn Duration `swaggertype:"string"`
+	LastError     string
 }
 
 func (p *P2p) Uptime() time.Duration {
@@ -237,7 +253,52 @@ func (p *P2p) BootstrapPeersStatsDetailed() map[string]BootstrapPeerDebugInfo {
 	if m == nil {
 		return nil
 	}
-	return *m
+
+	infos := make(map[string]BootstrapPeerDebugInfo, len(*m))
+	for _, peerAddr := range p.bootstrapPeers {
+		info, ok := (*m)[peerAddr.ID.String()]
+		if !ok {
+			continue
+		}
+		info.PeerstoreAddrs = p.PeerstoreAddrs(peerAddr.ID)
+		info.Reconnect = p.ReconnectInfo(peerAddr.ID)
+		infos[peerAddr.ID.String()] = info
+	}
+
+	return infos
+}
+
+// PeerstoreAddrs returns the addresses we have for the peer, sorted: the ones a
+// dial to it goes through, a /dnsaddr among them is yet to be resolved. They
+// are kept in memory and expire, so there are none for a peer that has been
+// away for a while.
+func (p *P2p) PeerstoreAddrs(peerID peer.ID) []string {
+	peerAddrs := p.host.Peerstore().Addrs(peerID)
+	addrs := make([]string, 0, len(peerAddrs))
+	for _, addr := range peerAddrs {
+		addrs = append(addrs, addr.String())
+	}
+	slices.Sort(addrs)
+
+	return addrs
+}
+
+// ReconnectInfo reports what MaintainBackgroundConnections remembers about a
+// known or a bootstrap peer it could not reach. It is nil for a peer with
+// nothing against it: one that is connected, or was not tried yet.
+func (p *P2p) ReconnectInfo(peerID peer.ID) *ReconnectDebugInfo {
+	state, ok := p.retries.state(peerID)
+	if !ok || p.IsConnected(peerID) {
+		return nil
+	}
+
+	now := time.Now()
+	return &ReconnectDebugInfo{
+		Failures:       state.failures,
+		LastAttemptAgo: Duration(now.Sub(state.lastAttempt).Round(time.Millisecond)),
+		NextAttemptIn:  Duration(max(0, state.next.Sub(now)).Round(time.Millisecond)),
+		LastError:      state.lastErr,
+	}
 }
 
 func parseMultiaddrToInfo(addr multiaddr.Multiaddr) (ConnectionInfo, bool) {

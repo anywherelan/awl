@@ -99,6 +99,17 @@ type (
 		NetworkStats           metrics.Stats
 		NetworkStatsInIECUnits StatsInUnits
 		Ping                   time.Duration `swaggertype:"primitive,integer"`
+		// PeerstoreAddrs are the addresses a dial to the peer goes through.
+		// There are none for a peer that has been away for a while.
+		PeerstoreAddrs []string `json:",omitempty"`
+		// Reconnect is set for a peer we fail to reach.
+		Reconnect *KnownPeerReconnectInfo `json:",omitempty"`
+	}
+
+	KnownPeerReconnectInfo struct {
+		p2p.ReconnectDebugInfo
+		// Eager peers are tried every round, whatever NextAttemptIn says
+		Eager bool
 	}
 
 	PeerInfo struct {

@@ -37,6 +37,8 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/transport/tcpreuse"
 	"github.com/multiformats/go-multiaddr"
 	msmux "github.com/multiformats/go-multistream"
+
+	awlmetrics "github.com/anywherelan/awl/metrics"
 )
 
 const (
@@ -47,6 +49,10 @@ const (
 
 	protectedBootstrapPeerTag = "bootstrap"
 	protectedPeerTag          = "known"
+
+	// why the reconnection schedule is reset, a metric label
+	networkBootstrapReturned = "bootstrap_returned"
+	networkNotified          = "notified"
 
 	// enoughBootstrapPeers is how many connected bootstrap peers make the
 	// unreachable rest not worth trying every round: both the DHT and autorelay
@@ -114,8 +120,9 @@ type P2p struct {
 	tcpDialers   []*reuseportDialer
 
 	// when to try the known and the bootstrap peers that could not be reached
-	retries        *retrySchedule
-	networkChanged chan struct{}
+	retries *retrySchedule
+	// carries the reason, see NotifyNetworkChanged
+	networkChanged chan string
 	// known peers with a redial pending, see redialOnDisconnect
 	redials sync.Map
 	// not constants for the tests to shorten them
@@ -133,7 +140,7 @@ func NewP2p(ctx context.Context) *P2p {
 		logger:    log.Logger("awl/p2p"),
 
 		retries:         newRetrySchedule(),
-		networkChanged:  make(chan struct{}, 1),
+		networkChanged:  make(chan string, 1),
 		maxRedialDelay:  defaultMaxRedialDelay,
 		firstRetryDelay: defaultFirstRetryDelay,
 
@@ -498,14 +505,16 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 		select {
 		case <-ctx.Done():
 			return
-		case <-p.networkChanged:
+		case reason := <-p.networkChanged:
+			awlmetrics.P2PReconnectResetsTotal.WithLabelValues(reason).Inc()
+			p.logger.Infof("reconnect schedule reset, retrying all known and bootstrap peers, reason: %s", reason)
 			bootstrapConnected = startOver()
 		case <-ticker.C:
 			before, after := round(false)
 			// Having no bootstrap peer at all and then getting one back is how
 			// the return of the network looks from here
 			if after > 0 && (before == 0 || bootstrapConnected == 0) {
-				p.NotifyNetworkChanged()
+				p.signalNetworkChanged(networkBootstrapReturned)
 			}
 			bootstrapConnected = after
 		}
@@ -518,8 +527,12 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 // bootstrap peer is then tried right away, with no regard to its backoff.
 // It does not block, and calls that pile up are handled as one.
 func (p *P2p) NotifyNetworkChanged() {
+	p.signalNetworkChanged(networkNotified)
+}
+
+func (p *P2p) signalNetworkChanged(reason string) {
 	select {
-	case p.networkChanged <- struct{}{}:
+	case p.networkChanged <- reason:
 	default:
 	}
 }
@@ -636,7 +649,7 @@ func (p *P2p) tryConnect(
 
 	err = connect()
 	if err != nil {
-		p.retries.failed(peerID, time.Now(), retryBase)
+		p.retries.failed(peerID, time.Now(), retryBase, err)
 	} else {
 		p.retries.forget(peerID)
 	}

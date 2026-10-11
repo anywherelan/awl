@@ -29,6 +29,9 @@ func retryDelay(failures int, base, maxDelay time.Duration) time.Duration {
 type retryState struct {
 	failures int
 	next     time.Time
+	// the last attempt, for the debug info
+	lastAttempt time.Time
+	lastErr     string
 }
 
 // retrySchedule remembers the peers that could not be reached and when to try
@@ -54,14 +57,25 @@ func (s *retrySchedule) due(id peer.ID, now time.Time) bool {
 
 // failed records an attempt that did not reach the peer and puts the next one
 // off.
-func (s *retrySchedule) failed(id peer.ID, now time.Time, base time.Duration) {
+func (s *retrySchedule) failed(id peer.ID, now time.Time, base time.Duration, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	state := s.peers[id]
 	state.failures++
 	state.next = now.Add(retryDelay(state.failures, base, maxRetryInterval))
+	state.lastAttempt = now
+	state.lastErr = err.Error()
 	s.peers[id] = state
+}
+
+// state is what is remembered about the peer, if anything.
+func (s *retrySchedule) state(id peer.ID) (retryState, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, ok := s.peers[id]
+	return state, ok
 }
 
 // forget drops what is remembered about the peer.

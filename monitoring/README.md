@@ -89,6 +89,9 @@ You can also browse profiles directly in the Pyroscope UI at http://localhost:40
 | `awl_p2p_open_streams` | Gauge | Open streams |
 | `awl_p2p_connected_peers` | Gauge | All connected peers |
 | `awl_p2p_peer_latency_seconds` | GaugeVec | Peer latency, labels: `peer_id` |
+| `awl_p2p_redials_total` | CounterVec | Redials of a known peer right after it disconnected, labels: `result` (`success`, `failure`, `peer_connected` — the peer came back on its own first) |
+| `awl_p2p_redial_duration_seconds` | HistogramVec | How long the dial of a redial took, labels: `result` |
+| `awl_p2p_reconnect_resets_total` | CounterVec | Times the reconnection schedule was reset because the network came back, labels: `reason` (`bootstrap_returned`, `notified`) |
 
 ### DNS Metrics (`awl_dns_*`)
 
