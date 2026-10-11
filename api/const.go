@@ -10,6 +10,7 @@ const (
 	RemovePeerSettingsPath   = V0Prefix + "peers/remove"
 
 	GetBlockedPeersPath = V0Prefix + "peers/get_blocked"
+	UnblockPeerPath     = V0Prefix + "peers/unblock"
 
 	SendFriendRequestPath    = V0Prefix + "peers/invite_peer"
 	AcceptPeerInvitationPath = V0Prefix + "peers/accept_peer"

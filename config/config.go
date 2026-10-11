@@ -385,7 +385,7 @@ func (c *Config) GetBlockedPeer(peerID string) (BlockedPeer, bool) {
 	return blockedPeer, ok
 }
 
-func (c *Config) RemoveBlockedPeer(peerID string) {
+func (c *Config) RemoveBlockedPeer(peerID string) bool {
 	c.Lock()
 	_, exists := c.BlockedPeers[peerID]
 	if exists {
@@ -393,6 +393,8 @@ func (c *Config) RemoveBlockedPeer(peerID string) {
 		c.Save()
 	}
 	c.Unlock()
+
+	return exists
 }
 
 func (c *Config) UpsertBlockedPeer(peerID, displayName string) {

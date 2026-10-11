@@ -155,6 +155,7 @@ func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 	e.POST(RemovePeerSettingsPath, h.RemovePeer)
 	e.GET(GetAuthRequestsPath, h.GetAuthRequests)
 	e.GET(GetBlockedPeersPath, h.GetBlockedPeers)
+	e.POST(UnblockPeerPath, h.UnblockPeer)
 	e.POST(CreateInvitePath, h.CreateInvite)
 	e.GET(GetInvitesPath, h.GetInvites)
 	e.POST(RevokeInvitePath, h.RevokeInvite)

@@ -367,3 +367,35 @@ func (h *Handler) GetBlockedPeers(c echo.Context) (err error) {
 
 	return c.JSON(http.StatusOK, result)
 }
+
+// @Tags		Peers
+// @Summary	Unblock peer
+// @Accept		json
+// @Produce	json
+// @Param		body	body	entity.PeerIDRequest	true	"Params"
+// @Success	200		"OK"
+// @Failure	400		{object}	api.Error
+// @Failure	404		{object}	api.Error
+// @Router		/peers/unblock [POST]
+func (h *Handler) UnblockPeer(c echo.Context) (err error) {
+	req := entity.PeerIDRequest{}
+	err = c.Bind(&req)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
+	}
+	if err = c.Validate(req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
+	}
+	if _, err = peer.Decode(req.PeerID); err != nil {
+		return c.JSON(http.StatusBadRequest,
+			ErrorMessage("Invalid hex-encoded multihash representing of a peer ID"))
+	}
+
+	// Unlike blocking, this sends the peer nothing: it is not in KnownPeers, and
+	// a status info without Declined would read as a confirmation on its side.
+	if !h.conf.RemoveBlockedPeer(req.PeerID) {
+		return c.JSON(http.StatusNotFound, ErrorMessage("peer is not blocked"))
+	}
+
+	return c.NoContent(http.StatusOK)
+}

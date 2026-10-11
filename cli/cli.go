@@ -273,6 +273,8 @@ func (a *Application) init() {
 							return removePeer(a.api, c.String(flagPeerID), c.App.Writer)
 						},
 					},
+					// TODO: add "blocked" and "unblock" commands. The API has both
+					//  (peers/get_blocked, peers/unblock), the CLI has neither.
 					{
 						Name:  "rename",
 						Usage: "Change known peer name",
