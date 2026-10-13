@@ -26,6 +26,12 @@ const (
 	backgroundRetryAuthRequests          = 5 * time.Minute
 )
 
+// ErrUnknownPeer is returned instead of sending a status info or an auth
+// request to a peer we do not keep in KnownPeers. Both read as "you are in my
+// peers" on the other side, see confirmKnownPeer. A blocked peer still gets its
+// Declined status info.
+var ErrUnknownPeer = errors.New("peer is unknown")
+
 type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
 	IsConnected(peerID peer.ID) bool
@@ -82,7 +88,13 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	knownPeer, known := s.conf.GetPeer(peerID)
 	_, isBlocked := s.conf.GetBlockedPeer(peerID)
 	if !known && !isBlocked {
-		s.logger.Infof("Unknown peer %s tried to exchange status info", peerID)
+		// A pending auth request tells a peer that waits for our answer from one
+		// that believes it is in our peers.
+		s.authsLock.RLock()
+		authPeer, hasAuthRequest := s.ingoingAuths[remotePeer]
+		s.authsLock.RUnlock()
+		s.logger.Infof("Unknown peer %s (%s) tried to exchange status info, pending auth request: %v, address %s",
+			authPeer.Name, peerID, hasAuthRequest, stream.Conn().RemoteMultiaddr())
 		return
 	}
 
@@ -92,9 +104,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 		s.logger.Errorf("receiving status info from %s: %v", peerID, err)
 		return
 	}
-	s.authsLock.Lock()
-	delete(s.outgoingAuths, remotePeer)
-	s.authsLock.Unlock()
+	s.dropOutgoingAuth(remotePeer)
 
 	// Sending info
 	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.NodeName(), isBlocked)
@@ -108,7 +118,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 		return
 	}
 
-	s.processPeerStatusInfo(peerID, oppositePeerInfo)
+	s.processPeerStatusInfo(remotePeer, oppositePeerInfo)
 }
 
 func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID peer.ID, knownPeer config.KnownPeer) error {
@@ -129,9 +139,20 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 		_ = stream.Close()
 	}()
 
+	// Checked this late on purpose: the peer may have been removed or unblocked
+	// while we were connecting, and the knownPeer we were handed is older still.
+	// Its settings may have changed as well, so what we announce is read now.
+	_, isBlocked := s.conf.GetBlockedPeer(remotePeerID.String())
+	currentPeer, known := s.conf.GetPeer(remotePeerID.String())
+	if !known && !isBlocked {
+		return ErrUnknownPeer
+	}
+	if known {
+		knownPeer = currentPeer
+	}
+
 	metrics.PeersStatusRequestsSentTotal.Inc()
 
-	_, isBlocked := s.conf.GetBlockedPeer(remotePeerID.String())
 	myPeerInfo := s.createPeerInfo(knownPeer, s.conf.NodeName(), isBlocked)
 	timeStarted := time.Now()
 	err = protocol.SendStatus(stream, myPeerInfo)
@@ -150,7 +171,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 		return nil
 	}
 
-	s.processPeerStatusInfo(remotePeerID.String(), oppositePeerInfo)
+	s.processPeerStatusInfo(remotePeerID, oppositePeerInfo)
 
 	return nil
 }
@@ -159,9 +180,7 @@ func (s *AuthStatus) BlockPeer(peerID peer.ID, name string) {
 	s.conf.UpsertBlockedPeer(peerID.String(), name)
 
 	// Stop retrying our own auth request to a peer we just blocked or removed.
-	s.authsLock.Lock()
-	delete(s.outgoingAuths, peerID)
-	s.authsLock.Unlock()
+	s.dropOutgoingAuth(peerID)
 
 	go func() {
 		_ = s.ExchangeNewStatusInfo(context.Background(), peerID, config.KnownPeer{})
@@ -195,23 +214,13 @@ func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, de
 // stored KnownPeer. It touches only the status-owned fields via UpdatePeerFields
 // so that a concurrent settings update (e.g. IPAddr) is not clobbered. No-op if
 // the peer is no longer known.
-func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.PeerStatusInfo) {
+func (s *AuthStatus) processPeerStatusInfo(remotePeer peer.ID, peerInfo protocol.PeerStatusInfo) {
 	if peerInfo.Declined {
-		// TODO: emit an awlevent (analogous to VPNGatewayConnectivityChanged) when
-		//  a peer explicitly declines us, so the UI can surface it immediately. The
-		//  peer stays in KnownPeers as not-confirmed (including if it was our VPN
-		//  gateway — we keep the binding even though it will no longer forward).
-		s.conf.UpdatePeerFields(peerID, func(peer *config.KnownPeer) {
-			peer.LastSeen = time.Now()
-			peer.Declined = true
-			peer.PendingInviteToken = ""
-		})
-
-		s.clearSelectedExitNode(peerID)
-
+		s.declineKnownPeer(remotePeer)
 		return
 	}
 
+	peerID := remotePeer.String()
 	s.conf.UpdatePeerFields(peerID, func(peer *config.KnownPeer) {
 		peer.LastSeen = time.Now()
 		peer.Name = peerInfo.Name
@@ -233,6 +242,52 @@ func (s *AuthStatus) processPeerStatusInfo(peerID string, peerInfo protocol.Peer
 	if !peerInfo.AllowUsingAsExitNode {
 		s.clearSelectedExitNode(peerID)
 	}
+}
+
+// confirmKnownPeer records that the remote peer keeps us in its KnownPeers, as
+// proved by the auth exchange: either the peer sent us an auth request, which
+// only a peer that has added us does, or it answered ours with Confirmed. name
+// is how the peer calls itself, empty when the answer is all we have. The rest
+// of what we know about the peer still comes with the status exchange. No-op if
+// the peer is no longer known.
+func (s *AuthStatus) confirmKnownPeer(remotePeer peer.ID, name string) {
+	s.conf.UpdatePeerFields(remotePeer.String(), func(peer *config.KnownPeer) {
+		peer.Confirmed = true
+		peer.Declined = false
+		// The invite token has done its job once the peer confirms us
+		peer.PendingInviteToken = ""
+		if peer.Name == "" {
+			peer.Name = name
+		}
+	})
+
+	s.dropOutgoingAuth(remotePeer)
+}
+
+// declineKnownPeer records that the remote peer has blocked us, whichever
+// exchange brought the news. A peer that blocks us does not keep us in its
+// KnownPeers, so Confirmed goes too. No-op if the peer is no longer known.
+func (s *AuthStatus) declineKnownPeer(remotePeer peer.ID) {
+	peerID := remotePeer.String()
+	// TODO: emit an awlevent (analogous to VPNGatewayConnectivityChanged) when
+	//  a peer explicitly declines us, so the UI can surface it immediately. The
+	//  peer stays in KnownPeers as not-confirmed (including if it was our VPN
+	//  gateway — we keep the binding even though it will no longer forward).
+	s.conf.UpdatePeerFields(peerID, func(peer *config.KnownPeer) {
+		peer.LastSeen = time.Now()
+		peer.Declined = true
+		peer.Confirmed = false
+		peer.PendingInviteToken = ""
+	})
+
+	s.clearSelectedExitNode(peerID)
+	s.dropOutgoingAuth(remotePeer)
+}
+
+func (s *AuthStatus) dropOutgoingAuth(peerID peer.ID) {
+	s.authsLock.Lock()
+	delete(s.outgoingAuths, peerID)
+	s.authsLock.Unlock()
 }
 
 // updatePeerIPv6Unlocked applies the IPv6 address the peer announced (empty if
@@ -302,6 +357,12 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	s.conf.RLock()
 	autoAccept := s.conf.P2pNode.AutoAcceptAuthRequests
 	s.conf.RUnlock()
+
+	// A peer we have added ourselves asks for us too: that is all a mutual add
+	// takes, nobody has to accept anything.
+	if known && !isBlocked {
+		s.confirmKnownPeer(remotePeer, authPeer.Name)
+	}
 
 	// An invite only ever lets a new peer in.
 	// A peer already in KnownPeers is kept as is, we don't apply settings from the invite to it.
@@ -417,11 +478,11 @@ func (s *AuthStatus) onInviteRedeemed(peerID, peerName, inviteID string) {
 	})
 }
 
+// SendAuthRequest tells the peer that we have added it and reads back where we
+// stand with it. It is one attempt: the request to retry is registered by
+// AddPeer and dropped once the peer answers either way.
 func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req protocol.AuthPeer) error {
 	metrics.PeersAuthRequestsSentTotal.Inc()
-	s.authsLock.Lock()
-	s.outgoingAuths[peerID] = req
-	s.authsLock.Unlock()
 
 	err := s.p2p.ConnectPeer(ctx, peerID)
 	if err != nil {
@@ -436,6 +497,13 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 		_ = stream.Close()
 	}()
 
+	// Checked this late on purpose: a retry may have been on its way when the
+	// peer was removed.
+	if _, known := s.conf.GetPeer(peerID.String()); !known {
+		s.dropOutgoingAuth(peerID)
+		return ErrUnknownPeer
+	}
+
 	timeStarted := time.Now()
 	err = protocol.SendAuth(stream, req)
 	if err != nil {
@@ -448,15 +516,12 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	}
 	s.p2p.RecordPeerLatency(peerID, time.Since(timeStarted))
 
-	if authResponse.Confirmed || authResponse.Declined {
-		s.authsLock.Lock()
-		delete(s.outgoingAuths, peerID)
-		s.authsLock.Unlock()
-	}
 	if authResponse.Declined {
-		s.conf.UpdatePeerFields(peerID.String(), func(peer *config.KnownPeer) {
-			peer.Declined = true
-		})
+		// Declined outranks Confirmed: the peer may hold us in both its
+		// KnownPeers and its BlockedPeers.
+		s.declineKnownPeer(peerID)
+	} else if authResponse.Confirmed {
+		s.confirmKnownPeer(peerID, "")
 	}
 
 	s.logger.Infof("Successfully send auth to %s", peerID)
@@ -480,7 +545,8 @@ type AddPeerParams struct {
 	// false so the error reaches the form that caused it.
 	UniquifyAlias bool
 	// Confirmed reports whether the peer has already confirmed us, i.e. we are
-	// accepting its request rather than sending our own.
+	// accepting its request rather than sending our own. A peer whose request is
+	// pending is added as confirmed regardless, see AddPeer.
 	Confirmed bool
 	// IPAddr is the VPN address for the peer. Generated when empty.
 	IPAddr string
@@ -501,6 +567,18 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 	peerIDStr := peerID.String()
 	alias := strings.TrimSpace(params.Alias)
 
+	// Adding a peer whose request is waiting for us is accepting that request:
+	// the peer has confirmed us by asking. Our own request is sent all the same
+	// (see below), it is what confirms us on its side without a status exchange.
+	s.authsLock.RLock()
+	ingoingAuth, hasIngoingAuth := s.ingoingAuths[peerID]
+	s.authsLock.RUnlock()
+	confirmed := params.Confirmed || hasIngoingAuth
+	name := params.Name
+	if name == "" {
+		name = ingoingAuth.Name
+	}
+
 	s.conf.RemoveBlockedPeer(peerIDStr)
 
 	s.conf.Lock()
@@ -520,7 +598,7 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 		inviteID = invite.ID
 	}
 	if params.UniquifyAlias {
-		alias = s.conf.GenUniqPeerAliasUnlocked(params.Name, alias)
+		alias = s.conf.GenUniqPeerAliasUnlocked(name, alias)
 	} else if !s.conf.IsUniqPeerAliasUnlocked("", alias) {
 		s.conf.Unlock()
 		return fmt.Errorf("peer name is not unique")
@@ -537,10 +615,10 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 
 	newPeerConfig := config.KnownPeer{
 		PeerID:                 peerIDStr,
-		Name:                   params.Name,
+		Name:                   name,
 		Alias:                  alias,
 		IPAddr:                 ipAddr,
-		Confirmed:              params.Confirmed,
+		Confirmed:              confirmed,
 		CreatedAt:              time.Now(),
 		WeAllowUsingAsExitNode: params.AllowUsingAsExitNode,
 		InviteID:               inviteID,
@@ -550,21 +628,31 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 	s.conf.UpsertPeerUnlocked(newPeerConfig)
 	s.conf.Unlock()
 
+	// Unless we are answering the peer's request, we send our own and keep
+	// retrying it until the peer answers.
+	sendAuth := !params.Confirmed
+	authPeer := protocol.AuthPeer{
+		Name:  s.conf.NodeName(),
+		Token: params.PendingInviteToken,
+	}
+
 	// Drop any pending incoming auth request synchronously, so the caller
 	// (e.g. AcceptFriend) observes it cleared on return rather than after the
 	// asynchronous status exchange below happens to run.
 	s.authsLock.Lock()
 	delete(s.ingoingAuths, peerID)
+	if sendAuth {
+		// The only place besides restoreOutgoingAuths that registers a request to
+		// retry. SendAuthRequest must not: a retry already on its way when the
+		// peer is removed would put the request back.
+		s.outgoingAuths[peerID] = authPeer
+	}
 	s.authsLock.Unlock()
 
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if !params.Confirmed {
-			authPeer := protocol.AuthPeer{
-				Name:  s.conf.NodeName(),
-				Token: params.PendingInviteToken,
-			}
+		if sendAuth {
 			_ = s.SendAuthRequest(ctx, peerID, authPeer)
 		}
 
@@ -695,7 +783,8 @@ func (s *AuthStatus) onPeerConnected(_ network.Network, conn network.Conn) {
 			s.logger.Infof("peer '%s' connected, direction %s, address %s", knownPeer.DisplayName(), dir, conn.RemoteMultiaddr())
 
 			err := s.ExchangeNewStatusInfo(context.Background(), peerID, knownPeer)
-			if err != nil && knownPeer.Confirmed {
+			// A peer that has not confirmed us or has declined us may well not answer
+			if err != nil && knownPeer.Confirmed && !knownPeer.Declined {
 				s.logger.Errorf("exchange status info with recently connected peer %s (%s): %v", knownPeer.DisplayName(), peerID, err)
 			}
 		}

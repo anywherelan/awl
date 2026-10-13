@@ -162,9 +162,12 @@ type (
 		CreatedAt time.Time `json:"createdAt"`
 		// Time of last connection
 		LastSeen time.Time `json:"lastSeen"`
-		// Has remote peer confirmed our invitation
+		// Confirmed means the remote peer keeps us in its KnownPeers: it accepted
+		// our invitation or added us itself. Learned from the auth and status
+		// exchanges, cleared when the peer declines us. Grants nothing by itself.
 		Confirmed bool `json:"confirmed"`
-		// Has remote peer declined our invitation
+		// Declined means the remote peer has blocked us: it declined our
+		// invitation or removed us from its peers.
 		Declined               bool `json:"declined"`
 		WeAllowUsingAsExitNode bool `json:"weAllowUsingAsExitNode"`
 		AllowedUsingAsExitNode bool `json:"allowedUsingAsExitNode"`
