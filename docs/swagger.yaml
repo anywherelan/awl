@@ -86,13 +86,18 @@ definitions:
       allowedUsingAsExitNode:
         type: boolean
       confirmed:
-        description: Has remote peer confirmed our invitation
+        description: |-
+          Confirmed means the remote peer keeps us in its KnownPeers: it accepted
+          our invitation or added us itself. Learned from the auth and status
+          exchanges, cleared when the peer declines us. Grants nothing by itself.
         type: boolean
       createdAt:
         description: Time of adding to config (accept/invite)
         type: string
       declined:
-        description: Has remote peer declined our invitation
+        description: |-
+          Declined means the remote peer has blocked us: it declined our
+          invitation or removed us from its peers.
         type: boolean
       domainName:
         description: DomainName without zone suffix (.awl)

@@ -60,9 +60,15 @@ type AuthPeer struct {
 	Token string `json:",omitempty" swaggerignore:"true"`
 }
 
+// AuthPeerResponse is the answer to an auth request: where the sender stands
+// with us. Both false means the request is waiting for a manual accept.
 type AuthPeerResponse struct {
+	// Confirmed means the sender is in our KnownPeers. The sender takes it as a
+	// confirmation and stops retrying.
 	Confirmed bool
-	Declined  bool
+	// Declined means we have blocked the sender. It outranks Confirmed: a peer
+	// can be in KnownPeers and BlockedPeers at once.
+	Declined bool
 }
 
 func ReceiveAuth(stream io.Reader) (AuthPeer, error) {

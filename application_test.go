@@ -63,7 +63,7 @@ func TestRemovePeer(t *testing.T) {
 	peer1From2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
 	ts.NoError(err)
 	ts.NotNil(peer1From2)
-	ts.True(peer1From2.Confirmed)
+	ts.False(peer1From2.Confirmed, "a peer that removed us does not keep us in its peers")
 	ts.True(peer1From2.Declined)
 
 	ts.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
@@ -133,6 +133,17 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 	ts.NoError(err)
 	ts.Len(blocked, 1)
 	ts.Equal(peer1.PeerID(), blocked[0].PeerID)
+
+	// peer2 changes its mind. peer1 still has it in its peers, so adding peer1
+	// is all it takes: the block is lifted and both sides are confirmed.
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+	ts.NoError(err)
+	ts.requireMutuallyConfirmed(peer1, peer2)
+
+	blocked, err = peer2.api.BlockedPeers()
+	ts.NoError(err)
+	ts.Empty(blocked)
+	ts.requireNoAuthRequestsLeft(peer1, peer2)
 }
 
 // TestUnblockPeer: unblocking only drops the block. The peer is not added, and
@@ -182,6 +193,15 @@ func TestUnblockPeer(t *testing.T) {
 	ts.False(knownPeer.Confirmed)
 	ts.True(knownPeer.Declined)
 
+	// Nor has peer2 anything to tell peer1: a status info without Declined would
+	// read as a confirmation there. This is the call BlockPeer was still about to
+	// make if the block is lifted right after it was set.
+	err = peer2.app.AuthStatus.ExchangeNewStatusInfo(context.Background(), peer1.app.P2p.PeerID(), config.KnownPeer{})
+	ts.ErrorIs(err, service.ErrUnknownPeer)
+	knownPeer, _ = peer1.app.Conf.GetPeer(peer2.PeerID())
+	ts.False(knownPeer.Confirmed)
+	ts.True(knownPeer.Declined)
+
 	// A new request from peer1 is an ordinary incoming one again.
 	err = peer1.api.RemovePeer(peer2.PeerID())
 	ts.NoError(err)
@@ -192,6 +212,342 @@ func TestUnblockPeer(t *testing.T) {
 		ts.NoError(err)
 		return len(authRequests) == 1 && authRequests[0].PeerID == peer1.PeerID()
 	}, 15*time.Second, 50*time.Millisecond)
+}
+
+// TestUnblockRemovedPeer: a friend we removed and then unblocked is a stranger
+// to us, while we are still in its peers. Whatever we send it would read as "you
+// are in my peers" there, so nothing leaves the node, and the peer keeps seeing
+// itself as declined until we add it again.
+func TestUnblockRemovedPeer(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.makeFriends(peer2, peer1)
+
+	err := peer1.api.RemovePeer(peer2.PeerID())
+	ts.NoError(err)
+	ts.Eventually(func() bool {
+		peer1OnPeer2, _ := peer2.app.Conf.GetPeer(peer1.PeerID())
+		return peer1OnPeer2.Declined && !peer1OnPeer2.Confirmed
+	}, 15*time.Second, 50*time.Millisecond)
+
+	err = peer1.api.UnblockPeer(peer2.PeerID())
+	ts.NoError(err)
+
+	requireStillDeclined := func() {
+		peer1OnPeer2, exists := peer2.app.Conf.GetPeer(peer1.PeerID())
+		ts.True(exists)
+		ts.True(peer1OnPeer2.Declined)
+		ts.False(peer1OnPeer2.Confirmed)
+	}
+
+	// peer2 asks and gets no answer.
+	peer1OnPeer2, _ := peer2.app.Conf.GetPeer(peer1.PeerID())
+	err = peer2.app.AuthStatus.ExchangeNewStatusInfo(context.Background(), peer1.app.P2p.PeerID(), peer1OnPeer2)
+	ts.Error(err)
+	requireStillDeclined()
+
+	// The calls below are the ones that may still be on their way when a peer is
+	// removed and unblocked. On peer2 that is a retry of an auth request: peer1
+	// files it as a request from a stranger, and peer2, being declined, does not
+	// go back to retrying.
+	err = peer2.app.AuthStatus.SendAuthRequest(context.Background(), peer1.app.P2p.PeerID(), protocol.AuthPeer{Name: "peer_2"})
+	ts.NoError(err)
+	_, outgoing := peer2.app.AuthStatus.GetAuthRequestCounts()
+	ts.Equal(0, outgoing, "sending a request must not queue it for retries")
+	requireStillDeclined()
+
+	// On peer1 it is the status info BlockPeer sends and, again, a retry of an
+	// auth request.
+	err = peer1.app.AuthStatus.ExchangeNewStatusInfo(context.Background(), peer2.app.P2p.PeerID(), config.KnownPeer{})
+	ts.ErrorIs(err, service.ErrUnknownPeer)
+	requireStillDeclined()
+
+	err = peer1.app.AuthStatus.SendAuthRequest(context.Background(), peer2.app.P2p.PeerID(), protocol.AuthPeer{Name: "peer_1"})
+	ts.ErrorIs(err, service.ErrUnknownPeer)
+	requireStillDeclined()
+	_, outgoing = peer1.app.AuthStatus.GetAuthRequestCounts()
+	ts.Equal(0, outgoing)
+
+	// The way back is to add the peer again.
+	err = peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	ts.NoError(err)
+	ts.requireMutuallyConfirmed(peer1, peer2)
+	ts.requireNoAuthRequestsLeft(peer1, peer2)
+}
+
+// The tests below cover a mutual add: both sides add each other and nobody
+// calls accept_peer. They come from the report "added the peer by hand on one
+// side, then by hand on the other; the connection came up but both sides say
+// 'not confirmed'".
+
+// mutualAdd performs the flow from the report: peer1 invites peer2, and once
+// the request has landed there the user presses "add peer" instead of "accept".
+func (ts *TestSuite) mutualAdd(peer1, peer2 TestPeer) {
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	ts.NoError(err)
+	ts.waitForAuthRequest(peer2, peer1)
+
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+	ts.NoError(err)
+}
+
+// waitForAuthRequest waits until the friend request of from is waiting for an
+// answer on to.
+func (ts *TestSuite) waitForAuthRequest(to, from TestPeer) {
+	ts.Eventually(func() bool {
+		authRequests, err := to.api.AuthRequests()
+		ts.NoError(err)
+		for _, req := range authRequests {
+			if req.PeerID == from.PeerID() {
+				return true
+			}
+		}
+		return false
+	}, 15*time.Second, 50*time.Millisecond, "the auth request must arrive")
+}
+
+// requireMutuallyConfirmed waits until the peers see each other as confirmed.
+func (ts *TestSuite) requireMutuallyConfirmed(peer1, peer2 TestPeer) {
+	ts.Eventually(func() bool {
+		peer2OnPeer1, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+		peer1OnPeer2, _ := peer2.app.Conf.GetPeer(peer1.PeerID())
+		return peer2OnPeer1.Confirmed && !peer2OnPeer1.Declined &&
+			peer1OnPeer2.Confirmed && !peer1OnPeer2.Declined
+	}, 15*time.Second, 50*time.Millisecond, "both sides must end up confirmed")
+}
+
+// requireNoAuthRequestsLeft waits until none of the peers has a request to
+// answer or to retry.
+func (ts *TestSuite) requireNoAuthRequestsLeft(peers ...TestPeer) {
+	ts.Eventually(func() bool {
+		for _, peer := range peers {
+			ingoing, outgoing := peer.app.AuthStatus.GetAuthRequestCounts()
+			if ingoing != 0 || outgoing != 0 {
+				return false
+			}
+		}
+		return true
+	}, 15*time.Second, 50*time.Millisecond, "no auth request may be left pending")
+}
+
+// dropStatusExchange takes the status protocol off the peers, so that no status
+// exchange between them lands. In the field that is a slow round trip or a
+// lookup that ate the whole budget: AddPeer gives the exchange one attempt.
+// With it out of the way, whatever gets confirmed is confirmed by the auth
+// exchange.
+func dropStatusExchange(peers ...TestPeer) {
+	for _, peer := range peers {
+		peer.app.P2p.Host().RemoveStreamHandler(protocol.GetStatusMethod)
+	}
+}
+
+// TestMutualAddConfirmsBothSides is the flow from the report with nothing in
+// its way.
+func TestMutualAddConfirmsBothSides(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	ts.NoError(peer1.api.UpdateMySettings("alice"))
+	ts.NoError(peer2.api.UpdateMySettings("bob"))
+
+	ts.mutualAdd(peer1, peer2)
+
+	// peer2 was holding peer1's request, so it has nothing to wait for.
+	peer1OnPeer2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+	ts.NoError(err)
+	ts.True(peer1OnPeer2.Confirmed)
+	ts.Equal("alice", peer1OnPeer2.Name)
+
+	ts.requireMutuallyConfirmed(peer1, peer2)
+	ts.requireNoAuthRequestsLeft(peer1, peer2)
+
+	ts.Eventually(func() bool {
+		peer2OnPeer1, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		return peer2OnPeer1.Name == "bob"
+	}, 15*time.Second, 50*time.Millisecond)
+
+	knownPeers, err := peer1.api.KnownPeers()
+	ts.NoError(err)
+	ts.Len(knownPeers, 1)
+	ts.True(knownPeers[0].Confirmed)
+	ts.False(knownPeers[0].Declined)
+}
+
+// TestMutualAddConfirmedWithoutStatusExchange is the report itself. The auth
+// exchange that the second add starts used to succeed and confirm nobody, which
+// left both sides waiting for a status exchange that had already failed.
+func TestMutualAddConfirmedWithoutStatusExchange(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	dropStatusExchange(peer1, peer2)
+
+	ts.mutualAdd(peer1, peer2)
+
+	ts.requireMutuallyConfirmed(peer1, peer2)
+	ts.requireNoAuthRequestsLeft(peer1, peer2)
+}
+
+// TestMutualAddAfterLostRequest: peer1's request never reaches peer2 — it was
+// offline, or it has restarted since and pending requests are kept in memory
+// only. So peer2 adds peer1 without knowing it was asked for. Its request then
+// finds peer2 already in peer1's peers, which confirms peer2 there, and the
+// answer says as much, which confirms peer1 here.
+func TestMutualAddAfterLostRequest(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	dropStatusExchange(peer1, peer2)
+	peer2.app.P2p.Host().RemoveStreamHandler(protocol.AuthMethod)
+
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	ts.NoError(err)
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+	ts.NoError(err)
+
+	ts.requireMutuallyConfirmed(peer1, peer2)
+	ts.requireNoAuthRequestsLeft(peer1, peer2)
+}
+
+// TestMutualAddSimultaneous: both users press "add peer" at the same moment.
+// The two requests can cross in any order — a request may even arrive before
+// its recipient has finished adding the sender — and every order has to end up
+// confirmed with nothing left to answer.
+func TestMutualAddSimultaneous(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+
+	var wg sync.WaitGroup
+	var err1, err2 error
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		err1 = peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	}()
+	go func() {
+		defer wg.Done()
+		err2 = peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+	}()
+	wg.Wait()
+	ts.NoError(err1)
+	ts.NoError(err2)
+
+	ts.requireMutuallyConfirmed(peer1, peer2)
+	ts.requireNoAuthRequestsLeft(peer1, peer2)
+}
+
+// TestAddPeerAcceptsPendingRequest: adding a peer whose request we hold is
+// accepting it, the same as accept_peer. The request is the confirmation, so
+// it works with the peer gone offline.
+func TestAddPeerAcceptsPendingRequest(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	ts.NoError(peer1.api.UpdateMySettings("alice"))
+
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	ts.NoError(err)
+	ts.waitForAuthRequest(peer2, peer1)
+	peer1.Close()
+
+	err = peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+	ts.NoError(err)
+
+	peer1OnPeer2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+	ts.NoError(err)
+	ts.True(peer1OnPeer2.Confirmed)
+	ts.Equal("alice", peer1OnPeer2.Name, "the name comes from the request")
+
+	authRequests, err := peer2.api.AuthRequests()
+	ts.NoError(err)
+	ts.Empty(authRequests)
+	// Unlike accept_peer, an add still sends our own request: it is what
+	// confirms us on the other side without a status exchange.
+	_, outgoing := peer2.app.AuthStatus.GetAuthRequestCounts()
+	ts.Equal(1, outgoing, "our request waits for peer1 to come back")
+}
+
+// TestAcceptConfirmedByAuthRetry: an accepted request is announced by a status
+// exchange, and that one is lost here. The inviter keeps retrying its request,
+// and the answer to a retry — "you are in my peers" — confirms it just as well.
+func TestAcceptConfirmedByAuthRetry(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	dropStatusExchange(peer1, peer2)
+
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	ts.NoError(err)
+	ts.waitForAuthRequest(peer2, peer1)
+	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: peer1.PeerID(), Alias: "peer_1"})
+	ts.NoError(err)
+
+	peer2OnPeer1, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+	ts.False(peer2OnPeer1.Confirmed, "peer1 has not been told yet")
+
+	// Requests are retried every 5 minutes and whenever the peer connects;
+	// reconnecting by hand is the one that fits in a test.
+	err = peer1.app.P2p.Host().Network().ClosePeer(peer2.app.P2p.PeerID())
+	ts.NoError(err)
+	err = peer1.app.P2p.ConnectPeer(context.Background(), peer2.app.P2p.PeerID())
+	ts.NoError(err)
+
+	ts.requireMutuallyConfirmed(peer1, peer2)
+	ts.requireNoAuthRequestsLeft(peer1, peer2)
+}
+
+// TestBlockedKnownPeerIsNotConfirmed: a peer can sit in KnownPeers and
+// BlockedPeers at once. The API does not lead there (adding a peer unblocks it,
+// removing it forgets it), a config can. Blocking wins on both ends of the auth
+// exchange: the blocked peer is told it is declined, and its request confirms
+// nothing.
+func TestBlockedKnownPeerIsNotConfirmed(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+	// A status exchange would say "declined" as well and hide what the auth
+	// exchange has done.
+	dropStatusExchange(peer1, peer2)
+
+	err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+	ts.NoError(err)
+	ts.waitForAuthRequest(peer1, peer2)
+	peer2.app.Conf.UpsertBlockedPeer(peer1.PeerID(), "peer_1")
+
+	// peer1 holds peer2's request, so it adds peer2 as confirmed and sends its
+	// own. The answer is {Confirmed, Declined}.
+	err = peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
+	ts.NoError(err)
+
+	ts.Eventually(func() bool {
+		peer2OnPeer1, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+		return peer2OnPeer1.Declined && !peer2OnPeer1.Confirmed
+	}, 15*time.Second, 50*time.Millisecond, "declined outranks confirmed, and takes it back")
+	_, outgoing := peer1.app.AuthStatus.GetAuthRequestCounts()
+	ts.Equal(0, outgoing, "a declined request is not retried")
+
+	ts.Never(func() bool {
+		peer1OnPeer2, _ := peer2.app.Conf.GetPeer(peer1.PeerID())
+		return peer1OnPeer2.Confirmed
+	}, 2*time.Second, 50*time.Millisecond, "a request from a blocked peer confirms nothing")
 }
 
 func TestAutoAcceptFriendRequest(t *testing.T) {
@@ -563,6 +919,47 @@ func TestAddPeerWithExitNodePermission(t *testing.T) {
 	})
 }
 
+// TestStatusExchangeAnnouncesCurrentSettings: a status exchange is handed a copy
+// of the peer's settings, taken before it connects and opens a stream. A
+// settings update may land in between; the exchange must announce what is in
+// the config by then, or it takes the update back on the other side.
+func TestStatusExchangeAnnouncesCurrentSettings(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.makeFriends(peer2, peer1)
+
+	// The copy an exchange already on its way holds.
+	outdated, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+	ts.False(outdated.WeAllowUsingAsExitNode)
+
+	err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peer2.PeerID(),
+		Alias:                outdated.Alias,
+		DomainName:           outdated.DomainName,
+		IPAddr:               outdated.IPAddr,
+		AllowUsingAsExitNode: true,
+	})
+	ts.NoError(err)
+	var peer1OnPeer2 config.KnownPeer
+	ts.Eventually(func() bool {
+		peer1OnPeer2, _ = peer2.app.Conf.GetPeer(peer1.PeerID())
+		return peer1OnPeer2.AllowedUsingAsExitNode
+	}, 15*time.Second, 50*time.Millisecond)
+	seenBefore := peer1OnPeer2.LastSeen
+
+	err = peer1.app.AuthStatus.ExchangeNewStatusInfo(context.Background(), peer2.app.P2p.PeerID(), outdated)
+	ts.NoError(err)
+
+	// peer2 applies what it has received after it answers, so wait for that.
+	ts.Eventually(func() bool {
+		peer1OnPeer2, _ = peer2.app.Conf.GetPeer(peer1.PeerID())
+		return peer1OnPeer2.LastSeen.After(seenBefore)
+	}, 15*time.Second, 10*time.Millisecond)
+	ts.True(peer1OnPeer2.AllowedUsingAsExitNode, "the late exchange must not take the permission back")
+}
+
 // TestAddPeerViaInviteLink is the invite link happy path: the creator makes a
 // link, the redeemer adds the creator with the token from it, and both sides end
 // up confirmed with the invite's settings applied — accept_peer is never called
@@ -666,8 +1063,8 @@ func TestAddPeerViaInviteLink(t *testing.T) {
 // An invite only ever lets a new peer in: the peer is already added, with
 // settings the creator chose by hand, and a link presented afterwards changes
 // nothing and costs the link nothing. The connection comes up regardless — the
-// creator answers "you are in my KnownPeers" and the status exchange that
-// follows confirms both sides, exactly as in any mutual add.
+// request confirms the redeemer on the creator's side and the answer, "you are
+// in my KnownPeers", confirms the creator here, exactly as in any mutual add.
 func TestInviteLinkAlreadyKnownPeer(t *testing.T) {
 	ts := NewTestSuite(t)
 
@@ -919,6 +1316,16 @@ func TestRemovePeerStopsInviteTokenRetries(t *testing.T) {
 
 	_, outgoing := peer2.app.AuthStatus.GetAuthRequestCounts()
 	ts.Equal(0, outgoing, "no retry may carry the token to a removed peer")
+
+	// A retry that was already on its way when the peer was removed goes
+	// nowhere either, and does not put the request back.
+	err = peer2.app.AuthStatus.SendAuthRequest(context.Background(), creator.app.P2p.PeerID(), protocol.AuthPeer{
+		Name:  "peer_2",
+		Token: link.Token,
+	})
+	ts.ErrorIs(err, service.ErrUnknownPeer)
+	_, outgoing = peer2.app.AuthStatus.GetAuthRequestCounts()
+	ts.Equal(0, outgoing)
 }
 
 // TestInviteLinkWithAutoAccept: a valid token applies the invite's settings even
