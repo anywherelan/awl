@@ -183,6 +183,22 @@ func TestAcceptFriend_ErrorCases(t *testing.T) {
 		ts.Error(err)
 		ts.ErrorContains(err, "Invalid hex-encoded multihash")
 	})
+
+	t.Run("AcceptWithoutAlias", func(t *testing.T) {
+		err := peer1.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: peer2.PeerID()})
+		ts.ErrorContains(err, "'Alias' failed on the 'required_if' tag")
+	})
+
+	t.Run("AcceptWithBlankAlias", func(t *testing.T) {
+		err := peer1.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: peer2.PeerID(), Alias: "  "})
+		ts.ErrorContains(err, "'Alias' failed on the 'trimmed_str_not_empty' tag")
+	})
+
+	t.Run("DeclineWithoutAlias", func(t *testing.T) {
+		// Passes validation and gets as far as looking for the request.
+		err := peer1.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: peer2.PeerID(), Decline: true})
+		ts.ErrorContains(err, "Peer did not send you friend request")
+	})
 }
 
 // TestInvitesAPI covers the invite link lifecycle through the API alone:

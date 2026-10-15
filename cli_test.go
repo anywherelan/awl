@@ -633,6 +633,81 @@ func TestCLI_PeersAddByTokenlessLink(t *testing.T) {
 	}, 15*time.Second, 50*time.Millisecond)
 }
 
+// TestCLI_PeersDecline: declining a request blocks the peer, and the peer
+// learns it was declined. The request is picked by pid or by its name, as in
+// `peers add`.
+func TestCLI_PeersDecline(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args func(peer2 TestPeer) []string
+	}{
+		{name: "ByPID", args: func(peer2 TestPeer) []string { return []string{"--pid", peer2.PeerID()} }},
+		{name: "ByName", args: func(TestPeer) []string { return []string{"--name", "maxphone"} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := NewTestSuite(t)
+			peer1 := ts.NewTestPeer(false)
+			peer2 := ts.NewTestPeer(false)
+			ts.ensurePeersAvailableInDHT(peer1, peer2)
+			ts.NoError(peer2.api.UpdateMySettings("maxphone"))
+
+			err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+			ts.NoError(err)
+
+			ts.Eventually(func() bool {
+				reqs, err := peer1.api.AuthRequests()
+				return err == nil && len(reqs) == 1
+			}, 15*time.Second, 50*time.Millisecond)
+
+			out, err := runCLI(ts, peer1, append([]string{"peers", "decline"}, tc.args(peer2)...)...)
+			require.NoError(t, err)
+			require.Equal(t, "declined the request from the device 'maxphone' and blocked it\n", out)
+
+			reqs, err := peer1.api.AuthRequests()
+			require.NoError(t, err)
+			require.Empty(t, reqs)
+
+			blocked, err := peer1.api.BlockedPeers()
+			require.NoError(t, err)
+			require.Len(t, blocked, 1)
+			require.Equal(t, peer2.PeerID(), blocked[0].PeerID)
+
+			_, known := peer1.app.Conf.GetPeer(peer2.PeerID())
+			require.False(t, known, "declining does not add the peer")
+
+			ts.Eventually(func() bool {
+				peer1OnPeer2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
+				return err == nil && peer1OnPeer2.Declined
+			}, 15*time.Second, 50*time.Millisecond)
+		})
+	}
+}
+
+func TestCLI_PeersDeclineErrors(t *testing.T) {
+	ts := NewTestSuite(t)
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+
+	t.Run("Neither", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "decline")
+		require.ErrorContains(t, err, "either pid or name flag is required")
+	})
+
+	t.Run("NoRequestByPID", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "decline", "--pid", peer2.PeerID())
+		require.ErrorContains(t, err, "no incoming request from the peer "+peer2.PeerID())
+	})
+
+	t.Run("NoRequestByName", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "decline", "--name", "maxphone")
+		require.ErrorContains(t, err, "no incoming request from a peer named 'maxphone'")
+	})
+
+	blocked, err := peer1.api.BlockedPeers()
+	require.NoError(t, err)
+	require.Empty(t, blocked, "a failed decline blocks nobody")
+}
+
 // TestCLI_PeersRename covers rename by peer ID and by alias on a shared peer pair.
 // ByPID runs first and renames the alias to "renamed_peer"; ByName reuses that alias.
 func TestCLI_PeersRename(t *testing.T) {

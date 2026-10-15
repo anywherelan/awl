@@ -195,9 +195,12 @@ func addPeer(api *apiclient.Client, params addPeerParams, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	request, hasRequest, err := findAuthRequest(authRequests, params)
+	request, hasRequest, err := findAuthRequest(authRequests, params.PeerID, params.Alias)
 	if err != nil {
 		return err
+	}
+	if params.PeerID == "" && !hasRequest {
+		return fmt.Errorf("either link or pid flag is required: no incoming request from a peer named '%s'", params.Alias)
 	}
 	if hasRequest {
 		params.PeerID = request.PeerID
@@ -272,12 +275,13 @@ func resolveAddPeerTarget(params addPeerParams) (addPeerParams, error) {
 	return params, nil
 }
 
-// findAuthRequest finds the incoming request of the peer to add: by peer id,
-// or, without link and pid, by the name the peer sent the request with.
-func findAuthRequest(authRequests []entity.AuthRequest, params addPeerParams) (entity.AuthRequest, bool, error) {
-	if params.PeerID != "" {
+// findAuthRequest finds an incoming request by peer id, or, when peerID is
+// empty, by the name the peer sent it with. A name shared by several requests
+// is an error.
+func findAuthRequest(authRequests []entity.AuthRequest, peerID, name string) (entity.AuthRequest, bool, error) {
+	if peerID != "" {
 		for _, req := range authRequests {
-			if req.PeerID == params.PeerID {
+			if req.PeerID == peerID {
 				return req, true, nil
 			}
 		}
@@ -286,18 +290,57 @@ func findAuthRequest(authRequests []entity.AuthRequest, params addPeerParams) (e
 
 	var found []entity.AuthRequest
 	for _, req := range authRequests {
-		if strings.TrimSpace(req.Name) == params.Alias {
+		if strings.TrimSpace(req.Name) == name {
 			found = append(found, req)
 		}
 	}
 	switch len(found) {
 	case 0:
-		return entity.AuthRequest{}, false, fmt.Errorf("either link or pid flag is required: no incoming request from a peer named '%s'", params.Alias)
+		return entity.AuthRequest{}, false, nil
 	case 1:
 		return found[0], true, nil
 	default:
-		return entity.AuthRequest{}, false, fmt.Errorf("%d incoming requests come from peers named '%s', use pid flag to pick one", len(found), params.Alias)
+		return entity.AuthRequest{}, false, fmt.Errorf("%d incoming requests come from peers named '%s', use pid flag to pick one", len(found), name)
 	}
+}
+
+// declinePeer declines an incoming request, picked by pid or by name, and so
+// blocks the peer.
+func declinePeer(api *apiclient.Client, peerID, name string, w io.Writer) error {
+	name = strings.TrimSpace(name)
+	if peerID == "" && name == "" {
+		return errors.New("either pid or name flag is required")
+	}
+
+	authRequests, err := api.AuthRequests()
+	if err != nil {
+		return err
+	}
+	request, found, err := findAuthRequest(authRequests, peerID, name)
+	if err != nil {
+		return err
+	}
+	if !found && peerID != "" {
+		return fmt.Errorf("no incoming request from the peer %s", peerID)
+	}
+	if !found {
+		return fmt.Errorf("no incoming request from a peer named '%s'", name)
+	}
+
+	err = api.ReplyFriendRequest(entity.FriendRequestReply{
+		PeerID:  request.PeerID,
+		Decline: true,
+	})
+	if err != nil {
+		return err
+	}
+
+	device := request.Name
+	if device == "" {
+		device = request.PeerID
+	}
+	fmt.Fprintf(w, "declined the request from the device '%s' and blocked it\n", device)
+	return nil
 }
 
 func removePeer(api *apiclient.Client, peerID string, w io.Writer) error {

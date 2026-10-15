@@ -29,8 +29,9 @@ type (
 		Token string
 	}
 	FriendRequestReply struct {
-		PeerID  string `validate:"required"`
-		Alias   string `validate:"required,trimmed_str_not_empty,max=100,no_control_chars"`
+		PeerID string `validate:"required"`
+		// Alias is required to accept; declining takes none.
+		Alias   string `validate:"required_if=Decline false,omitempty,trimmed_str_not_empty,max=100,no_control_chars"`
 		Decline bool
 		// optional: specific IP address for the peer
 		IPAddr string `validate:"omitempty,ipv4"`

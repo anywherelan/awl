@@ -265,6 +265,26 @@ func (a *Application) init() {
 						},
 					},
 					{
+						Name:  "decline",
+						Usage: "Decline an incoming friend request and block the peer. The peer sees its request as declined",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     flagPeerID,
+								Usage:    "peer id, as printed by 'peers requests'",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     flagPeerName,
+								Usage:    "peer name, as printed by 'peers requests'",
+								Required: false,
+							},
+						},
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return declinePeer(a.api, c.String(flagPeerID), c.String(flagPeerName), c.App.Writer)
+						},
+					},
+					{
 						Name:   "remove",
 						Usage:  "Remove peer from the friends list",
 						Flags:  peerSelectorFlags(),
