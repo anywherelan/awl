@@ -399,6 +399,7 @@ definitions:
   entity.FriendRequestReply:
     properties:
       alias:
+        description: Alias is required to accept; declining takes none.
         maxLength: 100
         type: string
       allowUsingAsExitNode:
@@ -412,7 +413,6 @@ definitions:
       peerID:
         type: string
     required:
-    - alias
     - peerID
     type: object
   entity.GeneralDebugInfo:

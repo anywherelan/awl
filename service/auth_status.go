@@ -179,6 +179,13 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 func (s *AuthStatus) BlockPeer(peerID peer.ID, name string) {
 	s.conf.UpsertBlockedPeer(peerID.String(), name)
 
+	// Drop the pending incoming request synchronously, as AddPeer does, so the
+	// caller (AcceptFriend declining) observes it gone on return. Done after
+	// the block is stored: AuthStreamHandler rechecks it under the same lock.
+	s.authsLock.Lock()
+	delete(s.ingoingAuths, peerID)
+	s.authsLock.Unlock()
+
 	// Stop retrying our own auth request to a peer we just blocked or removed.
 	s.dropOutgoingAuth(peerID)
 
@@ -385,12 +392,22 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	// fallback for an auto-add that lost a race.
 	if !isBlocked && !known {
 		s.authsLock.Lock()
-		s.ingoingAuths[remotePeer] = authPeer
+		// Checked again under the lock: the peer may have been declined or added
+		// since the checks above.
+		_, isBlocked = s.conf.GetBlockedPeer(peerID)
+		_, known = s.conf.GetPeer(peerID)
+		offered := !isBlocked && !known
+		if offered {
+			s.ingoingAuths[remotePeer] = authPeer
+		}
 		s.authsLock.Unlock()
-		_ = s.authsEmitter.Emit(awlevent.ReceivedAuthRequest{
-			AuthPeer: authPeer,
-			PeerID:   peerID,
-		})
+
+		if offered {
+			_ = s.authsEmitter.Emit(awlevent.ReceivedAuthRequest{
+				AuthPeer: authPeer,
+				PeerID:   peerID,
+			})
+		}
 	}
 
 	authResponse := protocol.AuthPeerResponse{Confirmed: known, Declined: isBlocked}

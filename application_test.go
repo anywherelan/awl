@@ -116,7 +116,7 @@ func TestDeclinePeerFriendRequest(t *testing.T) {
 		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Alias: "peer_1", Decline: true})
+	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Decline: true})
 	ts.NoError(err)
 
 	time.Sleep(500 * time.Millisecond)
@@ -164,7 +164,7 @@ func TestUnblockPeer(t *testing.T) {
 		ts.NoError(err)
 		return len(authRequests) == 1
 	}, 15*time.Second, 50*time.Millisecond)
-	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Alias: "peer_1", Decline: true})
+	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: authRequests[0].PeerID, Decline: true})
 	ts.NoError(err)
 
 	// The declined status is what tells us peer2 is done with blocking.

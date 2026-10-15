@@ -11,6 +11,7 @@ import (
 
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/awldns"
+	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 )
 
@@ -195,13 +196,23 @@ func addPeer(api *apiclient.Client, params addPeerParams, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	hasRequest := false
-	for _, req := range authRequests {
-		if req.PeerID == params.PeerID {
-			hasRequest = true
-			break
+	request, hasRequest, err := findAuthRequest(authRequests, params.PeerID, params.Alias)
+	if err != nil {
+		return err
+	}
+	if params.PeerID == "" && !hasRequest {
+		return fmt.Errorf("either link or pid flag is required: no incoming request from a peer named '%s'", params.Alias)
+	}
+	if hasRequest {
+		params.PeerID = request.PeerID
+		if params.Alias == "" {
+			params.Alias = strings.TrimSpace(request.Name)
 		}
 	}
+	if params.Alias == "" {
+		return errors.New("name flag is required: neither the link nor an incoming request carries a name")
+	}
+
 	if hasRequest {
 		// Drop the token on purpose: a peer that already sent us a request
 		// already knows us, so FriendRequestReply intentionally carries no token.
@@ -258,24 +269,175 @@ func resolveAddPeerTarget(params addPeerParams) (addPeerParams, error) {
 		}
 	}
 
-	switch {
-	case params.PeerID == "":
-		return params, errors.New("either link or pid flag is required")
-	case params.Alias == "":
-		return params, errors.New("name flag is required: the link carries no name to fall back on")
+	if params.PeerID == "" && params.Alias == "" {
+		return params, errors.New("either link, pid or name flag is required")
 	}
 
 	return params, nil
 }
 
+// findAuthRequest finds an incoming request by peer id, or, when peerID is
+// empty, by the name the peer sent it with. A name shared by several requests
+// is an error.
+func findAuthRequest(authRequests []entity.AuthRequest, peerID, name string) (entity.AuthRequest, bool, error) {
+	if peerID != "" {
+		for _, req := range authRequests {
+			if req.PeerID == peerID {
+				return req, true, nil
+			}
+		}
+		return entity.AuthRequest{}, false, nil
+	}
+
+	var found []entity.AuthRequest
+	for _, req := range authRequests {
+		if strings.TrimSpace(req.Name) == name {
+			found = append(found, req)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return entity.AuthRequest{}, false, nil
+	case 1:
+		return found[0], true, nil
+	default:
+		return entity.AuthRequest{}, false, fmt.Errorf("%d incoming requests come from peers named '%s', use pid flag to pick one", len(found), name)
+	}
+}
+
+// declinePeer declines an incoming request, picked by pid or by name, and so
+// blocks the peer.
+func declinePeer(api *apiclient.Client, peerID, name string, w io.Writer) error {
+	name = strings.TrimSpace(name)
+	if peerID == "" && name == "" {
+		return errors.New("either pid or name flag is required")
+	}
+
+	authRequests, err := api.AuthRequests()
+	if err != nil {
+		return err
+	}
+	request, found, err := findAuthRequest(authRequests, peerID, name)
+	if err != nil {
+		return err
+	}
+	if !found && peerID != "" {
+		return fmt.Errorf("no incoming request from the peer %s", peerID)
+	}
+	if !found {
+		return fmt.Errorf("no incoming request from a peer named '%s'", name)
+	}
+
+	err = api.ReplyFriendRequest(entity.FriendRequestReply{
+		PeerID:  request.PeerID,
+		Decline: true,
+	})
+	if err != nil {
+		return err
+	}
+
+	device := request.Name
+	if device == "" {
+		device = request.PeerID
+	}
+	fmt.Fprintf(w, "declined the request from the device '%s' and blocked it until you add it or run 'peers unblock'\n", device)
+	return nil
+}
+
+// removePeer removes a known peer. The server blocks it as well.
 func removePeer(api *apiclient.Client, peerID string, w io.Writer) error {
 	err := api.RemovePeer(peerID)
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintln(w, "peer removed successfully")
+	fmt.Fprintln(w, "peer removed and blocked until you add it again or run 'peers unblock'")
 	return nil
+}
+
+func printBlockedPeers(api *apiclient.Client, w io.Writer) error {
+	blockedPeers, err := api.BlockedPeers()
+	if err != nil {
+		return err
+	}
+	if len(blockedPeers) == 0 {
+		fmt.Fprintln(w, "you have no blocked peers")
+		return nil
+	}
+	for _, b := range blockedPeers {
+		fmt.Fprintf(w, "Name: '%s' peerID: %s", b.DisplayName, b.PeerID)
+		// Entries from older versions may carry no date.
+		if !b.CreatedAt.IsZero() {
+			fmt.Fprintf(w, " blockedAt: %s", b.CreatedAt.Format("2006-01-02 15:04:05"))
+		}
+		fmt.Fprintln(w)
+	}
+
+	return nil
+}
+
+// unblockPeer unblocks a peer, picked by pid or by the name it is listed under
+// in `peers blocked`. The peer is not added, it may only send requests again.
+func unblockPeer(api *apiclient.Client, peerID, name string, w io.Writer) error {
+	name = strings.TrimSpace(name)
+	if peerID == "" && name == "" {
+		return errors.New("either pid or name flag is required")
+	}
+
+	blockedPeers, err := api.BlockedPeers()
+	if err != nil {
+		return err
+	}
+	blocked, found, err := findBlockedPeer(blockedPeers, peerID, name)
+	if err != nil {
+		return err
+	}
+	if !found && peerID != "" {
+		return fmt.Errorf("the peer %s is not blocked", peerID)
+	}
+	if !found {
+		return fmt.Errorf("no blocked peer named '%s'", name)
+	}
+
+	err = api.UnblockPeer(blocked.PeerID)
+	if err != nil {
+		return err
+	}
+
+	device := blocked.DisplayName
+	if device == "" {
+		device = blocked.PeerID
+	}
+	fmt.Fprintf(w, "unblocked the device '%s': it can send you friend requests again, but is not added to your peers\n", device)
+	return nil
+}
+
+// findBlockedPeer is findAuthRequest for blocked peers: by peer id, or, when
+// peerID is empty, by the name the peer is listed under.
+func findBlockedPeer(blockedPeers []config.BlockedPeer, peerID, name string) (config.BlockedPeer, bool, error) {
+	if peerID != "" {
+		for _, b := range blockedPeers {
+			if b.PeerID == peerID {
+				return b, true, nil
+			}
+		}
+		return config.BlockedPeer{}, false, nil
+	}
+
+	var found []config.BlockedPeer
+	for _, b := range blockedPeers {
+		if strings.TrimSpace(b.DisplayName) == name {
+			found = append(found, b)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return config.BlockedPeer{}, false, nil
+	case 1:
+		return found[0], true, nil
+	default:
+		return config.BlockedPeer{}, false, fmt.Errorf("%d blocked peers are named '%s', use pid flag to pick one", len(found), name)
+	}
 }
 
 func changePeerAlias(api *apiclient.Client, peerID, newAlias string, w io.Writer) error {
