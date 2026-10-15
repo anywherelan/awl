@@ -239,7 +239,7 @@ func (a *Application) init() {
 							},
 							&cli.StringFlag{
 								Name:     flagPeerName,
-								Usage:    "peer name, required unless the link carries one",
+								Usage:    "peer name, defaults to the name from the link or from the peer's incoming request. Without link and pid, selects the incoming request by this name",
 								Required: false,
 							},
 							&cli.StringFlag{

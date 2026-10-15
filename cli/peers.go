@@ -195,13 +195,20 @@ func addPeer(api *apiclient.Client, params addPeerParams, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	hasRequest := false
-	for _, req := range authRequests {
-		if req.PeerID == params.PeerID {
-			hasRequest = true
-			break
+	request, hasRequest, err := findAuthRequest(authRequests, params)
+	if err != nil {
+		return err
+	}
+	if hasRequest {
+		params.PeerID = request.PeerID
+		if params.Alias == "" {
+			params.Alias = strings.TrimSpace(request.Name)
 		}
 	}
+	if params.Alias == "" {
+		return errors.New("name flag is required: neither the link nor an incoming request carries a name")
+	}
+
 	if hasRequest {
 		// Drop the token on purpose: a peer that already sent us a request
 		// already knows us, so FriendRequestReply intentionally carries no token.
@@ -258,14 +265,39 @@ func resolveAddPeerTarget(params addPeerParams) (addPeerParams, error) {
 		}
 	}
 
-	switch {
-	case params.PeerID == "":
-		return params, errors.New("either link or pid flag is required")
-	case params.Alias == "":
-		return params, errors.New("name flag is required: the link carries no name to fall back on")
+	if params.PeerID == "" && params.Alias == "" {
+		return params, errors.New("either link, pid or name flag is required")
 	}
 
 	return params, nil
+}
+
+// findAuthRequest finds the incoming request of the peer to add: by peer id,
+// or, without link and pid, by the name the peer sent the request with.
+func findAuthRequest(authRequests []entity.AuthRequest, params addPeerParams) (entity.AuthRequest, bool, error) {
+	if params.PeerID != "" {
+		for _, req := range authRequests {
+			if req.PeerID == params.PeerID {
+				return req, true, nil
+			}
+		}
+		return entity.AuthRequest{}, false, nil
+	}
+
+	var found []entity.AuthRequest
+	for _, req := range authRequests {
+		if strings.TrimSpace(req.Name) == params.Alias {
+			found = append(found, req)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return entity.AuthRequest{}, false, fmt.Errorf("either link or pid flag is required: no incoming request from a peer named '%s'", params.Alias)
+	case 1:
+		return found[0], true, nil
+	default:
+		return entity.AuthRequest{}, false, fmt.Errorf("%d incoming requests come from peers named '%s', use pid flag to pick one", len(found), params.Alias)
+	}
 }
 
 func removePeer(api *apiclient.Client, peerID string, w io.Writer) error {

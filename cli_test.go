@@ -237,6 +237,9 @@ func TestCLI_PeersAdd(t *testing.T) {
 		peer2 := ts.NewTestPeer(false)
 		ts.ensurePeersAvailableInDHT(peer1, peer2)
 
+		// peer2 has a name of its own, so --name below has something to win over.
+		ts.NoError(peer2.api.UpdateMySettings("maxphone"))
+
 		// peer2 sends to peer1 first; CLI add from peer1 should detect and accept it
 		err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
 		ts.NoError(err)
@@ -252,7 +255,111 @@ func TestCLI_PeersAdd(t *testing.T) {
 
 		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
 		require.NoError(t, err)
+		require.Equal(t, "peer_2", pcfg.Alias, "--name wins over the name in the request")
 		require.False(t, pcfg.WeAllowUsingAsExitNode)
+	})
+
+	t.Run("AcceptRequestNameFromRequest", func(t *testing.T) {
+		ts := NewTestSuite(t)
+		peer1 := ts.NewTestPeer(false)
+		peer2 := ts.NewTestPeer(false)
+		ts.ensurePeersAvailableInDHT(peer1, peer2)
+		ts.NoError(peer2.api.UpdateMySettings("maxphone"))
+
+		err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+		ts.NoError(err)
+
+		ts.Eventually(func() bool {
+			reqs, err := peer1.api.AuthRequests()
+			return err == nil && len(reqs) == 1
+		}, 15*time.Second, 50*time.Millisecond)
+
+		// No --name: `peers requests` has already shown the peer as 'maxphone',
+		// so that is the default.
+		out, err := runCLI(ts, peer1, "peers", "add", "--pid", peer2.PeerID())
+		require.NoError(t, err)
+		require.Equal(t, "successfully accepted existing invitation from the device 'maxphone'\n", out)
+
+		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.Equal(t, "maxphone", pcfg.Alias)
+		require.True(t, pcfg.Confirmed)
+	})
+
+	t.Run("AcceptRequestFromNamelessPeer", func(t *testing.T) {
+		ts := NewTestSuite(t)
+		peer1 := ts.NewTestPeer(false)
+		peer2 := ts.NewTestPeer(false)
+		ts.ensurePeersAvailableInDHT(peer1, peer2)
+
+		err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+		ts.NoError(err)
+
+		ts.Eventually(func() bool {
+			reqs, err := peer1.api.AuthRequests()
+			return err == nil && len(reqs) == 1
+		}, 15*time.Second, 50*time.Millisecond)
+
+		// The request carries no name, so there is nothing to default to.
+		_, err = runCLI(ts, peer1, "peers", "add", "--pid", peer2.PeerID())
+		require.ErrorContains(t, err, "name flag is required")
+
+		reqs, err := peer1.api.AuthRequests()
+		require.NoError(t, err)
+		require.Len(t, reqs, 1, "the request is still waiting")
+	})
+
+	t.Run("AcceptRequestByName", func(t *testing.T) {
+		ts := NewTestSuite(t)
+		peer1 := ts.NewTestPeer(false)
+		peer2 := ts.NewTestPeer(false)
+		ts.ensurePeersAvailableInDHT(peer1, peer2)
+		ts.NoError(peer2.api.UpdateMySettings("maxphone"))
+
+		err := peer2.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+		ts.NoError(err)
+
+		ts.Eventually(func() bool {
+			reqs, err := peer1.api.AuthRequests()
+			return err == nil && len(reqs) == 1
+		}, 15*time.Second, 50*time.Millisecond)
+
+		// No --pid: the name shown by `peers requests` picks the request.
+		out, err := runCLI(ts, peer1, "peers", "add", "--name", "maxphone")
+		require.NoError(t, err)
+		require.Equal(t, "successfully accepted existing invitation from the device 'maxphone'\n", out)
+
+		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.Equal(t, "maxphone", pcfg.Alias)
+		require.True(t, pcfg.Confirmed)
+	})
+
+	t.Run("AcceptRequestByAmbiguousName", func(t *testing.T) {
+		ts := NewTestSuite(t)
+		peer1 := ts.NewTestPeer(false)
+		peer2 := ts.NewTestPeer(false)
+		peer3 := ts.NewTestPeer(false)
+		ts.ensurePeersAvailableInDHT(peer1, peer2)
+		ts.ensurePeersAvailableInDHT(peer1, peer3)
+
+		for _, p := range []TestPeer{peer2, peer3} {
+			ts.NoError(p.api.UpdateMySettings("phone"))
+			err := p.api.SendFriendRequest(entity.FriendRequest{PeerID: peer1.PeerID(), Alias: "peer_1"})
+			ts.NoError(err)
+		}
+
+		ts.Eventually(func() bool {
+			reqs, err := peer1.api.AuthRequests()
+			return err == nil && len(reqs) == 2
+		}, 15*time.Second, 50*time.Millisecond)
+
+		_, err := runCLI(ts, peer1, "peers", "add", "--name", "phone")
+		require.ErrorContains(t, err, "use pid flag")
+
+		reqs, err := peer1.api.AuthRequests()
+		require.NoError(t, err)
+		require.Len(t, reqs, 2, "nothing was accepted")
 	})
 
 	t.Run("AcceptRequestAllowingExitNode", func(t *testing.T) {
@@ -479,8 +586,14 @@ func TestCLI_PeersAddLinkErrors(t *testing.T) {
 	})
 
 	t.Run("Neither", func(t *testing.T) {
+		_, err := runCLI(ts, peer1, "peers", "add")
+		require.ErrorContains(t, err, "either link, pid or name flag is required")
+	})
+
+	t.Run("NameWithoutRequest", func(t *testing.T) {
+		// Without link and pid, --name selects an incoming request, and there is none.
 		_, err := runCLI(ts, peer1, "peers", "add", "--name", "peer_2")
-		require.ErrorContains(t, err, "either link or pid flag is required")
+		require.ErrorContains(t, err, "either link or pid flag is required: no incoming request from a peer named 'peer_2'")
 	})
 
 	t.Run("NoName", func(t *testing.T) {
