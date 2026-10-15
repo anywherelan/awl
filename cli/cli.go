@@ -265,15 +265,41 @@ func (a *Application) init() {
 					},
 					{
 						Name:   "remove",
-						Usage:  "Remove a peer from the friends list",
+						Usage:  "Remove a peer from the friends list and block it until you add it again",
 						Flags:  peerSelectorFlags(),
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
 							return removePeer(a.api, c.String(flagPeerID), c.App.Writer)
 						},
 					},
-					// TODO: add "blocked" and "unblock" commands. The API has both
-					//  (peers/get_blocked, peers/unblock), the CLI has neither.
+					{
+						Name:   "blocked",
+						Usage:  "Print blocked peers: the ones you declined or removed",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printBlockedPeers(a.api, c.App.Writer)
+						},
+					},
+					{
+						Name:  "unblock",
+						Usage: "Unblock a peer so it can send you friend requests again; this does not add it to your peers",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     flagPeerID,
+								Usage:    "peer id, as printed by 'peers blocked'",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     flagPeerName,
+								Usage:    "peer name, as printed by 'peers blocked'",
+								Required: false,
+							},
+						},
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return unblockPeer(a.api, c.String(flagPeerID), c.String(flagPeerName), c.App.Writer)
+						},
+					},
 					{
 						Name:  "rename",
 						Usage: "Rename a known peer",
