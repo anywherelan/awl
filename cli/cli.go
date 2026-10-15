@@ -84,40 +84,19 @@ func (a *Application) Run() {
 		a.printVersion()
 		os.Exit(0)
 	default:
-		fmt.Printf("Unknown command '%s'. Use '%s -h' for help, or run '%s' to start the server\n", arg, binaryName, binaryName)
+		fmt.Printf("Unknown command '%s'. Use '%s -h' for help, or run '%s' to start %s\n", arg, binaryName, binaryName, a.startsWithoutCommand())
 		os.Exit(-1)
 	}
 }
 
-func (a *Application) printGlobalHelp() {
-	fmt.Printf(`Usage: %s <command>
-
-Run without a command to start the server.
-
-Flags:
-  -h, --help     Show context-sensitive help.
-  -v, --version  Show version.
-
-Commands:
-  cli    Command line interface for Anywherelan
-
-Run "%s <command> --help" for more information on a command.
-`, binaryName, binaryName)
-}
-
-func (a *Application) printVersion() {
-	fmt.Printf("Anywherelan version %s (%s %s-%s)\n", config.Version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
-}
-
 func (a *Application) init() {
 	a.cliapp = &cli.App{
-		Name:     "awl",
-		HelpName: binaryName + " " + CliCommandName,
-		Description: "Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. " +
-			"Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are." +
-			"\nSee more at the project page https://github.com/anywherelan/awl",
-		Version: config.Version,
-		Usage:   "p2p mesh vpn",
+		Name:                  "awl",
+		HelpName:              binaryName + " " + CliCommandName,
+		Description:           cliDescription,
+		CustomAppHelpTemplate: cli.AppHelpTemplate + cliHelpFooter,
+		Version:               config.Version,
+		Usage:                 projectTagline,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:     "api_addr",
@@ -138,11 +117,11 @@ func (a *Application) init() {
 		Commands: []*cli.Command{
 			{
 				Name:  "me",
-				Usage: "Group of commands to work with your status and settings",
+				Usage: "Manage this device: status, peer id, name, SOCKS5 proxy",
 				Subcommands: []*cli.Command{
 					{
 						Name:   "status",
-						Usage:  "Print your server status, network stats",
+						Usage:  "Print your server status and network stats",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printStatus(a.api, c.App.Writer)
@@ -150,7 +129,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:   "id",
-						Usage:  "Print your peer id",
+						Usage:  "Print your peer id, with a link and a QR code to share it",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printPeerId(a.api, c.App.Writer)
@@ -173,7 +152,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:   "list_proxies",
-						Usage:  "Prints list of available SOCKS5 proxies",
+						Usage:  "List SOCKS5 proxies available to you",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return listProxies(a.api, c.App.Writer)
@@ -181,7 +160,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:  "set_proxy",
-						Usage: "Sets SOCKS5 proxy for your peer, empty pid/name means disable proxy",
+						Usage: "Route local SOCKS5 traffic through a peer; empty pid and name stop it",
 						Flags: peerSelectorFlags(),
 						Before: func(c *cli.Context) error {
 							return a.initApiAndPeerId(c, false)
@@ -194,11 +173,11 @@ func (a *Application) init() {
 			},
 			{
 				Name:  "peers",
-				Usage: "Group of commands to work with peers. Use to check friend requests and work with known peers",
+				Usage: "Manage known peers and incoming friend requests",
 				Subcommands: []*cli.Command{
 					{
 						Name:  "status",
-						Usage: "Print peers status",
+						Usage: "Print known peers and their status",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
 								Name:     "format",
@@ -217,7 +196,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:   "requests",
-						Usage:  "Print all incoming friend requests",
+						Usage:  "Print incoming friend requests",
 						Before: a.initApiConnection,
 						Action: func(c *cli.Context) error {
 							return printFriendRequests(a.api, c.App.Writer)
@@ -225,7 +204,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:  "add",
-						Usage: "Invite peer or accept existing invitation from this peer",
+						Usage: "Invite a peer, or accept its existing invitation",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
 								Name:     "link",
@@ -249,7 +228,7 @@ func (a *Application) init() {
 							},
 							&cli.BoolFlag{
 								Name:     "allow-exit-node",
-								Usage:    "allow this peer to use your device as exit node (as socks5 proxy)",
+								Usage:    "allow this peer to use your device as an exit node (VPN gateway or SOCKS5 proxy)",
 								Required: false,
 							},
 						},
@@ -286,7 +265,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:   "remove",
-						Usage:  "Remove peer from the friends list",
+						Usage:  "Remove a peer from the friends list",
 						Flags:  peerSelectorFlags(),
 						Before: a.initApiAndPeerIdRequired,
 						Action: func(c *cli.Context) error {
@@ -297,7 +276,7 @@ func (a *Application) init() {
 					//  (peers/get_blocked, peers/unblock), the CLI has neither.
 					{
 						Name:  "rename",
-						Usage: "Change known peer name",
+						Usage: "Rename a known peer",
 						Flags: peerSelectorFlags(
 							&cli.StringFlag{
 								Name:     "new_name",
@@ -312,7 +291,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:  "update_domain",
-						Usage: "Change known peer domain name",
+						Usage: "Change the domain name of a known peer",
 						Flags: peerSelectorFlags(
 							&cli.StringFlag{
 								Name:     "domain",
@@ -327,7 +306,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:  "update_ip",
-						Usage: "Change known peer IP address",
+						Usage: "Change the IP address of a known peer",
 						Flags: peerSelectorFlags(
 							&cli.StringFlag{
 								Name:     "ip",
@@ -342,11 +321,11 @@ func (a *Application) init() {
 					},
 					{
 						Name:  "allow_exit_node",
-						Usage: "Allow known peer to use this device as exit node (as socks5 proxy)",
+						Usage: "Allow a known peer to use this device as an exit node (VPN gateway or SOCKS5 proxy)",
 						Flags: peerSelectorFlags(
 							&cli.BoolFlag{
 								Name:     "allow",
-								Usage:    "allow",
+								Usage:    "true to allow, false to forbid",
 								Required: false,
 							},
 						),
@@ -357,7 +336,7 @@ func (a *Application) init() {
 					},
 					{
 						Name:  "invite",
-						Usage: "Group of commands to work with invite links: share one and the peer is added automatically",
+						Usage: "Manage invite links: a peer that uses one is added without a manual accept",
 						Subcommands: []*cli.Command{
 							{
 								Name:  "create",
@@ -444,7 +423,7 @@ func (a *Application) init() {
 			},
 			{
 				Name:  "gateway",
-				Usage: "Group of commands to manage VPN gateway mode",
+				Usage: "Manage VPN gateway mode: route all traffic through a peer, or serve as one",
 				Subcommands: []*cli.Command{
 					{
 						Name:   "status",
@@ -460,7 +439,7 @@ func (a *Application) init() {
 						Subcommands: []*cli.Command{
 							{
 								Name:  "use",
-								Usage: "Route all traffic through the given peer. If already enabled with a different peer, atomically switches to the new one.",
+								Usage: "Route all traffic through the given peer; if another peer is in use, switch to this one atomically",
 								Flags: []cli.Flag{
 									&cli.StringFlag{
 										Name:     flagPeerID,
@@ -523,7 +502,7 @@ func (a *Application) init() {
 			{
 				Name:    "logs",
 				Aliases: []string{"log"},
-				Usage:   "Prints application logs (default print 10 logs from the end of logs)",
+				Usage:   "Print application logs, the last 10 lines by default",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:     "head",
@@ -550,7 +529,7 @@ func (a *Application) init() {
 			},
 			{
 				Name:   "p2p_info",
-				Usage:  "Prints p2p debug info",
+				Usage:  "Print p2p debug info as JSON",
 				Before: a.initApiConnection,
 				Action: func(c *cli.Context) error {
 					debugInfo, err := a.api.P2pDebugInfo()
@@ -569,7 +548,7 @@ func (a *Application) init() {
 			},
 			{
 				Name:  "update",
-				Usage: "Updates awl to the latest version",
+				Usage: "Update awl to the latest version",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:     "quiet",
