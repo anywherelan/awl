@@ -705,6 +705,31 @@ func TestUniquePeerAlias(t *testing.T) {
 	ts.EqualError(err, "status code: 400, error: "+api.ErrorPeerAliasIsNotUniq)
 }
 
+// TestUniquePeerDomainName: a new peer's domain name is made of its alias. The
+// aliases below differ in case, so both are allowed, but they would make one
+// domain name: the second peer gets it with a suffix.
+func TestUniquePeerDomainName(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	peer3 := ts.NewTestPeer(false)
+
+	for _, req := range []entity.FriendRequest{
+		{PeerID: peer2.PeerID(), Alias: "Ноутбук"},
+		{PeerID: peer3.PeerID(), Alias: "НОУТБУК"},
+	} {
+		ts.NoError(peer1.api.SendFriendRequest(req))
+	}
+
+	peer2Config, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+	ts.NoError(err)
+	ts.Equal("ноутбук", peer2Config.DomainName)
+	peer3Config, err := peer1.api.KnownPeerConfig(peer3.PeerID())
+	ts.NoError(err)
+	ts.Equal("ноутбук_0", peer3Config.DomainName)
+}
+
 func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	ts := NewTestSuite(t)
 
@@ -1481,7 +1506,7 @@ func TestInviteTokenSurvivesRestart(t *testing.T) {
 			Name:               link.Name,
 			Alias:              link.Name,
 			IPAddr:             conf.GenerateNextIpAddr(),
-			DomainName:         awldns.TrimDomainName(link.Name),
+			DomainName:         awldns.NormalizeDomainName(link.Name),
 			CreatedAt:          time.Now(),
 			PendingInviteToken: link.Token,
 		}

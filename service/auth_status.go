@@ -14,7 +14,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/metrics"
@@ -260,7 +259,7 @@ func (s *AuthStatus) processPeerStatusInfo(remotePeer peer.ID, peerInfo protocol
 		// The invite token has done its job once the peer confirms us
 		peer.PendingInviteToken = ""
 		if peer.DomainName == "" {
-			peer.DomainName = awldns.TrimDomainName(peer.DisplayName())
+			peer.DomainName = s.conf.GenUniqDomainNameUnlocked(peerID, peer.DisplayName())
 		}
 		if peer.Alias == "" {
 			peer.Alias = s.conf.GenUniqPeerAliasUnlocked(peer.Name, peer.Alias)
@@ -667,7 +666,7 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 		InviteID:               inviteID,
 		PendingInviteToken:     params.PendingInviteToken,
 	}
-	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
+	newPeerConfig.DomainName = s.conf.GenUniqDomainNameUnlocked(peerIDStr, newPeerConfig.DisplayName())
 	s.conf.UpsertPeerUnlocked(newPeerConfig)
 	s.conf.Unlock()
 

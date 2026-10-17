@@ -1,14 +1,18 @@
 package config
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ipfs/go-log/v2"
@@ -285,11 +289,9 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		if peer.IPAddr == "" {
 			peer.IPAddr = conf.GenerateNextIpAddr()
 		}
-		if peer.DomainName == "" {
-			peer.DomainName = awldns.TrimDomainName(peer.DisplayName())
-		}
 		conf.KnownPeers[peerID] = peer
 	}
+	conf.fixDomainNames()
 
 	if conf.BlockedPeers == nil {
 		conf.BlockedPeers = make(map[string]BlockedPeer)
@@ -336,6 +338,36 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	}
 }
 
+// fixDomainNames gives a domain name to a peer that has none, and fixes one
+// that is not normalized or not unique, as an older version or a hand-edited
+// config may have left it. Of two peers with one domain name, the one added
+// first keeps it.
+func (c *Config) fixDomainNames() {
+	peers := slices.SortedFunc(maps.Values(c.KnownPeers), func(a, b KnownPeer) int {
+		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), strings.Compare(a.PeerID, b.PeerID))
+	})
+	taken := reservedDomainNames()
+	for _, kPeer := range peers {
+		taken[strings.ToLower(kPeer.PeerID)] = struct{}{}
+	}
+
+	for _, kPeer := range peers {
+		name := kPeer.DomainName
+		if name == "" {
+			name = kPeer.DisplayName()
+		}
+		domain := genUniqDomainName(name, taken)
+		if kPeer.DomainName == domain {
+			continue
+		}
+		if kPeer.DomainName != "" {
+			logger.Warnf("incorrect config: peer (id: %s) domain name %q is not valid or not unique, updated automatically to %q",
+				kPeer.PeerID, kPeer.DomainName, domain)
+		}
+		kPeer.DomainName = domain
+		c.KnownPeers[kPeer.PeerID] = kPeer
+	}
+}
 func ChownFileIfNeeded(path string) {
 	if runtime.GOOS != "linux" || LinuxFilesOwnerUID == 0 {
 		return

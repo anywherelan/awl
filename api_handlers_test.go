@@ -360,4 +360,37 @@ func TestUpdatePeerSettings_ErrorCases(t *testing.T) {
 		ts.Error(err)
 		ts.ErrorContains(err, "invalid domain name")
 	})
+
+	t.Run("DomainName", func(t *testing.T) {
+		peer3 := ts.NewTestPeer(false)
+		ts.makeFriendsWithAliases(peer1, peer3, "peer_3", "peer_1")
+		peer3Config, err := peer1.api.KnownPeerConfig(peer3.PeerID())
+		ts.NoError(err)
+
+		peer2Config, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		update := func(domain string) error {
+			return peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+				PeerID:     peer2.PeerID(),
+				Alias:      peer2Config.Alias,
+				DomainName: domain,
+				IPAddr:     peer2Config.IPAddr,
+			})
+		}
+
+		// Not normalized: the API takes a domain name as it is stored
+		for _, domain := range []string{"Laptop", "НОУТБУК", "-laptop", "laptop..home", "xn--90asheufc"} {
+			ts.ErrorContains(update(domain), "invalid domain name", domain)
+		}
+		for _, domain := range []string{peer3Config.DomainName, strings.ToLower(peer3.PeerID()), config.AdminHttpServerDomainName} {
+			ts.ErrorContains(update(domain), api.ErrorPeerDomainNameIsNotUniq, domain)
+		}
+
+		for _, domain := range []string{"ноутбук", "my_laptop", "laptop.home"} {
+			ts.NoError(update(domain), domain)
+			peer2Config, err = peer1.api.KnownPeerConfig(peer2.PeerID())
+			ts.NoError(err)
+			ts.Equal(domain, peer2Config.DomainName)
+		}
+	})
 }

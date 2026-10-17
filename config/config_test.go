@@ -226,6 +226,65 @@ func TestDNSNamesMapping(t *testing.T) {
 	}, conf.DNSNamesMapping(), "a peer without a valid IPv4 address is left out")
 }
 
+// TestSetDefaultsFixesDomainNames: loading a config gives every peer a
+// normalized domain name that no other peer has as a domain name or a peer ID,
+// and that is not reserved. Of two peers with one name, the one added first
+// keeps it.
+func TestSetDefaultsFixesDomainNames(t *testing.T) {
+	added := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	peers := []KnownPeer{
+		{PeerID: "peer-nas", DomainName: "nas", CreatedAt: added},
+		{PeerID: "peer-nas-upper", DomainName: "NAS", CreatedAt: added.Add(time.Hour)},
+		{PeerID: "peer-no-domain", Name: "Ноутбук", CreatedAt: added},
+		{PeerID: "peer-admin", DomainName: "admin", CreatedAt: added},
+		{PeerID: "peer-invalid", DomainName: "laptop!", CreatedAt: added},
+		{PeerID: "peer-compound", DomainName: "laptop.home", CreatedAt: added},
+		{PeerID: "peer-compound-dup", DomainName: "Laptop.Home", CreatedAt: added.Add(time.Hour)},
+		{PeerID: "peer-other-id", DomainName: "peer-nas", CreatedAt: added},
+	}
+	conf := &Config{dataDir: t.TempDir(), KnownPeers: make(map[string]KnownPeer)}
+	for _, kPeer := range peers {
+		conf.KnownPeers[kPeer.PeerID] = kPeer
+	}
+	setDefaults(conf, nil)
+
+	got := make(map[string]string, len(peers))
+	for id, kPeer := range conf.KnownPeers {
+		got[id] = kPeer.DomainName
+	}
+	assert.Equal(t, map[string]string{
+		"peer-nas":          "nas",
+		"peer-nas-upper":    "nas_0",
+		"peer-no-domain":    "ноутбук",
+		"peer-admin":        "admin_0",
+		"peer-invalid":      "laptop",
+		"peer-compound":     "laptop.home",
+		"peer-compound-dup": "laptop_0.home",
+		"peer-other-id":     "peer-nas_0",
+	}, got)
+}
+
+func TestUniqDomainName(t *testing.T) {
+	conf := &Config{KnownPeers: map[string]KnownPeer{
+		"peer-nas":      {PeerID: "peer-nas", DomainName: "nas"},
+		"peer-laptop":   {PeerID: "peer-laptop", DomainName: "laptop.home"},
+		"Peer-Upper-ID": {PeerID: "Peer-Upper-ID", DomainName: "upper"},
+	}}
+
+	assert.True(t, conf.IsUniqDomainNameUnlocked("peer-nas", "nas"), "its own name")
+	assert.True(t, conf.IsUniqDomainNameUnlocked("peer-new", "laptop"))
+	assert.False(t, conf.IsUniqDomainNameUnlocked("peer-new", "nas"))
+	assert.False(t, conf.IsUniqDomainNameUnlocked("peer-new", "laptop.home"))
+	assert.False(t, conf.IsUniqDomainNameUnlocked("peer-new", "peer-upper-id"), "a peer ID, served as a name")
+	assert.False(t, conf.IsUniqDomainNameUnlocked("peer-new", AdminHttpServerDomainName))
+
+	assert.Equal(t, "nas_0", conf.GenUniqDomainNameUnlocked("peer-new", "NAS"))
+	assert.Equal(t, "laptop_0.home", conf.GenUniqDomainNameUnlocked("peer-new", "Laptop.Home"))
+	assert.Equal(t, "peer-upper-id_0", conf.GenUniqDomainNameUnlocked("peer-new", "Peer-Upper-ID"))
+	assert.Equal(t, "admin_0", conf.GenUniqDomainNameUnlocked("peer-new", "Admin"))
+	assert.Equal(t, "ноутбук", conf.GenUniqDomainNameUnlocked("peer-new", "Ноутбук"))
+}
+
 func newTestConfig(t *testing.T) (*Config, string) {
 	t.Helper()
 

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode"
 
 	"github.com/ipfs/go-log/v2"
 	"github.com/miekg/dns"
@@ -153,15 +152,21 @@ func (r *Resolver) ReceiveConfiguration(upstreamDNS string, namesMapping, namesM
 		directMappingV6: make(map[string]netip.Addr, len(namesMappingV6)),
 		reverseMapping:  make(map[netip.Addr]string, len(namesMapping)+len(namesMappingV6)),
 	}
-	cfg.addNames(cfg.directMapping, namesMapping)
-	cfg.addNames(cfg.directMappingV6, namesMappingV6)
+	cfg.addNames(r.logger, cfg.directMapping, namesMapping)
+	cfg.addNames(r.logger, cfg.directMappingV6, namesMappingV6)
 	r.cfg.Store(&cfg)
 }
 
-// addNames adds names to direct and to the reverse mapping.
-func (cfg *config) addNames(direct, names map[string]netip.Addr) {
+// addNames adds names to direct and to the reverse mapping, in their ASCII
+// form: that is what clients ask for, and what miekg/dns compares, see domainNameToASCII.
+func (cfg *config) addNames(logger *log.ZapEventLogger, direct, names map[string]netip.Addr) {
 	for name, addr := range names {
-		canonicalName := dns.CanonicalName(name + "." + LocalDomain)
+		asciiName, err := domainNameToASCII(name)
+		if err != nil {
+			logger.Warnf("skipping domain name %q: %v", name, err)
+			continue
+		}
+		canonicalName := dns.CanonicalName(asciiName + "." + LocalDomain)
 		direct[canonicalName] = addr
 		// we always have at least two names for one ip: peerName and peerID
 		// for consistency we will take the shortest one (usually peerName, which is more human-readable)
@@ -327,23 +332,6 @@ func processOwnResponse(req *dns.Msg, respWriter dns.ResponseWriter, resp *dns.M
 
 	resp.Authoritative = true
 	resp.RecursionAvailable = true
-}
-
-func TrimDomainName(domain string) string {
-	domain = strings.TrimSpace(domain)
-	domain = strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) {
-			return '_'
-		}
-		return r
-	}, domain)
-
-	return strings.ToLower(domain)
-}
-
-func IsValidDomainName(domain string) bool {
-	_, ok := dns.IsDomainName(domain + "." + LocalDomain)
-	return ok && domain == TrimDomainName(domain)
 }
 
 // addrRR returns the record, A or AAAA by the family of addr, mapping name to addr.
