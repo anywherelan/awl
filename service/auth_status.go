@@ -26,6 +26,10 @@ const (
 	backgroundRetryAuthRequests          = 5 * time.Minute
 )
 
+// exchangeStreamTimeout bounds a whole auth or status exchange, so that a peer
+// that opens a stream and goes silent does not hold it forever. A variable for tests.
+var exchangeStreamTimeout = 10 * time.Second
+
 // ErrUnknownPeer is returned instead of sending a status info or an auth
 // request to a peer we do not keep in KnownPeers. Both read as "you are in my
 // peers" on the other side, see confirmKnownPeer. A blocked peer still gets its
@@ -82,6 +86,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	defer func() {
 		_ = stream.Close()
 	}()
+	_ = stream.SetDeadline(time.Now().Add(exchangeStreamTimeout))
 
 	remotePeer := stream.Conn().RemotePeer()
 	peerID := remotePeer.String()
@@ -138,6 +143,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 	defer func() {
 		_ = stream.Close()
 	}()
+	_ = stream.SetDeadline(time.Now().Add(exchangeStreamTimeout))
 
 	// Checked this late on purpose: the peer may have been removed or unblocked
 	// while we were connecting, and the knownPeer we were handed is older still.
@@ -345,6 +351,7 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	defer func() {
 		_ = stream.Close()
 	}()
+	_ = stream.SetDeadline(time.Now().Add(exchangeStreamTimeout))
 
 	remotePeer := stream.Conn().RemotePeer()
 	peerID := remotePeer.String()
@@ -513,6 +520,7 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	defer func() {
 		_ = stream.Close()
 	}()
+	_ = stream.SetDeadline(time.Now().Add(exchangeStreamTimeout))
 
 	// Checked this late on purpose: a retry may have been on its way when the
 	// peer was removed.

@@ -2,6 +2,8 @@ package protocol
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -17,6 +19,20 @@ const (
 	Socks5PacketMethod protocol.ID = basePath + "/socks5/"
 	Socks5NoAuthMethod protocol.ID = basePath + "/socks5-noauth/"
 )
+
+// Size limits for a single message, checked on receive. A message that
+// outgrows its limit needs a new protocol: older peers would reject it.
+const (
+	// MaxAuthMessageSize limits AuthPeer and AuthPeerResponse. An auth request
+	// comes from any node before we trust it, so the limit is kept small; the
+	// messages are well under 1 KiB today.
+	MaxAuthMessageSize = 64 << 10
+	// MaxStatusMessageSize limits PeerStatusInfo, accepted from known peers only.
+	MaxStatusMessageSize = 512 << 10
+)
+
+// ErrMessageTooLarge is returned when an incoming message exceeds its size limit.
+var ErrMessageTooLarge = errors.New("message too large")
 
 type (
 	PeerStatusInfo struct {
@@ -34,7 +50,7 @@ type (
 
 func ReceiveStatus(stream io.Reader) (PeerStatusInfo, error) {
 	statusInfo := PeerStatusInfo{}
-	err := json.NewDecoder(stream).Decode(&statusInfo)
+	err := decodeLimited(stream, MaxStatusMessageSize, &statusInfo)
 	return statusInfo, err
 }
 
@@ -73,7 +89,7 @@ type AuthPeerResponse struct {
 
 func ReceiveAuth(stream io.Reader) (AuthPeer, error) {
 	authPeer := AuthPeer{}
-	err := json.NewDecoder(stream).Decode(&authPeer)
+	err := decodeLimited(stream, MaxAuthMessageSize, &authPeer)
 	return authPeer, err
 }
 
@@ -84,11 +100,24 @@ func SendAuth(stream io.Writer, authPeer AuthPeer) error {
 
 func ReceiveAuthResponse(stream io.Reader) (AuthPeerResponse, error) {
 	response := AuthPeerResponse{}
-	err := json.NewDecoder(stream).Decode(&response)
+	err := decodeLimited(stream, MaxAuthMessageSize, &response)
 	return response, err
 }
 
 func SendAuthResponse(stream io.Writer, response AuthPeerResponse) error {
 	err := json.NewEncoder(stream).Encode(&response)
+	return err
+}
+
+// decodeLimited decodes one JSON value from r, reading at most limit bytes.
+// Without the limit the decoder buffers whatever the peer sends.
+func decodeLimited(r io.Reader, limit int64, v any) error {
+	lr := &io.LimitedReader{R: r, N: limit}
+	err := json.NewDecoder(lr).Decode(v)
+	// The limit used up and still no value: report that rather than the EOF
+	// the decoder got at the limit
+	if err != nil && lr.N <= 0 {
+		return fmt.Errorf("%w: limit is %d bytes", ErrMessageTooLarge, limit)
+	}
 	return err
 }

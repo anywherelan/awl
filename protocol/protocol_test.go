@@ -3,6 +3,9 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -55,6 +58,73 @@ func TestSendReceiveAuthResponse(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, want, got)
 	}
+}
+
+// TestReceiveRejectsOversizedMessages: a message over its limit fails with
+// ErrMessageTooLarge, and one that fits still decodes.
+func TestReceiveRejectsOversizedMessages(t *testing.T) {
+	encode := func(t *testing.T, send func(*bytes.Buffer) error) *bytes.Buffer {
+		t.Helper()
+		var buf bytes.Buffer
+		require.NoError(t, send(&buf))
+		return &buf
+	}
+	// The name takes the whole limit minus the JSON around it. The trailing
+	// newline of the encoder is not part of the value and is never read.
+	nameOf := func(limit, overhead int) string { return strings.Repeat("a", limit-overhead) }
+
+	t.Run("auth", func(t *testing.T) {
+		fits := AuthPeer{Name: nameOf(MaxAuthMessageSize, len(`{"Name":""}`))}
+		got, err := ReceiveAuth(encode(t, func(b *bytes.Buffer) error { return SendAuth(b, fits) }))
+		require.NoError(t, err)
+		require.Equal(t, fits, got)
+
+		tooLarge := AuthPeer{Name: fits.Name + "a"}
+		_, err = ReceiveAuth(encode(t, func(b *bytes.Buffer) error { return SendAuth(b, tooLarge) }))
+		require.ErrorIs(t, err, ErrMessageTooLarge)
+	})
+
+	t.Run("status", func(t *testing.T) {
+		empty := encode(t, func(b *bytes.Buffer) error { return SendStatus(b, PeerStatusInfo{}) })
+		fits := PeerStatusInfo{Name: nameOf(MaxStatusMessageSize, empty.Len()-len("\n"))}
+		got, err := ReceiveStatus(encode(t, func(b *bytes.Buffer) error { return SendStatus(b, fits) }))
+		require.NoError(t, err)
+		require.Equal(t, fits, got)
+
+		tooLarge := PeerStatusInfo{Name: fits.Name + "a"}
+		_, err = ReceiveStatus(encode(t, func(b *bytes.Buffer) error { return SendStatus(b, tooLarge) }))
+		require.ErrorIs(t, err, ErrMessageTooLarge)
+	})
+
+	t.Run("auth response", func(t *testing.T) {
+		padded := `{"Confirmed":true,"Padding":"` + strings.Repeat("a", MaxAuthMessageSize) + `"}`
+		_, err := ReceiveAuthResponse(strings.NewReader(padded))
+		require.ErrorIs(t, err, ErrMessageTooLarge)
+	})
+}
+
+// TestReceiveAuthBoundsMemory is the advisory's attack: an auth request with a
+// never-ending name. Before the limit, a 256 MiB name cost 1 GiB of allocations.
+func TestReceiveAuthBoundsMemory(t *testing.T) {
+	endless := io.MultiReader(strings.NewReader(`{"Name":"`), repeatReader('A'))
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := ReceiveAuth(endless)
+	runtime.ReadMemStats(&after)
+
+	require.ErrorIs(t, err, ErrMessageTooLarge)
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(4*MaxAuthMessageSize+1<<20))
+}
+
+// repeatReader is an endless stream of one byte.
+type repeatReader byte
+
+func (r repeatReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(r)
+	}
+	return len(p), nil
 }
 
 func TestAppendPacketToBuf_RoundTrip(t *testing.T) {

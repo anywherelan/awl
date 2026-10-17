@@ -23,6 +23,7 @@ import (
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/peer"
+	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
@@ -353,6 +354,34 @@ func (a *Application) Close() {
 	a.Conf.Close()
 }
 
+// Inbound stream limits for the auth and status protocols, see resourceLimits.
+const (
+	maxInboundAuthStreams          = 32
+	maxInboundAuthStreamsPerPeer   = 2
+	maxInboundStatusStreams        = 128
+	maxInboundStatusStreamsPerPeer = 4
+)
+
+// resourceLimits leaves everything unlimited except the number of concurrent
+// inbound auth and status streams, in total and per peer. The per-peer limit
+// keeps one peer from taking every slot. Status allows more per peer: a peer
+// starts an exchange on each new connection, and it often has several.
+//
+// A stream over the limit is reset before our handler; the sender retries
+// with the next background exchange.
+func resourceLimits() rcmgr.ConcreteLimitConfig {
+	return rcmgr.PartialLimitConfig{
+		Protocol: map[libp2pProtocol.ID]rcmgr.ResourceLimits{
+			protocol.AuthMethod:      {StreamsInbound: maxInboundAuthStreams},
+			protocol.GetStatusMethod: {StreamsInbound: maxInboundStatusStreams},
+		},
+		ProtocolPeer: map[libp2pProtocol.ID]rcmgr.ResourceLimits{
+			protocol.AuthMethod:      {StreamsInbound: maxInboundAuthStreamsPerPeer},
+			protocol.GetStatusMethod: {StreamsInbound: maxInboundStatusStreamsPerPeer},
+		},
+	}.Build(rcmgr.InfiniteLimits)
+}
+
 func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 	// TODO: use persistent datastore. Check out badger2. Old badger datastore constantly use disk io
 	peerstore, err := pstoremem.NewPeerstore()
@@ -360,8 +389,7 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		panic(err)
 	}
 
-	resourceLimitsConfig := rcmgr.InfiniteLimits
-	mgr, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(resourceLimitsConfig))
+	mgr, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(resourceLimits()))
 	if err != nil {
 		panic(err)
 	}

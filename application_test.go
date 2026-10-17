@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,10 +18,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
+	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go/integrationtests/tools/israce"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/net/proxy"
 
 	"github.com/anywherelan/awl/api"
@@ -2697,4 +2704,161 @@ func TestDNSAndroidInterceptor(t *testing.T) {
 		ts.Equal(knownPeer.IPAddr, aRecord.A.String())
 		return
 	}
+}
+
+// TestResourceLimitsCapInboundStreams: once maxInbound streams of a protocol
+// are open, the next one is reset by libp2p before it reaches the handler, and
+// streams are accepted again after the open ones close.
+func TestResourceLimitsCapInboundStreams(t *testing.T) {
+	cases := []struct {
+		proto      libp2pProtocol.ID
+		maxInbound int
+		// Streams opened from one client, to stay under the per-peer limit
+		perClient int
+	}{
+		{protocol.AuthMethod, maxInboundAuthStreams, maxInboundAuthStreamsPerPeer},
+		{protocol.GetStatusMethod, maxInboundStatusStreams, maxInboundStatusStreamsPerPeer},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.proto), func(t *testing.T) {
+			server := newLimitsTestServer(t, tc.proto)
+
+			open := make([]network.Stream, 0, tc.maxInbound)
+			var client host.Host
+			for i := range tc.maxInbound {
+				if i%tc.perClient == 0 {
+					client = server.newClient(t)
+				}
+				open = append(open, server.openStream(t, client))
+				server.requireEntered(t)
+			}
+
+			// A fresh client, so that it is the protocol limit that is hit
+			server.requireReset(t, server.newClient(t))
+
+			for _, stream := range open {
+				_ = stream.Close()
+			}
+			// The scopes are released asynchronously, as the streams finish
+			client = server.newClient(t)
+			require.Eventually(t, func() bool {
+				stream := server.openStream(t, client)
+				defer func() { _ = stream.Close() }()
+				select {
+				case <-server.entered:
+					return true
+				case <-time.After(time.Second):
+					return false
+				}
+			}, 5*time.Second, 50*time.Millisecond)
+		})
+	}
+}
+
+// TestResourceLimitsCapInboundStreamsPerPeer: one peer cannot take more than
+// maxPerPeer streams of a protocol, and other peers are still served.
+func TestResourceLimitsCapInboundStreamsPerPeer(t *testing.T) {
+	cases := []struct {
+		proto      libp2pProtocol.ID
+		maxPerPeer int
+	}{
+		{protocol.AuthMethod, maxInboundAuthStreamsPerPeer},
+		{protocol.GetStatusMethod, maxInboundStatusStreamsPerPeer},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.proto), func(t *testing.T) {
+			server := newLimitsTestServer(t, tc.proto)
+
+			greedy := server.newClient(t)
+			for range tc.maxPerPeer {
+				server.openStream(t, greedy)
+				server.requireEntered(t)
+			}
+			server.requireReset(t, greedy)
+
+			server.openStream(t, server.newClient(t))
+			server.requireEntered(t)
+		})
+	}
+}
+
+// limitsTestServer runs resourceLimits and holds every stream of proto open
+// until the client closes it.
+type limitsTestServer struct {
+	host.Host
+	proto   libp2pProtocol.ID
+	entered chan struct{}
+}
+
+func newLimitsTestServer(t *testing.T, proto libp2pProtocol.ID) *limitsTestServer {
+	t.Helper()
+	mgr, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(resourceLimits()))
+	require.NoError(t, err)
+
+	s := &limitsTestServer{
+		Host:    newLimitsTestHost(t, libp2p.ResourceManager(mgr)),
+		proto:   proto,
+		entered: make(chan struct{}, maxInboundStatusStreams+1),
+	}
+	s.SetStreamHandler(proto, func(stream network.Stream) {
+		s.entered <- struct{}{}
+		_, _ = io.Copy(io.Discard, stream)
+		_ = stream.Close()
+	})
+
+	return s
+}
+
+func (s *limitsTestServer) newClient(t *testing.T) host.Host {
+	t.Helper()
+	client := newLimitsTestHost(t)
+	require.NoError(t, client.Connect(t.Context(), peer.AddrInfo{ID: s.ID(), Addrs: s.Addrs()}))
+
+	return client
+}
+
+// openStream opens a stream of s.proto. Negotiation is lazy once the protocol
+// is known: the first write sends it to the server.
+func (s *limitsTestServer) openStream(t *testing.T, client host.Host) network.Stream {
+	t.Helper()
+	stream, err := client.NewStream(t.Context(), s.ID(), s.proto)
+	require.NoError(t, err)
+	_, err = stream.Write([]byte("{"))
+	require.NoError(t, err)
+
+	return stream
+}
+
+func (s *limitsTestServer) requireEntered(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the handler did not get the stream")
+	}
+}
+
+// requireReset opens a stream that must be reset by the resource manager,
+// without reaching the handler.
+func (s *limitsTestServer) requireReset(t *testing.T, client host.Host) {
+	t.Helper()
+	stream := s.openStream(t, client)
+	require.NoError(t, stream.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err := stream.Read(make([]byte, 1))
+	streamErr, ok := errors.AsType[*network.StreamError](err)
+	require.True(t, ok, "want a stream reset, got %v", err)
+	require.Equal(t, network.StreamResourceLimitExceeded, streamErr.ErrorCode)
+	require.Empty(t, s.entered, "the handler must not see a stream over the limit")
+}
+
+func newLimitsTestHost(tb testing.TB, opts ...libp2p.Option) host.Host {
+	tb.Helper()
+	opts = append(opts, libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"), libp2p.DisableRelay())
+	h, err := libp2p.New(opts...)
+	require.NoError(tb, err)
+	tb.Cleanup(func() { _ = h.Close() })
+
+	return h
 }
