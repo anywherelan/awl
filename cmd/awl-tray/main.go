@@ -220,9 +220,5 @@ func checkURL(url string) bool {
 
 	buf := make([]byte, 8192)
 	_, _ = io.ReadFull(resp.Body, buf)
-	if !bytes.Contains(buf, []byte("Anywherelan")) {
-		return false
-	}
-
-	return true
+	return bytes.Contains(buf, []byte("Anywherelan"))
 }

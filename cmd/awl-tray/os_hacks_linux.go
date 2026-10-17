@@ -26,6 +26,7 @@ var requiredEnvVars = [...]string{
 
 const logHacks = false
 
+//nolint:goprintffuncname
 func logHack(format string, a ...any) {
 	if logHacks {
 		fmt.Printf(format+"\n", a...)
@@ -98,6 +99,7 @@ func runItselfWithRoot() {
 		args = append(args, fmt.Sprintf("%s=%s", key, value))
 	}
 
+	//nolint:gosec // G702: re-executes this binary under pkexec, passing through the user's own env
 	cmd := exec.Command("pkexec", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -185,7 +187,7 @@ func getUserIdUnderRoot() (int, error) {
 		return userUid, nil
 	}
 
-	return 0, fmt.Errorf("neither SUDO_UID ('%s') nor XDG_RUNTIME_DIR ('%s') nor PKEXEC_UID ('%s') were set\n", sudoUidStr, xdgRuntimeDir, pkexecUidStr)
+	return 0, fmt.Errorf("neither SUDO_UID ('%s') nor XDG_RUNTIME_DIR ('%s') nor PKEXEC_UID ('%s') were set", sudoUidStr, xdgRuntimeDir, pkexecUidStr)
 }
 
 func getRealUserID() (uint32, bool) {

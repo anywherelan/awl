@@ -4,13 +4,18 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/skratchdot/open-golang/open"
 
 	"github.com/anywherelan/awl/embeds"
 )
 
 func initOSSpecificHacks() {
-	embeds.EmbedIcon()
+	_, err := embeds.EmbedIcon()
+	if err != nil {
+		fmt.Printf("error: create icon: %v\n", err)
+	}
 }
 
 func openURL(input string) error {

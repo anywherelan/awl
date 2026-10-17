@@ -9,13 +9,14 @@ jobs:
       matrix:
         os: [ ubuntu-latest, windows-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Install Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.26.x
+          go-version: 1.26.8
           cache: true
       - name: Create stub static/
         run: mkdir static && touch static/index.html
@@ -29,6 +30,17 @@ jobs:
           cd cmd/awl-tray && go mod tidy -compat=1.26 && cd ../..
           test -z "$(gofmt -d .)" || (gofmt -d . && false)
           test -z "$(git status --porcelain)" || (git status; git diff && false)
+      - name: Cross-compile 32-bit and cmd/awl-tray
+        # The matrix runners only compile their native 64-bit target, and the
+        # separate cmd/awl-tray module is invisible to `go build ./...` from the root.
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          touch embeds/wintun.dll
+          CGO_ENABLED=0 GOOS=linux   GOARCH=386 go build ./...
+          CGO_ENABLED=0 GOOS=windows GOARCH=386 go build ./...
+          cd cmd/awl-tray
+          CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null .
       - name: Test
         run: go test -count=1 -v ./...
       - name: Test with -race
@@ -82,6 +94,15 @@ jobs:
       matrix:
         os: [ ubuntu-latest, windows-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
+    # Each OS talks to the shared live awl-tester under its own peer identity
+    # (CONFIG_AWL_<OS>), so two runs of the same OS must never overlap, even
+    # from different branches: the group is repo-wide on purpose (no ref).
+    # queue: max keeps every waiting run instead of cancelling all but the
+    # newest pending one.
+    concurrency:
+      group: e2e-${{ matrix.os }}
+      queue: max
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash

@@ -4,6 +4,7 @@ package netstate
 
 import (
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 
@@ -85,11 +86,13 @@ func TestClientFenceRules(t *testing.T) {
 	})
 
 	// Local-destinations permit: the complete address set per family.
-	wantLocal4 := []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
-	wantLocal4 = append(wantLocal4, privateSubnetPrefixes()...)
-	wantLocal4 = append(wantLocal4,
-		netip.MustParsePrefix("224.0.0.0/4"),
-		netip.MustParsePrefix("255.255.255.255/32"),
+	wantLocal4 := slices.Concat(
+		[]netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
+		privateSubnetPrefixes(),
+		[]netip.Prefix{
+			netip.MustParsePrefix("224.0.0.0/4"),
+			netip.MustParsePrefix("255.255.255.255/32"),
+		},
 	)
 	wantLocal6 := []netip.Prefix{
 		netip.MustParsePrefix("::1/128"),
