@@ -40,12 +40,18 @@ func TestUpdateMySettings(t *testing.T) {
 
 	peer1 := ts.NewTestPeer(false)
 
-	err := peer1.api.UpdateMySettings("new-test-name")
+	// Trimmed, as a peer would trim it on receive
+	err := peer1.api.UpdateMySettings(" new-test-name ")
 	ts.NoError(err)
 
 	info, err := peer1.api.PeerInfo()
 	ts.NoError(err)
 	ts.Equal("new-test-name", info.Name)
+
+	// A character that turns the text around, so that the name reads as another one
+	err = peer1.api.UpdateMySettings("\u202Egnp.exe")
+	ts.ErrorContains(err, "status code: 400")
+	ts.ErrorContains(err, "no_control_chars")
 }
 
 func TestGetP2pDebugInfo(t *testing.T) {
@@ -157,6 +163,13 @@ func TestSendFriendRequest_ErrorCases(t *testing.T) {
 		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: "not-a-valid-peer-id", Alias: "alias"})
 		ts.Error(err)
 		ts.ErrorContains(err, "Invalid hex-encoded multihash")
+	})
+
+	t.Run("DirectionOverrideInAlias", func(t *testing.T) {
+		peer2 := ts.NewTestPeer(false)
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "\u202Egnp.exe"})
+		ts.ErrorContains(err, "status code: 400")
+		ts.ErrorContains(err, "no_control_chars")
 	})
 }
 

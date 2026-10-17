@@ -51,6 +51,7 @@ type (
 func ReceiveStatus(stream io.Reader) (PeerStatusInfo, error) {
 	statusInfo := PeerStatusInfo{}
 	err := decodeLimited(stream, MaxStatusMessageSize, &statusInfo)
+	statusInfo.Name = NormalizeName(statusInfo.Name)
 	return statusInfo, err
 }
 
@@ -90,6 +91,7 @@ type AuthPeerResponse struct {
 func ReceiveAuth(stream io.Reader) (AuthPeer, error) {
 	authPeer := AuthPeer{}
 	err := decodeLimited(stream, MaxAuthMessageSize, &authPeer)
+	authPeer.Name = NormalizeName(authPeer.Name)
 	return authPeer, err
 }
 

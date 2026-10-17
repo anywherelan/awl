@@ -36,6 +36,7 @@ func (h *Handler) CreateInvite(c echo.Context) (err error) {
 		req.MaxUses = defaultInviteMaxUses
 	}
 	req.Alias = strings.TrimSpace(req.Alias)
+	req.Label = strings.TrimSpace(req.Label)
 	// One alias cannot name several peers, so it only makes sense for a
 	// single-use link. Uniqueness itself is not checked here: the peer list will
 	// have moved on by the time the link is redeemed, and a collision is

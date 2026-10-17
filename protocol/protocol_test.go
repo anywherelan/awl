@@ -69,29 +69,34 @@ func TestReceiveRejectsOversizedMessages(t *testing.T) {
 		require.NoError(t, send(&buf))
 		return &buf
 	}
-	// The name takes the whole limit minus the JSON around it. The trailing
-	// newline of the encoder is not part of the value and is never read.
-	nameOf := func(limit, overhead int) string { return strings.Repeat("a", limit-overhead) }
+	// The padding takes the whole limit minus the JSON around it, measured on a
+	// message padded with one byte. It goes in a field that is not normalized,
+	// unlike the name. The trailing newline of the encoder is not part of the
+	// value and is never read.
+	padOf := func(limit int, onePadded *bytes.Buffer) string {
+		return strings.Repeat("a", limit-(onePadded.Len()-len("a\n")))
+	}
 
 	t.Run("auth", func(t *testing.T) {
-		fits := AuthPeer{Name: nameOf(MaxAuthMessageSize, len(`{"Name":""}`))}
+		onePadded := encode(t, func(b *bytes.Buffer) error { return SendAuth(b, AuthPeer{Token: "a"}) })
+		fits := AuthPeer{Token: padOf(MaxAuthMessageSize, onePadded)}
 		got, err := ReceiveAuth(encode(t, func(b *bytes.Buffer) error { return SendAuth(b, fits) }))
 		require.NoError(t, err)
 		require.Equal(t, fits, got)
 
-		tooLarge := AuthPeer{Name: fits.Name + "a"}
+		tooLarge := AuthPeer{Token: fits.Token + "a"}
 		_, err = ReceiveAuth(encode(t, func(b *bytes.Buffer) error { return SendAuth(b, tooLarge) }))
 		require.ErrorIs(t, err, ErrMessageTooLarge)
 	})
 
 	t.Run("status", func(t *testing.T) {
-		empty := encode(t, func(b *bytes.Buffer) error { return SendStatus(b, PeerStatusInfo{}) })
-		fits := PeerStatusInfo{Name: nameOf(MaxStatusMessageSize, empty.Len()-len("\n"))}
+		onePadded := encode(t, func(b *bytes.Buffer) error { return SendStatus(b, PeerStatusInfo{IPv6Addr: "a"}) })
+		fits := PeerStatusInfo{IPv6Addr: padOf(MaxStatusMessageSize, onePadded)}
 		got, err := ReceiveStatus(encode(t, func(b *bytes.Buffer) error { return SendStatus(b, fits) }))
 		require.NoError(t, err)
 		require.Equal(t, fits, got)
 
-		tooLarge := PeerStatusInfo{Name: fits.Name + "a"}
+		tooLarge := PeerStatusInfo{IPv6Addr: fits.IPv6Addr + "a"}
 		_, err = ReceiveStatus(encode(t, func(b *bytes.Buffer) error { return SendStatus(b, tooLarge) }))
 		require.ErrorIs(t, err, ErrMessageTooLarge)
 	})
