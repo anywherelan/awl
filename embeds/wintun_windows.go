@@ -23,7 +23,8 @@ func EmbedWintun() {
 
 	equal := checkIsFileEqual(wintunPath, wintunDLL)
 	if !equal {
-		err = os.WriteFile(wintunPath, wintunDLL, 664)
+		//nolint:gosec // G306: a DLL next to the binary, not a secret
+		err = os.WriteFile(wintunPath, wintunDLL, 0664)
 		if err != nil {
 			fmt.Printf("error: write wintun.dll file: %v\n", err)
 		}

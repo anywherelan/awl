@@ -426,6 +426,7 @@ func runPowerShell(command string) ([]byte, error) {
 	// The OutputEncoding prefix forces UTF-8 on the redirected pipes: without
 	// it PowerShell encodes its (localized) error text in the console
 	// codepage, which mangles non-ASCII into '?' by the time it reaches logs.
+	//nolint:gosec // G204: callers pass fixed cmdlets with constants and a parsed prefix
 	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 		"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "+command)
 	// awl runs as a GUI process with no console of its own, so a bare

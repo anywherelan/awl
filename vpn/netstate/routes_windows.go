@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"slices"
 
 	"github.com/tailscale/wf"
 	"golang.org/x/sys/windows"
@@ -262,11 +263,13 @@ func setupClientFence(state *routeState) error {
 //     physical NIC: pre-gateway established connections and sockets
 //     explicitly bound to the NIC address.
 func clientFenceRules(sublayer wf.SublayerID, tunLUID winipcfg.LUID, appID string) ([]*wf.Rule, error) {
-	localDst4 := []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
-	localDst4 = append(localDst4, privateSubnetPrefixes()...)
-	localDst4 = append(localDst4,
-		netip.MustParsePrefix("224.0.0.0/4"),
-		netip.MustParsePrefix("255.255.255.255/32"),
+	localDst4 := slices.Concat(
+		[]netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
+		privateSubnetPrefixes(),
+		[]netip.Prefix{
+			netip.MustParsePrefix("224.0.0.0/4"),
+			netip.MustParsePrefix("255.255.255.255/32"),
+		},
 	)
 	localDst6 := []netip.Prefix{
 		netip.MustParsePrefix("::1/128"),

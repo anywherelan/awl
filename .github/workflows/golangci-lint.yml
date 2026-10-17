@@ -2,20 +2,43 @@ name: golangci-lint
 on: [ push, pull_request ]
 jobs:
   golangci:
-    name: lint
+    name: lint (${{ matrix.goos }})
     # run job on all pushes OR external PR, not both
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # golangci-lint has no config option for the target platform: it lints
+        # the files selected by GOOS/GOARCH from the environment. Without this
+        # matrix *_windows.go and *_android.go are never linted, and
+        # android-only code (cmd/gomobile-lib) is never even type-checked
+        # outside a release build. Android needs arm64: on android/amd64 the go
+        # tool rejects main packages without cgo, which fails typecheck.
+        # automatic-module-directories also lints the separate cmd/awl-tray
+        # module; systray has no android implementation, so android lints the
+        # root module only.
+        include:
+          - { goos: linux, goarch: amd64, experimental: automatic-module-directories }
+          - { goos: windows, goarch: amd64, experimental: automatic-module-directories }
+          - { goos: android, goarch: arm64 }
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Install Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.26.x
+          go-version: 1.26.8
       - name: Create stub embed files
         run: mkdir static && touch static/index.html && touch embeds/wintun.dll
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
+        # Step-level, not job-level: setup-go and the golangci-lint installer
+        # must keep resolving binaries for the runner itself.
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         with:
-          version: v2.14.0
+          version: v2.15.0
+          experimental: ${{ matrix.experimental }}
