@@ -38,7 +38,10 @@ func main() {
 
 	err := app.Init(ctx, nil)
 	if err != nil {
-		logger.Fatalf("failed to init server: %v", err)
+		logger.Errorf("failed to init server: %v", err)
+		// Init may have set the system DNS and routes already: put them back
+		app.Close()
+		os.Exit(1)
 	}
 	app.Api.SetupFrontend(awl.FrontendStatic())
 
