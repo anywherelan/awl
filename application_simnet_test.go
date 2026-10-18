@@ -323,6 +323,7 @@ func TestSimulatedSOCKS5ProxyPerformance(t *testing.T) {
 
 			// Set peer2 as proxy for peer1
 			peer1.app.SOCKS5.SetProxyPeerID(peer2.PeerID())
+			peer1.app.SOCKS5.SetBypassLocalAwl(false)
 			peer2.app.SOCKS5.SetExitNodeRulesEnabled(false)
 
 			// Setup raw TCP server that sends unlimited data

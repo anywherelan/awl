@@ -6,9 +6,9 @@ import (
 	"io"
 	"net"
 	"net/netip"
-	"strings"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/haxii/socks5"
 	"github.com/ipfs/go-log/v2"
@@ -20,6 +20,9 @@ import (
 
 const (
 	socks5Version = uint8(5)
+	// dialTimeout limits connecting to a target, on the exit node and on the
+	// client for a target it connects to itself.
+	dialTimeout = 30 * time.Second
 )
 
 type Server struct {
@@ -38,7 +41,8 @@ type Server struct {
 // sockets). Marking unconditionally is safe: when gateway mode is off there is
 // no matching fwmark ip-rule, so the kernel ignores the mark — mirroring how
 // libp2p sockets are marked at all times (see application.go).
-// A nil dialControl yields a plain context-aware dialer.
+// A nil dialControl yields a plain context-aware dialer. Connecting to the
+// destination times out after dialTimeout.
 //
 // awlPrefixes are the awl subnets, IPv4 and IPv6, which the exit node does not
 // proxy to (see ExitNodeRule).
@@ -53,7 +57,7 @@ type Server struct {
 func NewServer(dialControl func(network, address string, c syscall.RawConn) error, awlPrefixes []netip.Prefix) *Server {
 	exitNodeRule := &ExitNodeRule{awlPrefixes: awlPrefixes}
 	rule := NewUpdatableRule(exitNodeRule)
-	dialer := &net.Dialer{Control: dialControl}
+	dialer := &net.Dialer{Control: dialControl, Timeout: dialTimeout}
 	conf := &socks5.Config{
 		// fake addr, we don't bind address for server
 		BindIP:   net.IPv4(127, 0, 0, 1),
@@ -142,7 +146,7 @@ func (s *Server) SendServerFailureReply(conn io.ReadWriter) error {
 		return err
 	}
 
-	err = s.sendReply(conn, socks5.ReplyServerFailure, nil)
+	err = sendReply(conn, socks5.ReplyServerFailure, nil)
 	if err != nil {
 		return err
 	}
@@ -151,7 +155,9 @@ func (s *Server) SendServerFailureReply(conn io.ReadWriter) error {
 }
 
 // sendReply is copied from github.com/haxii/socks5@v1.0.0/request.go:376
-func (s *Server) sendReply(w io.Writer, resp uint8, addr *socks5.AddrSpec) error {
+//
+//nolint:unparam // addr is for BIND and UDP ASSOCIATE replies, see TODO(socks5-udp)
+func sendReply(w io.Writer, resp uint8, addr *socks5.AddrSpec) error {
 	// Format the address
 	var addrType uint8
 	var addrBody []byte
@@ -269,15 +275,10 @@ type exitNodeResolver struct {
 }
 
 func (r exitNodeResolver) Resolve(ctx context.Context, name string) (context.Context, net.IP, error) {
-	if isAwlName(name) {
+	if awldns.InLocalDomain(name) {
 		return ctx, nil, fmt.Errorf("%s names are not proxied", awldns.LocalDomain)
 	}
 	return r.DNSResolver.Resolve(ctx, name)
-}
-
-func isAwlName(name string) bool {
-	name = strings.ToLower(strings.TrimSuffix(name, "."))
-	return name == awldns.LocalDomain || strings.HasSuffix(name, "."+awldns.LocalDomain)
 }
 
 type Logger struct {

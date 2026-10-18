@@ -49,15 +49,6 @@ func TestIsAllowedExitAddr(t *testing.T) {
 	require.True(t, isAllowedExitAddr(netip.MustParseAddr("203.0.113.5"), nil))
 }
 
-func TestIsAwlName(t *testing.T) {
-	for _, name := range []string{"awl", "peer.awl", "PEER.AWL", "peer.awl.", "admin.awl", "laptop.home.awl"} {
-		require.True(t, isAwlName(name), name)
-	}
-	for _, name := range []string{"example.com", "awl.example.com", "notawl", "peer.awl.com"} {
-		require.False(t, isAwlName(name), name)
-	}
-}
-
 // TestExitNodeRefusesLocalHost is the S1 regression test: no form of a local
 // address reaches a service listening on the exit node's loopback.
 func TestExitNodeRefusesLocalHost(t *testing.T) {
@@ -113,7 +104,7 @@ func TestExitNodeRefusesAwlNames(t *testing.T) {
 func startTestProxy(t *testing.T, server *Server) string {
 	t.Helper()
 	listenAddr := pickFreeAddr(t)
-	client, err := NewClient(listenAddr, "", "")
+	client, err := NewClient(listenAddr, "", "", nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 	go func() {

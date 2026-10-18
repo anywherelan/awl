@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	socks5Proxy "github.com/haxii/socks5"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/network"
 
@@ -41,10 +40,15 @@ type SOCKS5 struct {
 func NewSOCKS5(p2pService P2p, conf *config.Config, sockMarker SocketMarker) (*SOCKS5, error) {
 	logger := log.Logger("awl/service/socks5")
 
+	awlPrefixes := []netip.Prefix{conf.VPNPrefix().Masked()}
+	if prefixV6, ok := conf.VPNPrefixV6(); ok {
+		awlPrefixes = append(awlPrefixes, prefixV6.Masked())
+	}
+
 	var client *socks5.Client
 	if conf.SOCKS5.ListenerEnabled {
 		var err error
-		client, err = socks5.NewClient(conf.SOCKS5.ListenAddress, conf.SOCKS5.Username, conf.SOCKS5.Password)
+		client, err = socks5.NewClient(conf.SOCKS5.ListenAddress, conf.SOCKS5.Username, conf.SOCKS5.Password, awlPrefixes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to start socks5 listener: %v", err)
 		}
@@ -59,10 +63,6 @@ func NewSOCKS5(p2pService P2p, conf *config.Config, sockMarker SocketMarker) (*S
 	var dialControl func(network, address string, c syscall.RawConn) error
 	if sockMarker != nil {
 		dialControl = sockMarker.ControlFunc()
-	}
-	awlPrefixes := []netip.Prefix{conf.VPNPrefix().Masked()}
-	if prefixV6, ok := conf.VPNPrefixV6(); ok {
-		awlPrefixes = append(awlPrefixes, prefixV6.Masked())
 	}
 	server := socks5.NewServer(dialControl, awlPrefixes)
 	socks := &SOCKS5{
@@ -191,7 +191,7 @@ func (s *SOCKS5) ServeConns(ctx context.Context) {
 
 			err := s.proxyConn(ctx, conn)
 			if err != nil {
-				_ = s.server.SendServerFailureReply(conn)
+				s.logger.Debugf("SOCKS5 proxy client connection error: %v", err)
 			}
 		}()
 	}
@@ -203,6 +203,14 @@ func (s *SOCKS5) SetExitNodeRulesEnabled(enabled bool) {
 	s.server.SetRulesEnabled(enabled)
 }
 
+// SetBypassLocalAwl is for tests: with the bypass off, the proxy client sends
+// every target to the exit node, localhost included, see socks5.Client.
+func (s *SOCKS5) SetBypassLocalAwl(enabled bool) {
+	if s.client != nil {
+		s.client.SetBypassLocalAwl(enabled)
+	}
+}
+
 func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 	metrics.SOCKS5ConnectionsTotal.WithLabelValues("client").Inc()
 	metrics.SOCKS5ActiveConnections.WithLabelValues("client").Inc()
@@ -212,6 +220,14 @@ func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 		metrics.SOCKS5ConnectionDurationSeconds.WithLabelValues("client").Observe(time.Since(start).Seconds())
 	}()
 
+	return s.client.ServeConn(ctx, conn, s.proxyToExitNode)
+}
+
+// proxyToExitNode is the socks5.ForwardFunc of the client: it passes the
+// request, already read from conn as rawReq, to the exit node and then pipes
+// the connection through it. An error means nothing has been sent to the
+// client yet.
+func (s *SOCKS5) proxyToExitNode(ctx context.Context, conn net.Conn, rawReq []byte) error {
 	s.conf.RLock()
 	usePeerID := s.conf.SOCKS5.UsingPeerID
 	s.conf.RUnlock()
@@ -243,13 +259,19 @@ func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 		_ = stream.Reset()
 	}()
 
-	if stream.Protocol() == protocol.Socks5NoAuthMethod {
-		if err := s.client.HandleLocalAuth(conn); err != nil {
+	// An exit node older than v0.17.0 runs the auth negotiation itself.
+	if stream.Protocol() == protocol.Socks5PacketMethod {
+		if err := socks5.NoAuthHandshake(stream); err != nil {
+			metrics.SOCKS5ErrorsTotal.WithLabelValues("client", "peer_stream_failed").Inc()
 			return err
 		}
 	}
+	if _, err := stream.Write(rawReq); err != nil {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("client", "peer_stream_failed").Inc()
+		return err
+	}
 
-	s.handleStream(conn, stream)
+	socks5.Pipe(conn, stream)
 
 	// stream.Write() + stream.Reset() are not guaranteed to run sequentially
 	// e.g reader on the other side may not read everything we sent because of stream.Reset()
@@ -258,18 +280,4 @@ func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
 	time.Sleep(50 * time.Millisecond)
 
 	return nil
-}
-
-func (s *SOCKS5) handleStream(conn net.Conn, stream network.Stream) {
-	doneCh := make(chan struct{})
-	go func() {
-		defer close(doneCh)
-		// Copy from conn to stream
-		_ = socks5Proxy.ProxyStream(conn, stream)
-	}()
-
-	// Copy from stream to conn
-	_ = socks5Proxy.ProxyStream(stream, conn)
-
-	<-doneCh
 }

@@ -220,9 +220,10 @@ func TestDNSNamesMapping(t *testing.T) {
 	}
 
 	assert.Equal(t, map[string]netip.Addr{
-		testPeerID:  netip.MustParseAddr("10.66.0.2"),
-		"one":       netip.MustParseAddr("10.66.0.2"),
-		testPeerID2: netip.MustParseAddr("10.66.0.3"),
+		AdminHttpServerDomainName: netip.MustParseAddr(AdminHttpServerIP),
+		testPeerID:                netip.MustParseAddr("10.66.0.2"),
+		"one":                     netip.MustParseAddr("10.66.0.2"),
+		testPeerID2:               netip.MustParseAddr("10.66.0.3"),
 	}, conf.DNSNamesMapping(), "a peer without a valid IPv4 address is left out")
 }
 

@@ -78,3 +78,12 @@ func TestIsValidDomainName(t *testing.T) {
 		require.False(t, IsValidDomainName(domain), domain)
 	}
 }
+
+func TestInLocalDomain(t *testing.T) {
+	for _, name := range []string{"awl", "peer.awl", "PEER.AWL", "peer.awl.", "admin.awl", "laptop.home.awl"} {
+		require.True(t, InLocalDomain(name), name)
+	}
+	for _, name := range []string{"example.com", "awl.example.com", "notawl", "peer.awl.com"} {
+		require.False(t, InLocalDomain(name), name)
+	}
+}
