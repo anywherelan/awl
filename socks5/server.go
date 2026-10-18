@@ -5,12 +5,17 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
+	"strings"
 	"sync/atomic"
 	"syscall"
 
 	"github.com/haxii/socks5"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/network"
+
+	"github.com/anywherelan/awl/awldns"
+	"github.com/anywherelan/awl/vpn/privatenet"
 )
 
 const (
@@ -18,9 +23,10 @@ const (
 )
 
 type Server struct {
-	socks *socks5.Server
-	conf  *socks5.Config
-	rule  *UpdatableRule
+	socks        *socks5.Server
+	conf         *socks5.Config
+	rule         *UpdatableRule
+	exitNodeRule *ExitNodeRule
 }
 
 // NewServer constructs the SOCKS5 exit-node server. dialControl, when non-nil,
@@ -34,6 +40,9 @@ type Server struct {
 // libp2p sockets are marked at all times (see application.go).
 // A nil dialControl yields a plain context-aware dialer.
 //
+// awlPrefixes are the awl subnets, IPv4 and IPv6, which the exit node does not
+// proxy to (see ExitNodeRule).
+//
 // TODO(socks5-udp): UDP ASSOCIATE is effectively unsupported today (we serve
 // only libp2p streams via ServeConn; haxii's UDP relay starts only inside
 // Serve(), and BindIP is a fake 127.0.0.1). If it is ever enabled, note that
@@ -41,8 +50,9 @@ type Server struct {
 // udp.go) — bypassing config.Dial and therefore this marking, on every
 // platform. Those sockets would need their own dialControl-style hook,
 // otherwise UDP relay traffic loops into the VPN gateway tunnel.
-func NewServer(dialControl func(network, address string, c syscall.RawConn) error) *Server {
-	rule := NewUpdatableRule(NewRuleDenyLocalhost())
+func NewServer(dialControl func(network, address string, c syscall.RawConn) error, awlPrefixes []netip.Prefix) *Server {
+	exitNodeRule := &ExitNodeRule{awlPrefixes: awlPrefixes}
+	rule := NewUpdatableRule(exitNodeRule)
 	dialer := &net.Dialer{Control: dialControl}
 	conf := &socks5.Config{
 		// fake addr, we don't bind address for server
@@ -50,7 +60,7 @@ func NewServer(dialControl func(network, address string, c syscall.RawConn) erro
 		BindPort: 8000,
 		Rules:    rule,
 		Logger:   NewLogger(),
-		Resolver: nil,
+		Resolver: exitNodeResolver{},
 		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return dialer.DialContext(ctx, network, addr)
 		},
@@ -61,15 +71,21 @@ func NewServer(dialControl func(network, address string, c syscall.RawConn) erro
 	}
 
 	return &Server{
-		socks: server,
-		conf:  conf,
-		rule:  rule,
+		socks:        server,
+		conf:         conf,
+		rule:         rule,
+		exitNodeRule: exitNodeRule,
 	}
 }
 
-// SetRules is created for tests and not intended for real usage.
-func (s *Server) SetRules(rule socks5.RuleSet) {
-	s.rule.SetRule(rule)
+// SetRulesEnabled is for tests: with the rules off, the server proxies to any
+// address, local ones included. Names in .awl are still refused.
+func (s *Server) SetRulesEnabled(enabled bool) {
+	if enabled {
+		s.rule.SetRule(s.exitNodeRule)
+	} else {
+		s.rule.SetRule(socks5.PermitAll())
+	}
 }
 
 func (s *Server) ServeStreamConn(stream network.Stream) error {
@@ -201,37 +217,67 @@ func (r *UpdatableRule) SetRule(rule socks5.RuleSet) {
 	r.rule.Store(&rule)
 }
 
-type RuleDenyLocalhost struct {
-	ipNet *net.IPNet
+// ExitNodeRule keeps the exit node's own host and network from its peers. It
+// refuses:
+//   - loopback and the unspecified address (0.0.0.0, ::), which the OS also
+//     connects to the local host;
+//   - the LAN, CGNAT and link-local ranges (see privatenet), the latter
+//     including the cloud metadata address 169.254.169.254;
+//   - multicast;
+//   - the awl subnets: the exit node's peers are not the client's.
+//
+// The address is checked after the name is resolved, and the connection goes
+// to that same address, so a name resolving to a refused address is refused
+// too. The exit node's own public addresses are allowed: its peers reach its
+// services through its awl address anyway.
+type ExitNodeRule struct {
+	awlPrefixes []netip.Prefix
 }
 
-func NewRulePermitAll() socks5.RuleSet {
-	return socks5.PermitAll()
-}
-
-func NewRuleDenyLocalhost() *RuleDenyLocalhost {
-	_, ipNet, err := net.ParseCIDR("127.0.0.1/8")
-	if err != nil {
-		// verified in tests
-		panic(err)
+func (r *ExitNodeRule) Allow(ctx context.Context, req *socks5.Request) (context.Context, bool) {
+	if req.DestAddr == nil {
+		return ctx, false
 	}
-
-	return &RuleDenyLocalhost{
-		ipNet: ipNet,
-	}
-}
-
-func (r *RuleDenyLocalhost) Allow(ctx context.Context, req *socks5.Request) (context.Context, bool) {
-	addr := req.DestAddr
-	if addr == nil {
-		return ctx, true
-	}
-
-	if r.ipNet.Contains(addr.IP) {
+	addr, ok := netip.AddrFromSlice(req.DestAddr.IP)
+	if !ok {
 		return ctx, false
 	}
 
-	return ctx, true
+	return ctx, isAllowedExitAddr(addr, r.awlPrefixes)
+}
+
+func isAllowedExitAddr(addr netip.Addr, awlPrefixes []netip.Prefix) bool {
+	addr = addr.Unmap()
+	if addr.IsLoopback() || addr.IsUnspecified() || addr.IsLinkLocalUnicast() || addr.IsMulticast() ||
+		privatenet.Contains(addr) {
+		return false
+	}
+	for _, prefix := range awlPrefixes {
+		if prefix.Contains(addr) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// exitNodeResolver refuses .awl names before they reach the system resolver:
+// they are local to each node, and a resolver that does not ask awl DNS would
+// send them out.
+type exitNodeResolver struct {
+	socks5.DNSResolver
+}
+
+func (r exitNodeResolver) Resolve(ctx context.Context, name string) (context.Context, net.IP, error) {
+	if isAwlName(name) {
+		return ctx, nil, fmt.Errorf("%s names are not proxied", awldns.LocalDomain)
+	}
+	return r.DNSResolver.Resolve(ctx, name)
+}
+
+func isAwlName(name string) bool {
+	name = strings.ToLower(strings.TrimSuffix(name, "."))
+	return name == awldns.LocalDomain || strings.HasSuffix(name, "."+awldns.LocalDomain)
 }
 
 type Logger struct {

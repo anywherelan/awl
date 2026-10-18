@@ -18,8 +18,8 @@ import (
 
 func TestProxy(t *testing.T) {
 	listenAddr := pickFreeAddr(t)
-	socksServer := NewServer(nil)
-	socksServer.SetRules(NewRulePermitAll())
+	socksServer := NewServer(nil, nil)
+	socksServer.SetRulesEnabled(false)
 	socksClient, err := NewClient(listenAddr, "", "")
 	require.NoError(t, err)
 
@@ -49,8 +49,8 @@ func TestProxy(t *testing.T) {
 
 func TestProxyWithAuth(t *testing.T) {
 	listenAddr := pickFreeAddr(t)
-	socksServer := NewServer(nil)
-	socksServer.SetRules(NewRulePermitAll())
+	socksServer := NewServer(nil, nil)
+	socksServer.SetRulesEnabled(false)
 	socksClient, err := NewClient(listenAddr, "testuser", "testpass")
 	require.NoError(t, err)
 

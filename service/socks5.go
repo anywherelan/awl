@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"syscall"
@@ -59,7 +60,11 @@ func NewSOCKS5(p2pService P2p, conf *config.Config, sockMarker SocketMarker) (*S
 	if sockMarker != nil {
 		dialControl = sockMarker.ControlFunc()
 	}
-	server := socks5.NewServer(dialControl)
+	awlPrefixes := []netip.Prefix{conf.VPNPrefix().Masked()}
+	if prefixV6, ok := conf.VPNPrefixV6(); ok {
+		awlPrefixes = append(awlPrefixes, prefixV6.Masked())
+	}
+	server := socks5.NewServer(dialControl, awlPrefixes)
 	socks := &SOCKS5{
 		logger: logger,
 		p2p:    p2pService,
@@ -192,13 +197,10 @@ func (s *SOCKS5) ServeConns(ctx context.Context) {
 	}
 }
 
-// SetProxyingLocalhostEnabled is created for tests and not intended for real usage.
-func (s *SOCKS5) SetProxyingLocalhostEnabled(enabled bool) {
-	if enabled {
-		s.server.SetRules(socks5.NewRulePermitAll())
-	} else {
-		s.server.SetRules(socks5.NewRuleDenyLocalhost())
-	}
+// SetExitNodeRulesEnabled is for tests: with the rules off, the exit node
+// proxies to local addresses too, see socks5.ExitNodeRule.
+func (s *SOCKS5) SetExitNodeRulesEnabled(enabled bool) {
+	s.server.SetRulesEnabled(enabled)
 }
 
 func (s *SOCKS5) proxyConn(ctx context.Context, conn net.Conn) error {
