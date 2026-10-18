@@ -14,7 +14,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/metrics"
@@ -25,6 +24,18 @@ const (
 	backgroundExchangeStatusInfoInterval = 5 * time.Minute
 	backgroundRetryAuthRequests          = 5 * time.Minute
 )
+
+// Incoming auth requests waiting for a manual accept, see addIngoingAuthUnlocked.
+const (
+	maxIngoingAuths = 20
+	// A sender repeats its request every backgroundRetryAuthRequests while it
+	// is connected, so a request not repeated for three intervals is stale.
+	staleIngoingAuthAge = 3 * backgroundRetryAuthRequests
+)
+
+// exchangeStreamTimeout bounds a whole auth or status exchange, so that a peer
+// that opens a stream and goes silent does not hold it forever. A variable for tests.
+var exchangeStreamTimeout = 10 * time.Second
 
 // ErrUnknownPeer is returned instead of sending a status info or an auth
 // request to a peer we do not keep in KnownPeers. Both read as "you are in my
@@ -43,7 +54,7 @@ type P2p interface {
 }
 
 type AuthStatus struct {
-	ingoingAuths  map[peer.ID]protocol.AuthPeer
+	ingoingAuths  map[peer.ID]ingoingAuth
 	outgoingAuths map[peer.ID]protocol.AuthPeer
 	authsLock     sync.RWMutex
 	logger        *log.ZapEventLogger
@@ -51,6 +62,15 @@ type AuthStatus struct {
 	conf          *config.Config
 	authsEmitter  awlevent.Emitter
 	inviteEmitter awlevent.Emitter
+	// now is time.Now, replaced in tests
+	now func() time.Time
+}
+
+// ingoingAuth is an incoming auth request waiting for a manual accept.
+type ingoingAuth struct {
+	protocol.AuthPeer
+	// lastRequest is when the peer last sent the request
+	lastRequest time.Time
 }
 
 func NewAuthStatus(p2pService P2p, conf *config.Config, eventbus awlevent.Bus) *AuthStatus {
@@ -64,13 +84,14 @@ func NewAuthStatus(p2pService P2p, conf *config.Config, eventbus awlevent.Bus) *
 	}
 
 	auth := &AuthStatus{
-		ingoingAuths:  make(map[peer.ID]protocol.AuthPeer),
+		ingoingAuths:  make(map[peer.ID]ingoingAuth),
 		outgoingAuths: make(map[peer.ID]protocol.AuthPeer),
 		logger:        log.Logger("awl/service/status"),
 		p2p:           p2pService,
 		conf:          conf,
 		authsEmitter:  emitter,
 		inviteEmitter: inviteEmitter,
+		now:           time.Now,
 	}
 	auth.restoreOutgoingAuths()
 	p2pService.SubscribeConnectionEvents(auth.onPeerConnected, auth.onPeerDisconnected)
@@ -82,6 +103,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	defer func() {
 		_ = stream.Close()
 	}()
+	_ = stream.SetDeadline(time.Now().Add(exchangeStreamTimeout))
 
 	remotePeer := stream.Conn().RemotePeer()
 	peerID := remotePeer.String()
@@ -138,6 +160,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 	defer func() {
 		_ = stream.Close()
 	}()
+	_ = stream.SetDeadline(time.Now().Add(exchangeStreamTimeout))
 
 	// Checked this late on purpose: the peer may have been removed or unblocked
 	// while we were connecting, and the knownPeer we were handed is older still.
@@ -236,7 +259,7 @@ func (s *AuthStatus) processPeerStatusInfo(remotePeer peer.ID, peerInfo protocol
 		// The invite token has done its job once the peer confirms us
 		peer.PendingInviteToken = ""
 		if peer.DomainName == "" {
-			peer.DomainName = awldns.TrimDomainName(peer.DisplayName())
+			peer.DomainName = s.conf.GenUniqDomainNameUnlocked(peerID, peer.DisplayName())
 		}
 		if peer.Alias == "" {
 			peer.Alias = s.conf.GenUniqPeerAliasUnlocked(peer.Name, peer.Alias)
@@ -345,6 +368,7 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	defer func() {
 		_ = stream.Close()
 	}()
+	_ = stream.SetDeadline(time.Now().Add(exchangeStreamTimeout))
 
 	remotePeer := stream.Conn().RemotePeer()
 	peerID := remotePeer.String()
@@ -396,13 +420,13 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 		// since the checks above.
 		_, isBlocked = s.conf.GetBlockedPeer(peerID)
 		_, known = s.conf.GetPeer(peerID)
-		offered := !isBlocked && !known
-		if offered {
-			s.ingoingAuths[remotePeer] = authPeer
+		var added bool
+		if !isBlocked && !known {
+			added = s.addIngoingAuthUnlocked(remotePeer, authPeer)
 		}
 		s.authsLock.Unlock()
 
-		if offered {
+		if added {
 			_ = s.authsEmitter.Emit(awlevent.ReceivedAuthRequest{
 				AuthPeer: authPeer,
 				PeerID:   peerID,
@@ -513,6 +537,7 @@ func (s *AuthStatus) SendAuthRequest(ctx context.Context, peerID peer.ID, req pr
 	defer func() {
 		_ = stream.Close()
 	}()
+	_ = stream.SetDeadline(time.Now().Add(exchangeStreamTimeout))
 
 	// Checked this late on purpose: a retry may have been on its way when the
 	// peer was removed.
@@ -641,7 +666,7 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 		InviteID:               inviteID,
 		PendingInviteToken:     params.PendingInviteToken,
 	}
-	newPeerConfig.DomainName = awldns.TrimDomainName(newPeerConfig.DisplayName())
+	newPeerConfig.DomainName = s.conf.GenUniqDomainNameUnlocked(peerIDStr, newPeerConfig.DisplayName())
 	s.conf.UpsertPeerUnlocked(newPeerConfig)
 	s.conf.Unlock()
 
@@ -746,13 +771,50 @@ func (s *AuthStatus) BackgroundExchangeStatusInfo(ctx context.Context) {
 	}
 }
 
+// addIngoingAuthUnlocked puts a request from peerID in the queue for a manual
+// accept, or refreshes the one already there. The queue is limited: when it is
+// full, a new request takes the place of a stale one, whose sender has not
+// repeated it for staleIngoingAuthAge, or is not kept. A request not kept is
+// answered as a pending one all the same, and its sender repeats it later.
+// Reports whether a new entry was added.
+func (s *AuthStatus) addIngoingAuthUnlocked(peerID peer.ID, authPeer protocol.AuthPeer) bool {
+	now := s.now()
+	if _, exists := s.ingoingAuths[peerID]; exists {
+		s.ingoingAuths[peerID] = ingoingAuth{AuthPeer: authPeer, lastRequest: now}
+		return false
+	}
+
+	if len(s.ingoingAuths) >= maxIngoingAuths {
+		var (
+			stalest   peer.ID
+			stalestAt time.Time
+		)
+		for id, auth := range s.ingoingAuths {
+			if stalest == "" || auth.lastRequest.Before(stalestAt) {
+				stalest, stalestAt = id, auth.lastRequest
+			}
+		}
+		if now.Sub(stalestAt) < staleIngoingAuthAge {
+			s.logger.Warnf("auth request from %s (%s) is not kept: %d requests are already waiting for an accept",
+				authPeer.Name, peerID, len(s.ingoingAuths))
+			return false
+		}
+		s.logger.Infof("dropping stale auth request from %s, last sent at %s, to make room for one from %s (%s)",
+			stalest, stalestAt.Format(time.DateTime), authPeer.Name, peerID)
+		delete(s.ingoingAuths, stalest)
+	}
+
+	s.ingoingAuths[peerID] = ingoingAuth{AuthPeer: authPeer, lastRequest: now}
+	return true
+}
+
 func (s *AuthStatus) GetIngoingAuthRequests() map[string]protocol.AuthPeer {
 	s.authsLock.RLock()
 	defer s.authsLock.RUnlock()
 
 	result := make(map[string]protocol.AuthPeer, len(s.ingoingAuths))
 	for peerID, auth := range s.ingoingAuths {
-		result[peerID.String()] = auth
+		result[peerID.String()] = auth.AuthPeer
 	}
 	return result
 }

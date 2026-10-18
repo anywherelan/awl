@@ -9,7 +9,6 @@ import (
 	http_pprof "net/http/pprof"
 	"runtime/pprof"
 	"strings"
-	"unicode"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/ipfs/go-log/v2"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/p2p"
+	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/ringbuffer"
 	"github.com/anywherelan/awl/service"
 )
@@ -274,5 +274,5 @@ func validateTrimmedStringNotEmpty(fl validator.FieldLevel) bool {
 }
 
 func validateNoControlChars(fl validator.FieldLevel) bool {
-	return !strings.ContainsFunc(fl.Field().String(), unicode.IsControl)
+	return !strings.ContainsFunc(fl.Field().String(), protocol.IsUnsafeNameRune)
 }

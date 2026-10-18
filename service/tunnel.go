@@ -630,26 +630,16 @@ func (t *Tunnel) SetVPNGatewayServerEnabled(enabled bool) {
 }
 
 // SetVPNGatewayPeer enables VPN gateway client mode using the existing VpnPeer
-// for the given gateway peer, validates the peer's permission, and persists
-// the choice in the config.
+// for the given gateway peer and persists the choice in the config.
 //
-// The peer must:
-//  1. Be in KnownPeers.
-//  2. Currently allow being used as a VPN gateway (KnownPeer.CanUseAsVPNGateway,
-//     i.e. AllowedUsingAsExitNode AND RemoteVPNGatewayServerEnabled from the
-//     most recent status exchange).
+// The peer must be in KnownPeers. Whether it allows us to use it as a gateway
+// is up to VPNGateway, see VPNGateway.EnableClient.
 func (t *Tunnel) SetVPNGatewayPeer(gatewayPeerID peer.ID) error {
 	t.peersLock.Lock()
 	defer t.peersLock.Unlock()
 
-	knownPeer, ok := t.conf.GetPeer(gatewayPeerID.String())
-	if !ok {
+	if _, ok := t.conf.GetPeer(gatewayPeerID.String()); !ok {
 		return fmt.Errorf("peer %s is not in known peers", gatewayPeerID)
-	}
-	if !knownPeer.CanUseAsVPNGateway() {
-		return fmt.Errorf("peer %s is not currently a valid VPN gateway "+
-			"(AllowedUsingAsExitNode=%v, RemoteVPNGatewayServerEnabled=%v)",
-			gatewayPeerID, knownPeer.AllowedUsingAsExitNode, knownPeer.RemoteVPNGatewayServerEnabled)
 	}
 
 	gwPeer, ok := t.peerIDToPeer[gatewayPeerID]

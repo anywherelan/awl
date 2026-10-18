@@ -40,12 +40,18 @@ func TestUpdateMySettings(t *testing.T) {
 
 	peer1 := ts.NewTestPeer(false)
 
-	err := peer1.api.UpdateMySettings("new-test-name")
+	// Trimmed, as a peer would trim it on receive
+	err := peer1.api.UpdateMySettings(" new-test-name ")
 	ts.NoError(err)
 
 	info, err := peer1.api.PeerInfo()
 	ts.NoError(err)
 	ts.Equal("new-test-name", info.Name)
+
+	// A character that turns the text around, so that the name reads as another one
+	err = peer1.api.UpdateMySettings("\u202Egnp.exe")
+	ts.ErrorContains(err, "status code: 400")
+	ts.ErrorContains(err, "no_control_chars")
 }
 
 func TestGetP2pDebugInfo(t *testing.T) {
@@ -157,6 +163,13 @@ func TestSendFriendRequest_ErrorCases(t *testing.T) {
 		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: "not-a-valid-peer-id", Alias: "alias"})
 		ts.Error(err)
 		ts.ErrorContains(err, "Invalid hex-encoded multihash")
+	})
+
+	t.Run("DirectionOverrideInAlias", func(t *testing.T) {
+		peer2 := ts.NewTestPeer(false)
+		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "\u202Egnp.exe"})
+		ts.ErrorContains(err, "status code: 400")
+		ts.ErrorContains(err, "no_control_chars")
 	})
 }
 
@@ -346,5 +359,38 @@ func TestUpdatePeerSettings_ErrorCases(t *testing.T) {
 		})
 		ts.Error(err)
 		ts.ErrorContains(err, "invalid domain name")
+	})
+
+	t.Run("DomainName", func(t *testing.T) {
+		peer3 := ts.NewTestPeer(false)
+		ts.makeFriendsWithAliases(peer1, peer3, "peer_3", "peer_1")
+		peer3Config, err := peer1.api.KnownPeerConfig(peer3.PeerID())
+		ts.NoError(err)
+
+		peer2Config, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		update := func(domain string) error {
+			return peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+				PeerID:     peer2.PeerID(),
+				Alias:      peer2Config.Alias,
+				DomainName: domain,
+				IPAddr:     peer2Config.IPAddr,
+			})
+		}
+
+		// Not normalized: the API takes a domain name as it is stored
+		for _, domain := range []string{"Laptop", "НОУТБУК", "-laptop", "laptop..home", "xn--90asheufc"} {
+			ts.ErrorContains(update(domain), "invalid domain name", domain)
+		}
+		for _, domain := range []string{peer3Config.DomainName, strings.ToLower(peer3.PeerID()), config.AdminHttpServerDomainName} {
+			ts.ErrorContains(update(domain), api.ErrorPeerDomainNameIsNotUniq, domain)
+		}
+
+		for _, domain := range []string{"ноутбук", "my_laptop", "laptop.home"} {
+			ts.NoError(update(domain), domain)
+			peer2Config, err = peer1.api.KnownPeerConfig(peer2.PeerID())
+			ts.NoError(err)
+			ts.Equal(domain, peer2Config.DomainName)
+		}
 	})
 }

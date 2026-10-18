@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
 )
 
@@ -268,6 +270,52 @@ func (c *Config) IsUniqPeerAliasUnlocked(excludePeerID, alias string) bool {
 		}
 	}
 	return true
+}
+
+// IsUniqDomainNameUnlocked reports whether domain is free for peerID: it is not
+// the domain name or the peer ID of another peer, both of which awl DNS
+// serves, and it is not reserved. domain must be normalized, see
+// awldns.IsValidDomainName.
+func (c *Config) IsUniqDomainNameUnlocked(peerID, domain string) bool {
+	_, taken := c.takenDomainNamesUnlocked(peerID)[domain]
+	return !taken
+}
+
+// GenUniqDomainNameUnlocked makes a domain name for peerID out of name, with a
+// suffix if it is taken, see IsUniqDomainNameUnlocked.
+func (c *Config) GenUniqDomainNameUnlocked(peerID, name string) string {
+	return genUniqDomainName(name, c.takenDomainNamesUnlocked(peerID))
+}
+
+func (c *Config) takenDomainNamesUnlocked(excludePeerID string) map[string]struct{} {
+	taken := reservedDomainNames()
+	for id, kPeer := range c.KnownPeers {
+		if id == excludePeerID {
+			continue
+		}
+		taken[strings.ToLower(id)] = struct{}{}
+		taken[kPeer.DomainName] = struct{}{}
+	}
+	return taken
+}
+
+func reservedDomainNames() map[string]struct{} {
+	return map[string]struct{}{AdminHttpServerDomainName: {}}
+}
+
+// genUniqDomainName makes a normalized domain name out of name that is not in
+// taken, and adds it there. Normalized names are compared as they are: two of
+// them that differ only in case cannot both be normalized.
+func genUniqDomainName(name string, taken map[string]struct{}) string {
+	domain := awldns.NormalizeDomainName(name)
+	for i := 0; ; i++ {
+		if _, ok := taken[domain]; !ok {
+			break
+		}
+		domain = awldns.NormalizeDomainNameWithSuffix(name, fmt.Sprintf("_%d", i))
+	}
+	taken[domain] = struct{}{}
+	return domain
 }
 
 func (c *Config) GenUniqPeerAlias(name, alias string) string {

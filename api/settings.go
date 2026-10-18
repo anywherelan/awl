@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -121,7 +122,7 @@ func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 	}
 
 	h.conf.Lock()
-	h.conf.P2pNode.Name = req.Name
+	h.conf.P2pNode.Name = strings.TrimSpace(req.Name)
 	h.conf.Unlock()
 	h.conf.Save()
 

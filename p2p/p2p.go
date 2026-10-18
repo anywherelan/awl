@@ -298,11 +298,14 @@ func (p *P2p) buildTransportOpts(controlFunc func(network, address string, c sys
 
 func (p *P2p) Close() error {
 	p.ctxCancel()
-	err := errors.Join(
-		p.dht.Close(),
-		p.host.Close(),
-	)
-	return err
+	var errs []error
+	if p.dht != nil {
+		errs = append(errs, p.dht.Close())
+	}
+	if p.host != nil {
+		errs = append(errs, p.host.Close())
+	}
+	return errors.Join(errs...)
 }
 
 func (p *P2p) PeerID() peer.ID {

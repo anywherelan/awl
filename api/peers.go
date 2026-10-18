@@ -15,7 +15,10 @@ import (
 	"github.com/anywherelan/awl/service"
 )
 
-const ErrorPeerAliasIsNotUniq = "peer name is not unique"
+const (
+	ErrorPeerAliasIsNotUniq      = "peer name is not unique"
+	ErrorPeerDomainNameIsNotUniq = "domain name is taken by another peer or reserved"
+)
 
 // @Tags		Peers
 // @Summary	Get known peers info
@@ -144,6 +147,9 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	}
 	if !h.conf.IsUniqPeerAliasUnlocked(req.PeerID, req.Alias) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerAliasIsNotUniq))
+	}
+	if !h.conf.IsUniqDomainNameUnlocked(req.PeerID, req.DomainName) {
+		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerDomainNameIsNotUniq))
 	}
 	if checkIPErr := h.conf.CheckIPUnique(req.IPAddr, knownPeer.PeerID); checkIPErr != nil {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(checkIPErr.Error()))

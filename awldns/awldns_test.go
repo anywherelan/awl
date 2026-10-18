@@ -20,6 +20,10 @@ var (
 		"laptop_peer_id": netip.MustParseAddr("10.66.0.2"),
 		"pc.office":      netip.MustParseAddr("10.66.0.3"),
 		"pc_peer_id":     netip.MustParseAddr("10.66.0.3"),
+		// Served in its ASCII form, xn--90asheufc
+		"ноутбук": netip.MustParseAddr("10.66.0.5"),
+		// Not a valid domain name, so it is not served
+		"-bad-": netip.MustParseAddr("10.66.0.6"),
 	}
 	testNamesV6 = map[string]netip.Addr{
 		"pc.office":  netip.MustParseAddr("fd00:66::3"),
@@ -47,12 +51,19 @@ func TestDNS(t *testing.T) {
 		{"AAAAWithoutIPv6", "laptop.awl.", dns.TypeAAAA, dns.RcodeSuccess, nil},
 		{"AWithoutIPv4", "v6only.awl.", dns.TypeA, dns.RcodeSuccess, nil},
 		{"AAAAWithoutIPv4", "v6only.awl.", dns.TypeAAAA, dns.RcodeSuccess, []string{"fd00:66::4"}},
+		{"AUnicodeName", "xn--90asheufc.awl.", dns.TypeA, dns.RcodeSuccess, []string{"10.66.0.5"}},
+		{"AUnicodeNameCaseInsensitive", "XN--90asheUFC.awl.", dns.TypeA, dns.RcodeSuccess, []string{"10.66.0.5"}},
+		// A client sends the ASCII form. Raw UTF-8 comes to the handler escaped
+		// as \208\189..., so it matches nothing.
+		{"AUnicodeNameRaw", "ноутбук.awl.", dns.TypeA, dns.RcodeNameError, nil},
+		{"AInvalidName", "-bad-.awl.", dns.TypeA, dns.RcodeNameError, nil},
 		{"UnknownA", "unknown.awl.", dns.TypeA, dns.RcodeNameError, nil},
 		{"UnknownAAAA", "unknown.awl.", dns.TypeAAAA, dns.RcodeNameError, nil},
 		{"UnknownANY", "unknown.awl.", dns.TypeANY, dns.RcodeNameError, nil},
 		// the shortest of the names of an address
 		{"PTR", reverseName(t, "10.66.0.2"), dns.TypePTR, dns.RcodeSuccess, []string{"laptop.awl."}},
 		{"PTRIPv6", reverseName(t, "fd00:66::3"), dns.TypePTR, dns.RcodeSuccess, []string{"pc.office.awl."}},
+		{"PTRUnicodeName", reverseName(t, "10.66.0.5"), dns.TypePTR, dns.RcodeSuccess, []string{"xn--90asheufc.awl."}},
 		// unknown addresses go to the upstream, which the test resolver has none of
 		{"PTRUnknown", reverseName(t, "10.66.0.99"), dns.TypePTR, dns.RcodeServerFailure, nil},
 	}
