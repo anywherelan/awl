@@ -817,11 +817,12 @@ func TestGatewayBroadcastHandledViaBroadcastPath(t *testing.T) {
 	ts.Equal(clientAssignedIP, src.String(), "broadcast src should be rewritten to client's assigned IP")
 }
 
-// TestGatewaySetGatewayPeerNotAllowed verifies that SetGatewayPeer rejects
-// peers whose AllowUsingAsVPNGateway() is false (i.e. the peer either does
+// TestGatewayEnableClientNotAllowed verifies that EnableClient rejects
+// peers whose CanUseAsVPNGateway() is false (i.e. the peer either does
 // not advertise VPN gateway service, or has not granted us exit-node use).
 // Each missing flag is exercised independently.
-func TestGatewaySetGatewayPeerNotAllowed(t *testing.T) {
+func TestGatewayEnableClientNotAllowed(t *testing.T) {
+	skipIfVPNGatewayUnsupported(t)
 	ts := NewTestSuite(t)
 	client := ts.NewTestPeer(true)
 	other := ts.NewTestPeer(true)
@@ -858,7 +859,7 @@ func TestGatewaySetGatewayPeerNotAllowed(t *testing.T) {
 			client.app.Conf.KnownPeers[other.PeerID()] = kp
 			client.app.Conf.Unlock()
 
-			err := client.app.Tunnel.SetVPNGatewayPeer(other.app.P2p.PeerID())
+			err := client.app.VPNGateway.EnableClient(other.app.P2p.PeerID())
 			ts.Error(err)
 			ts.Contains(err.Error(), tc.expectErrContains)
 		})
@@ -1146,6 +1147,45 @@ func TestGatewayUnknownPeerIDAtStartupFailsBoot(t *testing.T) {
 		"unknown peer at startup must NOT auto-wipe ClientEnabled")
 	ts.Equal(unknownPeerID, tp.app.Conf.VPNGateway.GatewayPeerID,
 		"unknown peer at startup must NOT auto-wipe GatewayPeerID")
+}
+
+// TestGatewayRevokedPermissionAtStartupKeepsGateway covers a gateway peer
+// that no longer allows us to use it, as the last status exchange left it in
+// the config. Init must not fail on it, and the gateway must stay bound with
+// its routes, so traffic does not go around it.
+func TestGatewayRevokedPermissionAtStartupKeepsGateway(t *testing.T) {
+	skipIfVPNGatewayUnsupported(t)
+	ts := NewTestSuite(t)
+
+	const gatewayPeerID = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N"
+
+	tp := ts.NewTestPeerWithAppConfig(
+		func(c *config.Config) {
+			c.KnownPeers[gatewayPeerID] = config.KnownPeer{
+				PeerID:                        gatewayPeerID,
+				Name:                          "gateway",
+				IPAddr:                        "10.66.0.2",
+				Confirmed:                     true,
+				CreatedAt:                     time.Now(),
+				AllowedUsingAsExitNode:        false,
+				RemoteVPNGatewayServerEnabled: true,
+			}
+			c.VPNGateway.ClientEnabled = true
+			c.VPNGateway.GatewayPeerID = gatewayPeerID
+		},
+		nil,
+	)
+
+	ts.True(tp.app.VPNGateway.IsClientActive(), "gateway routes must be installed")
+	info, err := tp.api.PeerInfo()
+	ts.NoError(err)
+	ts.True(info.VPNGateway.ClientEnabled)
+	ts.Equal(gatewayPeerID, info.VPNGateway.GatewayPeerID)
+
+	// Only startup skips the check: enabling the same peer by hand fails.
+	err = tp.api.EnableVPNGatewayClient(gatewayPeerID)
+	ts.Error(err)
+	ts.Contains(err.Error(), "AllowedUsingAsExitNode=false")
 }
 
 // TestGatewayDNSInterception verifies the DNS interceptor filter runs before

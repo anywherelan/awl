@@ -156,7 +156,8 @@ func (g *VPNGateway) ListAvailableVPNGateways() []entity.AvailableVPNGateway {
 
 // EnableClient turns on VPN gateway client mode using the given peer as the
 // gateway, applying OS-level routes immediately. Atomic: rolls back the
-// tunnel binding on apply failure.
+// tunnel binding on apply failure. The peer must allow us to use it as a
+// gateway, see checkGatewayAllowed.
 //
 // On android the OS-level apply (the netstate manager's routes / marking) is a
 // no-op — routing is owned by the host's VpnService.Builder. This call flips
@@ -168,6 +169,27 @@ func (g *VPNGateway) EnableClient(gatewayPeerID peer.ID) error {
 	if err := VPNGatewayClientSupported(); err != nil {
 		return err
 	}
+	if err := g.checkGatewayAllowed(gatewayPeerID); err != nil {
+		return err
+	}
+	return g.bindClient(gatewayPeerID)
+}
+
+// checkGatewayAllowed returns an error if the peer does not allow us to use it
+// as a VPN gateway, as of the last status exchange. An unknown peer is left to
+// Tunnel.SetVPNGatewayPeer.
+func (g *VPNGateway) checkGatewayAllowed(gatewayPeerID peer.ID) error {
+	kp, ok := g.conf.GetPeer(gatewayPeerID.String())
+	if !ok || kp.CanUseAsVPNGateway() {
+		return nil
+	}
+	return fmt.Errorf("peer %s is not currently a valid VPN gateway "+
+		"(AllowedUsingAsExitNode=%v, RemoteVPNGatewayServerEnabled=%v)",
+		gatewayPeerID, kp.AllowedUsingAsExitNode, kp.RemoteVPNGatewayServerEnabled)
+}
+
+// bindClient is EnableClient without the permission check.
+func (g *VPNGateway) bindClient(gatewayPeerID peer.ID) error {
 	if g.tunnel == nil {
 		return fmt.Errorf("VPN interface is disabled, cannot enable gateway")
 	}
@@ -262,7 +284,13 @@ func (g *VPNGateway) SetupAtStartup() error {
 			return nil
 		}
 
-		err = g.EnableClient(gatewayPeerID)
+		// Unlike EnableClient, keep the gateway even if the peer no longer
+		// allows it, as we do when it revokes the permission while we run:
+		// traffic waits for the gateway instead of going around it.
+		if err := g.checkGatewayAllowed(gatewayPeerID); err != nil {
+			g.logger.Warnf("%v: internet traffic will not go until the peer allows it again", err)
+		}
+		err = g.bindClient(gatewayPeerID)
 		if err != nil {
 			return fmt.Errorf("couldn't enable VPN gateway client at startup: %v", err)
 		}
