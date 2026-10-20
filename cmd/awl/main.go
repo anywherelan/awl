@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -22,9 +23,8 @@ const appType = config.AppTypeAwl
 func main() {
 	cli.New(appType).Run()
 
-	uid := os.Geteuid()
-	if uid == 0 {
-		// this is required to allow listening on config.AdminHttpServerIP address
+	if runtime.GOOS == "darwin" && os.Geteuid() == 0 {
+		// macOS has only 127.0.0.1 on lo0: this is required to allow listening on config.AdminHttpServerIP address
 		//nolint:gosec
 		err := exec.Command("ifconfig", "lo0", "alias", config.AdminHttpServerIP, "up").Run()
 		if err != nil {
