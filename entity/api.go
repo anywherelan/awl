@@ -138,6 +138,7 @@ type (
 	}
 
 	SOCKS5Info struct {
+		// ListenAddress — address the local proxy listens on, empty if the proxy is off.
 		ListenAddress   string
 		ProxyingEnabled bool
 		ListenerEnabled bool

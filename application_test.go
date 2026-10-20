@@ -837,12 +837,12 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	// The test server is on 127.0.0.1: the clients have to send it to the exit node.
 	peer1.app.SOCKS5.SetBypassLocalAwl(false)
 	peer2.app.SOCKS5.SetBypassLocalAwl(false)
-	testSOCKS5Proxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "general SOCKS server failure"))
+	testSOCKS5Proxy(ts, ts.socks5Addr(peer1), fmt.Sprintf("%s %s", "unknown error", "general SOCKS server failure"))
 
-	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "connection not allowed by ruleset"))
+	testSOCKS5Proxy(ts, ts.socks5Addr(peer2), fmt.Sprintf("%s %s", "unknown error", "connection not allowed by ruleset"))
 
 	peer1.app.SOCKS5.SetExitNodeRulesEnabled(false)
-	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, "")
+	testSOCKS5Proxy(ts, ts.socks5Addr(peer2), "")
 	peer1.app.SOCKS5.SetExitNodeRulesEnabled(true)
 
 	// Testing API
@@ -1711,7 +1711,26 @@ func TestSOCKS5ProxyFallbackToOldProtocol(t *testing.T) {
 	peer2.app.SOCKS5.SetExitNodeRulesEnabled(false)
 
 	// Verify SOCKS5 still works via fallback to old protocol
-	testSOCKS5Proxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, "")
+	testSOCKS5Proxy(ts, ts.socks5Addr(peer1), "")
+}
+
+// TestSOCKS5ListenAddressTaken: awl starts when the address of the local SOCKS5
+// proxy is taken, and the API reports the proxy as off.
+func TestSOCKS5ListenAddressTaken(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	ts.NoError(err)
+	defer taken.Close()
+
+	peer := ts.NewTestPeerWithConfig(func(c *config.Config) {
+		c.SOCKS5.ListenAddress = taken.Addr().String()
+	})
+
+	info, err := peer.api.PeerInfo()
+	ts.NoError(err)
+	ts.True(info.SOCKS5.ListenerEnabled)
+	ts.Empty(info.SOCKS5.ListenAddress)
 }
 
 func TestSOCKS5ProxyWithLocalAuth(t *testing.T) {
@@ -1721,7 +1740,7 @@ func TestSOCKS5ProxyWithLocalAuth(t *testing.T) {
 		c.SOCKS5 = config.SOCKS5Config{
 			ListenerEnabled: true,
 			ProxyingEnabled: true,
-			ListenAddress:   pickFreeAddr(ts.t),
+			ListenAddress:   "127.0.0.1:0",
 			Username:        "testuser",
 			Password:        "testpass",
 		}
@@ -1753,7 +1772,7 @@ func TestSOCKS5ProxyWithLocalAuth(t *testing.T) {
 	peer1.app.SOCKS5.SetBypassLocalAwl(false)
 	peer2.app.SOCKS5.SetExitNodeRulesEnabled(false)
 
-	proxyAddr := peer1.app.Conf.SOCKS5.ListenAddress
+	proxyAddr := ts.socks5Addr(peer1)
 
 	// Correct credentials — should succeed
 	testSOCKS5ProxyWithAuth(ts, proxyAddr, &proxy.Auth{User: "testuser", Password: "testpass"}, 1, "")
@@ -1780,7 +1799,7 @@ func TestSOCKS5ExitNodeRefusesLocalTargets(t *testing.T) {
 
 	_, apiPort, err := net.SplitHostPort(exitNode.app.Api.Address())
 	ts.NoError(err)
-	dialer, err := proxy.SOCKS5("tcp", client.app.Conf.SOCKS5.ListenAddress, nil, nil)
+	dialer, err := proxy.SOCKS5("tcp", ts.socks5Addr(client), nil, nil)
 	ts.NoError(err)
 	dial := func(target string) error {
 		conn, err := dialer.Dial("tcp", target)
@@ -1816,7 +1835,7 @@ func TestSOCKS5ClientHandlesLocalTargets(t *testing.T) {
 
 	_, apiPort, err := net.SplitHostPort(client.app.Api.Address())
 	ts.NoError(err)
-	dialer, err := proxy.SOCKS5("tcp", client.app.Conf.SOCKS5.ListenAddress, nil, nil)
+	dialer, err := proxy.SOCKS5("tcp", ts.socks5Addr(client), nil, nil)
 	ts.NoError(err)
 	dial := func(target string) error {
 		conn, err := dialer.Dial("tcp", target)
