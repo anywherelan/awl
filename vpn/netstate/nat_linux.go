@@ -9,15 +9,14 @@ import (
 	"strings"
 
 	"github.com/coreos/go-iptables/iptables"
+
+	"github.com/anywherelan/awl/vpn/privatenet"
 )
 
 const (
 	awlForwardChain  = "AWL-FORWARD"
 	awlForwardChain6 = "AWL6-FORWARD"
 )
-
-// privateSubnets (the destination set we refuse to forward) is shared across
-// platforms — see private_subnets.go.
 
 // natState holds the state needed to teardown NAT rules.
 //
@@ -163,8 +162,9 @@ func setupIptables(ipt *iptables.IPTables, state *natState) error {
 		return fmt.Errorf("add conntrack rule: %w", err)
 	}
 
-	for _, priv := range privateSubnets {
-		if err := ipt.Append("filter", awlForwardChain, "-d", priv, "-j", "DROP"); err != nil {
+	// The destinations we refuse to forward, see the privatenet package.
+	for _, priv := range privatenet.PrefixesV4() {
+		if err := ipt.Append("filter", awlForwardChain, "-d", priv.String(), "-j", "DROP"); err != nil {
 			return fmt.Errorf("add DROP rule for %s: %w", priv, err)
 		}
 	}
@@ -203,8 +203,8 @@ func setupIptables6(ipt6 *iptables.IPTables, state *natState) error {
 		return fmt.Errorf("add conntrack rule to %s: %w", awlForwardChain6, err)
 	}
 
-	for _, priv := range privateSubnetsV6 {
-		if err := ipt6.Append("filter", awlForwardChain6, "-d", priv, "-j", "DROP"); err != nil {
+	for _, priv := range privatenet.PrefixesV6() {
+		if err := ipt6.Append("filter", awlForwardChain6, "-d", priv.String(), "-j", "DROP"); err != nil {
 			return fmt.Errorf("add IPv6 DROP rule for %s to %s: %w", priv, awlForwardChain6, err)
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -544,9 +545,16 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 }
 
 // DNSNamesMapping returns the IPv4 addresses of known peers by peer ID and by
-// domain name. Peers with an invalid IP are left out.
+// domain name, and the address of the admin server. Peers with an invalid IP
+// are left out.
 func (c *Config) DNSNamesMapping() map[string]netip.Addr {
 	mapping := make(map[string]netip.Addr)
+	// TODO(android awldns): make admin.awl work on Android. The admin server is
+	// not reachable on AdminHttpServerIP there (the API listens elsewhere and
+	// port 80 cannot be bound), so don't advertise a dead name.
+	if runtime.GOOS != "android" {
+		mapping[AdminHttpServerDomainName] = netip.MustParseAddr(AdminHttpServerIP)
+	}
 	c.RLock()
 	defer c.RUnlock()
 

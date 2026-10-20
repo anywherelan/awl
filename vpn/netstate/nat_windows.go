@@ -18,6 +18,8 @@ import (
 	"github.com/tailscale/wf"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
+
+	"github.com/anywherelan/awl/vpn/privatenet"
 )
 
 const (
@@ -257,7 +259,7 @@ func resyncForwarding(state *natState, route uplinkRoute, ok bool, enable func(w
 // setupWFP opens a dynamic WFP session and installs one BLOCK filter on the
 // IPv4 forward layer:
 //
-//	sourceInterfaceIndex == TUN  AND  src ∈ awlSubnet  AND  dst ∈ privateSubnets
+//	sourceInterfaceIndex == TUN  AND  src ∈ awlSubnet  AND  dst ∈ privatenet.PrefixesV4()
 //
 // (multiple conditions on one field OR together, distinct fields AND).
 //
@@ -305,7 +307,7 @@ func setupWFP(state *natState, tunIfIndex uint32, awlPrefix netip.Prefix) error 
 		{Field: wf.FieldSourceInterfaceIndex, Op: wf.MatchTypeEqual, Value: tunIfIndex},
 		{Field: wf.FieldIPSourceAddress, Op: wf.MatchTypeEqual, Value: awlPrefix},
 	}
-	for _, p := range privateSubnetPrefixes() {
+	for _, p := range privatenet.PrefixesV4() {
 		conditions = append(conditions, &wf.Match{
 			Field: wf.FieldIPDestinationAddress, Op: wf.MatchTypeEqual, Value: p,
 		})

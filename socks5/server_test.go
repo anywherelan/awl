@@ -18,9 +18,9 @@ import (
 
 func TestProxy(t *testing.T) {
 	listenAddr := pickFreeAddr(t)
-	socksServer := NewServer(nil)
-	socksServer.SetRules(NewRulePermitAll())
-	socksClient, err := NewClient(listenAddr, "", "")
+	socksServer := NewServer(nil, nil)
+	socksServer.SetRulesEnabled(false)
+	socksClient, err := NewClient(listenAddr, "", "", nil)
 	require.NoError(t, err)
 
 	wg := &sync.WaitGroup{}
@@ -49,9 +49,9 @@ func TestProxy(t *testing.T) {
 
 func TestProxyWithAuth(t *testing.T) {
 	listenAddr := pickFreeAddr(t)
-	socksServer := NewServer(nil)
-	socksServer.SetRules(NewRulePermitAll())
-	socksClient, err := NewClient(listenAddr, "testuser", "testpass")
+	socksServer := NewServer(nil, nil)
+	socksServer.SetRulesEnabled(false)
+	socksClient, err := NewClient(listenAddr, "testuser", "testpass", nil)
 	require.NoError(t, err)
 
 	wg := &sync.WaitGroup{}
@@ -89,7 +89,7 @@ func TestProxyWithAuthRejection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			listenAddr := pickFreeAddr(t)
-			socksClient, err := NewClient(listenAddr, "testuser", "testpass")
+			socksClient, err := NewClient(listenAddr, "testuser", "testpass", nil)
 			require.NoError(t, err)
 
 			wg := &sync.WaitGroup{}

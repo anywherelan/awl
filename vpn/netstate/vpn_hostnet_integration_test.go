@@ -49,6 +49,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vishvananda/netlink"
 	"go.uber.org/goleak"
+
+	"github.com/anywherelan/awl/vpn/privatenet"
 )
 
 const (
@@ -436,8 +438,8 @@ func assertNATApplied(t *testing.T) {
 		"-N " + awlForwardChain,
 		"-A " + awlForwardChain + " -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
 	}
-	for _, p := range privateSubnets {
-		want = append(want, "-A "+awlForwardChain+" -d "+p+" -j DROP")
+	for _, p := range privatenet.PrefixesV4() {
+		want = append(want, "-A "+awlForwardChain+" -d "+p.String()+" -j DROP")
 	}
 	want = append(want, "-A "+awlForwardChain+" -j ACCEPT")
 

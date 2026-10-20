@@ -124,3 +124,10 @@ func fitLabel(label, suffix string) string {
 func domainNameToASCII(domain string) (string, error) {
 	return idnaProfile.ToASCII(domain)
 }
+
+// InLocalDomain reports whether name is in the LocalDomain zone: "awl" itself
+// or a name ending in ".awl".
+func InLocalDomain(name string) bool {
+	name = strings.ToLower(strings.TrimSuffix(name, "."))
+	return name == LocalDomain || strings.HasSuffix(name, "."+LocalDomain)
+}

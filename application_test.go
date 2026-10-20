@@ -834,13 +834,16 @@ func TestUpdateUseAsExitNodeConfig(t *testing.T) {
 	ts.NoError(err)
 	ts.Len(availableProxies, 0)
 
+	// The test server is on 127.0.0.1: the clients have to send it to the exit node.
+	peer1.app.SOCKS5.SetBypassLocalAwl(false)
+	peer2.app.SOCKS5.SetBypassLocalAwl(false)
 	testSOCKS5Proxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "general SOCKS server failure"))
 
 	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, fmt.Sprintf("%s %s", "unknown error", "connection not allowed by ruleset"))
 
-	peer1.app.SOCKS5.SetProxyingLocalhostEnabled(true)
+	peer1.app.SOCKS5.SetExitNodeRulesEnabled(false)
 	testSOCKS5Proxy(ts, peer2.app.Conf.SOCKS5.ListenAddress, "")
-	peer1.app.SOCKS5.SetProxyingLocalhostEnabled(false)
+	peer1.app.SOCKS5.SetExitNodeRulesEnabled(true)
 
 	// Testing API
 	err = peer1.api.UpdateProxySettings(peer2.PeerID())
@@ -1704,7 +1707,8 @@ func TestSOCKS5ProxyFallbackToOldProtocol(t *testing.T) {
 	}, 15*time.Second, 100*time.Millisecond)
 
 	peer1.app.SOCKS5.SetProxyPeerID(peer2.PeerID())
-	peer2.app.SOCKS5.SetProxyingLocalhostEnabled(true)
+	peer1.app.SOCKS5.SetBypassLocalAwl(false)
+	peer2.app.SOCKS5.SetExitNodeRulesEnabled(false)
 
 	// Verify SOCKS5 still works via fallback to old protocol
 	testSOCKS5Proxy(ts, peer1.app.Conf.SOCKS5.ListenAddress, "")
@@ -1746,7 +1750,8 @@ func TestSOCKS5ProxyWithLocalAuth(t *testing.T) {
 	}, 15*time.Second, 100*time.Millisecond)
 
 	peer1.app.SOCKS5.SetProxyPeerID(peer2.PeerID())
-	peer2.app.SOCKS5.SetProxyingLocalhostEnabled(true)
+	peer1.app.SOCKS5.SetBypassLocalAwl(false)
+	peer2.app.SOCKS5.SetExitNodeRulesEnabled(false)
 
 	proxyAddr := peer1.app.Conf.SOCKS5.ListenAddress
 
@@ -1758,6 +1763,84 @@ func TestSOCKS5ProxyWithLocalAuth(t *testing.T) {
 
 	// No credentials — should fail (server requires user/pass, client offers no auth only)
 	testSOCKS5ProxyWithAuth(ts, proxyAddr, nil, 1, "no acceptable authentication methods")
+}
+
+// TestSOCKS5ExitNodeRefusesLocalTargets is the end-to-end S1 test: a peer
+// allowed to use the exit node cannot reach the exit node's API through
+// 0.0.0.0, nor the exit node's awl peers by address or by .awl name.
+func TestSOCKS5ExitNodeRefusesLocalTargets(t *testing.T) {
+	ts := NewTestSuite(t)
+	client := ts.NewTestPeer(true)
+	exitNode := ts.NewTestPeer(true)
+	ts.makeFriends(exitNode, client)
+	clientIP := grantExitNodePermission(ts, exitNode, client)
+	client.app.SOCKS5.SetProxyPeerID(exitNode.PeerID())
+	// The client would handle these targets itself.
+	client.app.SOCKS5.SetBypassLocalAwl(false)
+
+	_, apiPort, err := net.SplitHostPort(exitNode.app.Api.Address())
+	ts.NoError(err)
+	dialer, err := proxy.SOCKS5("tcp", client.app.Conf.SOCKS5.ListenAddress, nil, nil)
+	ts.NoError(err)
+	dial := func(target string) error {
+		conn, err := dialer.Dial("tcp", target)
+		if err == nil {
+			conn.Close()
+		}
+		return err
+	}
+
+	for target, wantErr := range map[string]string{
+		net.JoinHostPort("0.0.0.0", apiPort):   "not allowed by ruleset",
+		net.JoinHostPort("127.0.0.1", apiPort): "not allowed by ruleset",
+		net.JoinHostPort(clientIP, "80"):       "not allowed by ruleset",
+		"peer.awl:80":                          "host unreachable",
+	} {
+		err := dial(target)
+		ts.Error(err, target)
+		ts.ErrorContains(err, wantErr, target)
+	}
+
+	// The control: with the rules off, the API is reached the same way.
+	exitNode.app.SOCKS5.SetExitNodeRulesEnabled(false)
+	ts.NoError(dial(net.JoinHostPort("127.0.0.1", apiPort)))
+}
+
+// TestSOCKS5ClientHandlesLocalTargets: the proxy client connects to its own
+// localhost itself, with or without an exit node, and refuses .awl names it
+// does not know. Other targets still go to the exit node.
+func TestSOCKS5ClientHandlesLocalTargets(t *testing.T) {
+	ts := NewTestSuite(t)
+	client := ts.NewTestPeer(true)
+	exitNode := ts.NewTestPeer(true)
+
+	_, apiPort, err := net.SplitHostPort(client.app.Api.Address())
+	ts.NoError(err)
+	dialer, err := proxy.SOCKS5("tcp", client.app.Conf.SOCKS5.ListenAddress, nil, nil)
+	ts.NoError(err)
+	dial := func(target string) error {
+		conn, err := dialer.Dial("tcp", target)
+		if err == nil {
+			conn.Close()
+		}
+		return err
+	}
+	checkLocalTargets := func() {
+		ts.NoError(dial(net.JoinHostPort("127.0.0.1", apiPort)))
+		ts.NoError(dial(net.JoinHostPort("localhost", apiPort)))
+		ts.ErrorContains(dial("unknown.awl:80"), "host unreachable")
+	}
+
+	// No exit node is chosen.
+	checkLocalTargets()
+	ts.ErrorContains(dial(net.JoinHostPort("0.0.0.0", apiPort)), "general SOCKS server failure")
+
+	ts.makeFriends(exitNode, client)
+	grantExitNodePermission(ts, exitNode, client)
+	client.app.SOCKS5.SetProxyPeerID(exitNode.PeerID())
+
+	checkLocalTargets()
+	ts.ErrorContains(dial(net.JoinHostPort("0.0.0.0", apiPort)), "not allowed by ruleset")
 }
 
 func TestUpdatePeerSettingsIPAddr(t *testing.T) {

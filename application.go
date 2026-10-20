@@ -592,7 +592,7 @@ func (a *DNSService) applyOSDNSConfigLocked() {
 	// TODO: consider pushing admin.awl into Hosts (a static FQDN->IP map applied
 	// to /etc/hosts) instead of (or in addition to) injecting
 	// AdminHttpServerDomainName into the resolver name mapping in
-	// refreshDNSConfigLocked — that would make the admin UI name resolvable even
+	// Config.DNSNamesMapping — that would make the admin UI name resolvable even
 	// when the awl :53 resolver itself is not reachable.
 	newOSConfig := dns.OSConfig{
 		Nameservers:  []netip.Addr{netip.MustParseAddr(a.dnsHost)},
@@ -666,12 +666,6 @@ func (a *DNSService) refreshDNSConfigLocked() {
 		return
 	}
 	dnsNamesMapping := a.conf.DNSNamesMapping()
-	// TODO(android awldns): make admin.awl work on Android. The admin server is
-	// not reachable on AdminHttpServerIP there (the API listens elsewhere and
-	// port 80 cannot be bound), so don't advertise a dead name.
-	if runtime.GOOS != "android" {
-		dnsNamesMapping[config.AdminHttpServerDomainName] = netip.MustParseAddr(config.AdminHttpServerIP)
-	}
 	dnsNamesMappingV6 := a.conf.DNSNamesMappingV6()
 	a.dnsResolver.ReceiveConfiguration(a.upstreamDNS, dnsNamesMapping, dnsNamesMappingV6)
 }

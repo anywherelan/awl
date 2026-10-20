@@ -12,6 +12,8 @@ import (
 	"github.com/tailscale/wf"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
+
+	"github.com/anywherelan/awl/vpn/privatenet"
 )
 
 const (
@@ -265,7 +267,7 @@ func setupClientFence(state *routeState) error {
 func clientFenceRules(sublayer wf.SublayerID, tunLUID winipcfg.LUID, appID string) ([]*wf.Rule, error) {
 	localDst4 := slices.Concat(
 		[]netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
-		privateSubnetPrefixes(),
+		privatenet.PrefixesV4(),
 		[]netip.Prefix{
 			netip.MustParsePrefix("224.0.0.0/4"),
 			netip.MustParsePrefix("255.255.255.255/32"),
