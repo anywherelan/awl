@@ -34,7 +34,7 @@ const (
 	AdminHttpServerIP            = "127.0.0.66"
 	AdminHttpServerListenAddress = "127.0.0.66:80"
 
-	defaultSOCKS5ListenAddress = "127.0.0.66:8080"
+	defaultSOCKS5ListenAddress = "127.0.0.1:1066"
 
 	DefaultPeerAlias = "peer"
 )

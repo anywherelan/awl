@@ -333,8 +333,9 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if !conf.Update.TrayAutoCheckEnabled && conf.Update.TrayAutoCheckInterval == "" {
 		conf.Update.TrayAutoCheckEnabled = true
 	}
-	if i := conf.Update.TrayAutoCheckInterval; i == "" || i == "24h" {
-		conf.Update.TrayAutoCheckInterval = "8h"
+	// "24h" and "8h" were the defaults before
+	if i := conf.Update.TrayAutoCheckInterval; i == "" || i == "24h" || i == "8h" {
+		conf.Update.TrayAutoCheckInterval = "48h"
 	}
 }
 

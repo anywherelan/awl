@@ -620,6 +620,8 @@ definitions:
         description: Connected — current libp2p connectivity to the exit peer.
         type: boolean
       listenAddress:
+        description: ListenAddress — address the local proxy listens on, empty if
+          the proxy is off.
         type: string
       listenerEnabled:
         type: boolean

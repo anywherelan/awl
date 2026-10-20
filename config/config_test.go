@@ -265,6 +265,22 @@ func TestSetDefaultsFixesDomainNames(t *testing.T) {
 	}, got)
 }
 
+func TestSetDefaultsUpdateCheckInterval(t *testing.T) {
+	for _, tc := range []struct {
+		saved, want string
+	}{
+		{saved: "", want: "48h"},
+		{saved: "24h", want: "48h"},
+		{saved: "8h", want: "48h"},
+		{saved: "12h", want: "12h"},
+	} {
+		conf := &Config{dataDir: t.TempDir()}
+		conf.Update.TrayAutoCheckInterval = tc.saved
+		setDefaults(conf, nil)
+		assert.Equal(t, tc.want, conf.Update.TrayAutoCheckInterval, "saved %q", tc.saved)
+	}
+}
+
 func TestUniqDomainName(t *testing.T) {
 	conf := &Config{KnownPeers: map[string]KnownPeer{
 		"peer-nas":      {PeerID: "peer-nas", DomainName: "nas"},

@@ -329,7 +329,7 @@ func TestSimulatedSOCKS5ProxyPerformance(t *testing.T) {
 			// Setup raw TCP server that sends unlimited data
 			tcpAddr := startUnlimitedTCPServer(t)
 
-			dialer, err := proxy.SOCKS5("tcp", peer1.app.Conf.SOCKS5.ListenAddress, nil, nil)
+			dialer, err := proxy.SOCKS5("tcp", ts.socks5Addr(peer1), nil, nil)
 			ts.NoError(err)
 
 			// Measure TTFB and throughput

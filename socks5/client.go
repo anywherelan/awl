@@ -79,6 +79,11 @@ func (c *Client) Close() error {
 	return c.listener.Close()
 }
 
+// Addr returns the address the listener is bound to.
+func (c *Client) Addr() net.Addr {
+	return c.listener.Addr()
+}
+
 func (c *Client) ConnsChan() <-chan net.Conn {
 	return c.connsCh
 }

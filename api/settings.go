@@ -51,7 +51,7 @@ func (h *Handler) GetMyPeerInfo(c echo.Context) (err error) {
 			h.conf.RUnlock()
 
 			info := entity.SOCKS5Info{
-				ListenAddress:   socks5.ListenAddress,
+				ListenAddress:   h.socks5.ListenAddress(),
 				ProxyingEnabled: socks5.ProxyingEnabled,
 				ListenerEnabled: socks5.ListenerEnabled,
 				UsingPeerID:     socks5.UsingPeerID,

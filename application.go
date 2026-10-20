@@ -175,10 +175,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 
 	a.Dns = NewDNSService(a.Conf, a.Eventbus, a.ctx, a.logger)
 	a.AuthStatus = service.NewAuthStatus(a.P2p, a.Conf, a.Eventbus)
-	a.SOCKS5, err = service.NewSOCKS5(a.P2p, a.Conf, a.NetManager)
-	if err != nil {
-		return fmt.Errorf("failed to init socks5: %v", err)
-	}
+	a.SOCKS5 = service.NewSOCKS5(a.P2p, a.Conf, a.NetManager)
 
 	p2pHost.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
 	p2pHost.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)

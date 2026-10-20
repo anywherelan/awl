@@ -35,7 +35,7 @@ func printStatus(api *apiclient.Client, w io.Writer) error {
 	}
 	rows = append(rows,
 		[]string{"VPN gateway server", formatWorkingStatus(stats.VPNGateway.ServerEnabled)},
-		[]string{"SOCKS5 Proxy", formatServiceStatus(stats.SOCKS5.ListenerEnabled, stats.SOCKS5.ListenAddress)},
+		[]string{"SOCKS5 Proxy", formatServiceStatus(stats.SOCKS5.ListenAddress != "", stats.SOCKS5.ListenAddress)},
 	)
 
 	s5 := stats.SOCKS5

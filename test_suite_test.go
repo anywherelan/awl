@@ -151,7 +151,7 @@ func (ts *TestSuite) newTestPeerWithSOCKS5(disableLogging bool, listenAddrs []mu
 			c.SOCKS5 = config.SOCKS5Config{
 				ListenerEnabled: socks5Conf.ListenerEnabled,
 				ProxyingEnabled: socks5Conf.ProxyingEnabled,
-				ListenAddress:   pickFreeAddr(ts.t),
+				ListenAddress:   "127.0.0.1:0",
 				UsingPeerID:     "",
 			}
 		}
@@ -219,7 +219,7 @@ func (ts *TestSuite) buildTestPeer(disableLogging bool, listenAddrs []multiaddr.
 		app.Conf.SOCKS5 = config.SOCKS5Config{
 			ListenerEnabled: true,
 			ProxyingEnabled: true,
-			ListenAddress:   pickFreeAddr(ts.t),
+			ListenAddress:   "127.0.0.1:0",
 			UsingPeerID:     "",
 		}
 	}
@@ -552,13 +552,14 @@ func (t *testTun) Close() error {
 	return nil
 }
 
-func pickFreeAddr(t testing.TB) string {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().String()
+// socks5Addr returns the address the local SOCKS5 proxy of tp listens on, as
+// the API reports it. Test peers listen on port 0, so the port is known only
+// after the start.
+func (ts *TestSuite) socks5Addr(tp TestPeer) string {
+	info, err := tp.api.PeerInfo()
+	ts.NoError(err)
+	ts.NotEmpty(info.SOCKS5.ListenAddress, "socks5 proxy is off")
+	return info.SOCKS5.ListenAddress
 }
 
 func testPacket(length int) []byte {

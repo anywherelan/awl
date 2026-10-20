@@ -37,7 +37,10 @@ type SOCKS5 struct {
 	server *socks5.Server
 }
 
-func NewSOCKS5(p2pService P2p, conf *config.Config, sockMarker SocketMarker) (*SOCKS5, error) {
+// NewSOCKS5 starts the local SOCKS5 proxy if it is enabled. If it fails to
+// start, e.g. its port is taken, the proxy stays off and the rest of awl works
+// without it.
+func NewSOCKS5(p2pService P2p, conf *config.Config, sockMarker SocketMarker) *SOCKS5 {
 	logger := log.Logger("awl/service/socks5")
 
 	awlPrefixes := []netip.Prefix{conf.VPNPrefix().Masked()}
@@ -50,10 +53,10 @@ func NewSOCKS5(p2pService P2p, conf *config.Config, sockMarker SocketMarker) (*S
 		var err error
 		client, err = socks5.NewClient(conf.SOCKS5.ListenAddress, conf.SOCKS5.Username, conf.SOCKS5.Password, awlPrefixes)
 		if err != nil {
-			return nil, fmt.Errorf("failed to start socks5 listener: %v", err)
+			logger.Errorf("socks5 proxy failed to start: %v. Free the port or change socks5.listenAddress in the config", err)
+		} else {
+			logger.Infof("started socks5 proxy on socks5://%s", client.Addr())
 		}
-
-		logger.Infof("started socks5 proxy on socks5://%s", conf.SOCKS5.ListenAddress)
 	}
 
 	// Mark the exit-node's outbound sockets so they bypass our own VPN gateway
@@ -73,13 +76,22 @@ func NewSOCKS5(p2pService P2p, conf *config.Config, sockMarker SocketMarker) (*S
 		server: server,
 	}
 
-	return socks, nil
+	return socks
 }
 
 func (s *SOCKS5) Close() {
 	if s.client != nil {
 		_ = s.client.Close()
 	}
+}
+
+// ListenAddress returns the address the local SOCKS5 proxy listens on, or an
+// empty string if the proxy is off.
+func (s *SOCKS5) ListenAddress() string {
+	if s.client == nil {
+		return ""
+	}
+	return s.client.Addr().String()
 }
 
 func (s *SOCKS5) ListAvailableProxies() []entity.AvailableProxy {
