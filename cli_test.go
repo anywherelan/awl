@@ -458,7 +458,16 @@ func TestCLI_PeersInvite(t *testing.T) {
 
 		invites, err := peer1.api.Invites()
 		require.NoError(t, err)
-		require.WithinDuration(t, time.Now().Add(7*24*time.Hour), invites[0].ExpiresAt, time.Minute)
+		// Not invites[0]: the list goes newest first, but on Windows the clock
+		// is coarse enough for all invites here to share one CreatedAt.
+		var created *entity.InviteResponse
+		for i := range invites {
+			if invites[i].MaxUses == 5 {
+				created = &invites[i]
+			}
+		}
+		require.NotNil(t, created)
+		require.WithinDuration(t, time.Now().Add(7*24*time.Hour), created.ExpiresAt, time.Minute)
 	})
 
 	t.Run("List", func(t *testing.T) {

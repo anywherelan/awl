@@ -27,6 +27,7 @@ import (
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go/integrationtests/tools/israce"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/proxy"
 
@@ -2303,11 +2304,10 @@ func TestTunnelPackets(t *testing.T) {
 	go sendPackets(peer2)
 	wg.Wait()
 
-	time.Sleep(2 * time.Second)
-	received1 := peer1.tun.InboundCount()
-	received2 := peer2.tun.InboundCount()
-	ts.EqualValues(packetsCount, received1)
-	ts.EqualValues(packetsCount, received2)
+	ts.EventuallyWithT(func(c *assert.CollectT) {
+		assert.EqualValues(c, packetsCount, peer1.tun.InboundCount())
+		assert.EqualValues(c, packetsCount, peer2.tun.InboundCount())
+	}, 10*time.Second, 50*time.Millisecond)
 
 	// --- IPv6 Routing Test ---
 	peer2ConfigInPeer1, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
