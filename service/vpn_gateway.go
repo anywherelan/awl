@@ -193,6 +193,7 @@ func (g *VPNGateway) bindClient(gatewayPeerID peer.ID) error {
 	if g.tunnel == nil {
 		return fmt.Errorf("VPN interface is disabled, cannot enable gateway")
 	}
+	prevPeerID := g.clientGatewayPeerID()
 	if err := g.tunnel.SetVPNGatewayPeer(gatewayPeerID); err != nil {
 		return err
 	}
@@ -200,7 +201,33 @@ func (g *VPNGateway) bindClient(gatewayPeerID peer.ID) error {
 		g.tunnel.ClearVPNGatewayPeer()
 		return err
 	}
+
+	if prevPeerID == "" || prevPeerID == gatewayPeerID.String() {
+		g.logger.Infof("VPN gateway client mode enabled, gateway peer: %s", g.peerLabel(gatewayPeerID.String()))
+	} else {
+		g.logger.Infof("VPN gateway peer changed from %s to %s", g.peerLabel(prevPeerID), g.peerLabel(gatewayPeerID.String()))
+	}
 	return nil
+}
+
+// clientGatewayPeerID returns the gateway peer ID from the config, or "" when
+// client mode is off.
+func (g *VPNGateway) clientGatewayPeerID() string {
+	g.conf.RLock()
+	defer g.conf.RUnlock()
+	if !g.conf.VPNGateway.ClientEnabled {
+		return ""
+	}
+	return g.conf.VPNGateway.GatewayPeerID
+}
+
+// peerLabel formats a peer for logs as "name (peer ID)".
+func (g *VPNGateway) peerLabel(peerID string) string {
+	kp, ok := g.conf.GetPeer(peerID)
+	if !ok {
+		return peerID
+	}
+	return fmt.Sprintf("%s (%s)", kp.DisplayName(), peerID)
 }
 
 // DisableClient turns off VPN gateway client mode and persists the choice.
@@ -209,16 +236,23 @@ func (g *VPNGateway) bindClient(gatewayPeerID peer.ID) error {
 // packets fall back to the regular awl path. Idempotent. Handles tunnel==nil
 // (VPN interface disabled) by writing the config directly.
 func (g *VPNGateway) DisableClient() {
+	prevPeerID := g.clientGatewayPeerID()
 	if g.tunnel != nil {
 		g.teardownClient()
 		g.tunnel.ClearVPNGatewayPeer()
-		return
+	} else {
+		g.conf.Lock()
+		g.conf.VPNGateway.ClientEnabled = false
+		g.conf.VPNGateway.GatewayPeerID = ""
+		g.conf.Save()
+		g.conf.Unlock()
 	}
-	g.conf.Lock()
-	g.conf.VPNGateway.ClientEnabled = false
-	g.conf.VPNGateway.GatewayPeerID = ""
-	g.conf.Save()
-	g.conf.Unlock()
+
+	if prevPeerID == "" {
+		g.logger.Infof("VPN gateway client mode disabled, it was not enabled")
+	} else {
+		g.logger.Infof("VPN gateway client mode disabled, gateway peer was: %s", g.peerLabel(prevPeerID))
+	}
 }
 
 // SetServerEnabled toggles whether this node serves as a VPN gateway for
@@ -371,8 +405,8 @@ func (g *VPNGateway) teardownServer() {
 // applyClient installs the policy-routing rules + TUN default route. The
 // Tunnel must already be bound to the gateway peer (Tunnel.SetVPNGatewayPeer)
 // before calling this — applyClient reads the gateway peer ID from the config
-// purely for logging. Idempotent: if routes are already installed they are
-// reused.
+// only to check that it is set and valid. Idempotent: if routes are already
+// installed they are reused.
 func (g *VPNGateway) applyClient() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -390,8 +424,7 @@ func (g *VPNGateway) applyClient() error {
 	if gatewayPeerIDStr == "" {
 		return fmt.Errorf("no VPN gateway peer configured")
 	}
-	gatewayPeerID, err := peer.Decode(gatewayPeerIDStr)
-	if err != nil {
+	if _, err := peer.Decode(gatewayPeerIDStr); err != nil {
 		return fmt.Errorf("invalid VPN gateway peer ID %q: %w", gatewayPeerIDStr, err)
 	}
 
@@ -417,8 +450,6 @@ func (g *VPNGateway) applyClient() error {
 			g.logger.Errorf("force upstream DNS on gateway client enable (continuing, DNS may leak): %v", err)
 		}
 	}
-
-	g.logger.Infof("VPN gateway client mode enabled, gateway peer: %s", gatewayPeerID)
 
 	return nil
 }
