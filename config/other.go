@@ -53,10 +53,6 @@ func init() {
 		// copy of rus-2 in case dns does not work
 		"/ip4/193.124.131.112/tcp/6150/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
 		"/ip4/193.124.131.112/udp/6150/quic-v1/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ",
-
-		// community relay server from pftmclub - location at Vietnam - Hosting Provided by VPSSIEUTOC.VN
-		"/ip4/180.93.113.217/tcp/6150/p2p/12D3KooWNgQ5xRFxwq17MF6JkZWZWuikdWrnQQ65NNrtFfXCbwcu",
-		"/ip4/180.93.113.217/udp/6150/quic-v1/p2p/12D3KooWNgQ5xRFxwq17MF6JkZWZWuikdWrnQQ65NNrtFfXCbwcu",
 	} {
 		ma, err := multiaddr.NewMultiaddr(s)
 		if err != nil {

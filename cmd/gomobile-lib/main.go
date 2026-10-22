@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ipfs/go-log/v2"
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/anywherelan/awl"
@@ -16,6 +17,8 @@ import (
 )
 
 const appType = config.AppTypeAwlAndroid
+
+var logger = log.Logger("awl/gomobile")
 
 var (
 	globalApp     *awl.Application
@@ -33,7 +36,15 @@ func Setup(dataDir string) {
 	_ = os.Setenv(config.AppDataDirEnvKey, dataDir)
 }
 
+// GetConfig returns the config as JSON. While the server runs, it is the
+// running app's config: the file on disk is written asynchronously and may
+// still hold the previous state when the host reads the VPN gateway mode
+// right after changing it (the reconfigure_vpn flow).
 func GetConfig() string {
+	if globalApp != nil && globalApp.Conf != nil {
+		return string(globalApp.Conf.Export())
+	}
+
 	if globalDataDir == "" {
 		panic("call to GetConfig before Setup")
 	}
@@ -80,6 +91,8 @@ func StartServer(tunFD int32, protector SocketProtector) (err error) {
 	globalApp = awl.New()
 	globalApp.SetupLoggerAndConfig(appType)
 	globalApp.NetManager = netstate.NewAndroidManager(protectorToFunc(protector))
+	logger.Infof("Starting server: TUN fd %d, socket protector: %v, VPN gateway client: %v",
+		tunFD, protector != nil, gatewayClientEnabled())
 
 	// A tunFD of 0 means the host did not establish a VPN interface (VPN
 	// disabled in config); Init then skips the VPN device entirely. Otherwise
@@ -126,9 +139,22 @@ func UpdateTunDevice(tunFD int32) error {
 
 	inner, err := vpn.NewAndroidTUNFromFD(int(tunFD))
 	if err != nil {
+		logger.Errorf("Swap TUN device to fd %d: %v", tunFD, err)
 		return err
 	}
-	return globalSwapTUN.Swap(inner)
+	if err := globalSwapTUN.Swap(inner); err != nil {
+		logger.Errorf("Swap TUN device to fd %d: %v", tunFD, err)
+		return err
+	}
+	logger.Infof("Swapped TUN device to fd %d, VPN gateway client: %v", tunFD, gatewayClientEnabled())
+	return nil
+}
+
+func gatewayClientEnabled() bool {
+	conf := globalApp.Conf
+	conf.RLock()
+	defer conf.RUnlock()
+	return conf.VPNGateway.ClientEnabled
 }
 
 func protectorToFunc(p SocketProtector) netstate.ProtectFunc {
