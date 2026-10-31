@@ -107,11 +107,11 @@ awl combines two things: a virtual network interface (TUN on Linux/macOS/Android
 
 - **Transport:** QUIC (with native TLS 1.3) or TCP+TLS, negotiated per-connection.
 - **Discovery:** on startup, awl announces itself in the libp2p [DHT](https://en.wikipedia.org/wiki/Distributed_hash_table) via community [bootstrap nodes](https://github.com/anywherelan/awl-bootstrap-node). To reach a peer, awl looks it up in the DHT and opens a connection directly.
-- **NAT traversal and relays:** libp2p handles hole-punching for most NATs; when both peers are behind restrictive NAT, traffic is forwarded through a libp2p circuit relay. Relays only see encrypted bytes. For details on the mechanics, see [libp2p's NAT docs](https://docs.libp2p.io/concepts/nat/overview/).
+- **NAT traversal and relays:** libp2p handles hole-punching for most NATs; when both peers are behind restrictive NAT, traffic is forwarded through a libp2p circuit relay. Relays only see encrypted bytes. For details on the mechanics, see [libp2p's NAT docs](https://libp2p.io/docs/nat-overview/).
 
 ## Security
 
-awl's transport security comes from [libp2p](https://docs.libp2p.io/).
+awl's transport security comes from [libp2p](https://libp2p.io/docs/).
 
 - **Encryption:** all peer traffic is TLS 1.3, via either QUIC (which uses TLS natively) or TCP+TLS. Bootstrap nodes and relays see only ciphertext.
 - **Identity:** each peer has an `ed25519` keypair; the `peer_id` *is* the public key, so identity and authentication aren't separate layers. There is no CA, no certificate to revoke.
