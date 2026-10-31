@@ -25,6 +25,19 @@ const (
 	AppTypeAwlAndroid
 )
 
+func (t AppType) String() string {
+	switch t {
+	case AppTypeAwl:
+		return "awl"
+	case AppTypeAwlTray:
+		return "awl-tray"
+	case AppTypeAwlAndroid:
+		return "android"
+	default:
+		return "unknown"
+	}
+}
+
 // IsDevVersion
 // Possible duplicate of *Config.DevMode()
 // Based on build version (unchangeable after build, could be used only by developers)

@@ -4,56 +4,37 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// Read from the node on every scrape, see CollectFrom.
 var (
-	P2PBootstrapPeersTotal = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "p2p",
-		Name:      "bootstrap_peers_total",
-		Help:      "Total number of configured bootstrap peers.",
-	})
+	p2pBootstrapPeersTotalDesc = newDesc("p2p", "bootstrap_peers_total",
+		"Total number of configured bootstrap peers.")
 
-	P2PBootstrapPeersConnected = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "p2p",
-		Name:      "bootstrap_peers_connected",
-		Help:      "Number of connected bootstrap peers.",
-	})
+	p2pBootstrapPeersConnectedDesc = newDesc("p2p", "bootstrap_peers_connected",
+		"Number of connected bootstrap peers.")
 
-	P2PDHTRoutingTableSize = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "p2p",
-		Name:      "dht_routing_table_size",
-		Help:      "DHT routing table size.",
-	})
+	p2pDHTRoutingTableSizeDesc = newDesc("p2p", "dht_routing_table_size",
+		"DHT routing table size.")
 
-	P2POpenConnections = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "p2p",
-		Name:      "open_connections",
-		Help:      "Number of open connections.",
-	})
+	p2pOpenConnectionsDesc = newDesc("p2p", "open_connections",
+		"Number of open connections.")
 
-	P2POpenStreams = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "p2p",
-		Name:      "open_streams",
-		Help:      "Number of open streams.",
-	})
+	p2pOpenStreamsDesc = newDesc("p2p", "open_streams",
+		"Number of open streams.")
 
-	P2PConnectedPeers = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "p2p",
-		Name:      "connected_peers",
-		Help:      "Total number of connected peers (all, not just known).",
-	})
+	p2pConnectedPeersDesc = newDesc("p2p", "connected_peers",
+		"Total number of connected peers (all, not just known).")
 
-	P2PPeerLatencySeconds = factory.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "p2p",
-		Name:      "peer_latency_seconds",
-		Help:      "Last measured latency to known peers in seconds.",
-	}, []string{"peer_id"})
+	p2pPeerLatencySecondsDesc = newDesc("p2p", "peer_latency_seconds",
+		"Latency to connected known peers in seconds, a moving average of pings. Absent until the first ping.",
+		"peer_id")
 
+	p2pBandwidthBytesTotalDesc = newDesc("p2p", "bandwidth_bytes_total",
+		"Traffic of libp2p streams in bytes by protocol, without transport overhead. "+
+			"Streams before their protocol is negotiated are counted as unknown.",
+		"protocol", "direction")
+)
+
+var (
 	P2PRedialsTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",

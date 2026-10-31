@@ -84,8 +84,8 @@ func (p *P2p) PeerUserAgent(peerID peer.ID) string {
 // given peer is direct (i.e. not via a libp2p circuit relay). Returns false if
 // there are no connections at all.
 func (p *P2p) HasDirectConnection(peerID peer.ID) bool {
-	for _, info := range p.PeerConnectionsInfo(peerID) {
-		if !info.ThroughRelay {
+	for _, conn := range p.connsToPeer(peerID) {
+		if _, err := conn.RemoteMultiaddr().ValueForProtocol(multiaddr.P_CIRCUIT); err != nil {
 			return true
 		}
 	}

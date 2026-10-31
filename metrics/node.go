@@ -1,37 +1,14 @@
 package metrics
 
-import (
-	"runtime"
-	"time"
-
-	"github.com/prometheus/client_golang/prometheus"
-)
-
+// Read from the node on every scrape, see CollectFrom.
 var (
-	NodeInfo = factory.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "node",
-		Name:      "info",
-		Help:      "Static node information.",
-	}, []string{"version", "peer_id", "go_version", "os", "arch"})
+	nodeInfoDesc = newDesc("node", "info",
+		"Static node information.",
+		"version", "peer_id", "go_version", "os", "arch", "app")
 
-	NodeUptimeSeconds = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "node",
-		Name:      "uptime_seconds",
-		Help:      "Node uptime in seconds.",
-	})
+	nodeUptimeSecondsDesc = newDesc("node", "uptime_seconds",
+		"Node uptime in seconds.")
 
-	NodeStartTimestamp = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "node",
-		Name:      "start_timestamp",
-		Help:      "Unix timestamp of node start.",
-	})
+	nodeStartTimestampDesc = newDesc("node", "start_timestamp",
+		"Unix timestamp of node start.")
 )
-
-// SetNodeInfo sets the static node info gauge and the start timestamp.
-func SetNodeInfo(version, peerID string) {
-	NodeInfo.WithLabelValues(version, peerID, runtime.Version(), runtime.GOOS, runtime.GOARCH).Set(1)
-	NodeStartTimestamp.Set(float64(time.Now().Unix()))
-}

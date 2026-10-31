@@ -4,49 +4,35 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// values of the path label of awl_peers_connected
+const (
+	pathDirect = "direct"
+	pathRelay  = "relay"
+)
+
+// Read from the node on every scrape, see CollectFrom.
 var (
-	PeersKnownTotal = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "known_total",
-		Help:      "Total number of known peers.",
-	})
+	peersKnownTotalDesc = newDesc("peers", "known_total",
+		"Total number of known peers.")
 
-	PeersConnected = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "connected",
-		Help:      "Number of currently connected known peers.",
-	})
+	peersConnectedDesc = newDesc("peers", "connected",
+		"Number of currently connected known peers, by path: direct, or only through a relay (relay).",
+		"path")
 
-	PeersConfirmedTotal = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "confirmed_total",
-		Help:      "Number of confirmed (mutual) peers.",
-	})
+	peersConfirmedTotalDesc = newDesc("peers", "confirmed_total",
+		"Number of confirmed (mutual) peers.")
 
-	PeersBlockedTotal = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "blocked_total",
-		Help:      "Number of blocked peers.",
-	})
+	peersBlockedTotalDesc = newDesc("peers", "blocked_total",
+		"Number of blocked peers.")
 
-	PeersAuthRequestsIngoing = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "auth_requests_ingoing",
-		Help:      "Number of pending ingoing auth requests.",
-	})
+	peersAuthRequestsIngoingDesc = newDesc("peers", "auth_requests_ingoing",
+		"Number of pending ingoing auth requests.")
 
-	PeersAuthRequestsOutgoing = factory.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "auth_requests_outgoing",
-		Help:      "Number of pending outgoing auth requests.",
-	})
+	peersAuthRequestsOutgoingDesc = newDesc("peers", "auth_requests_outgoing",
+		"Number of pending outgoing auth requests.")
+)
 
+var (
 	PeersAuthRequestsSentTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",

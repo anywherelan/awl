@@ -2,10 +2,13 @@
 package metrics
 
 import (
-	"context"
+	"runtime"
+	"sync/atomic"
 	"time"
 
+	libp2pmetrics "github.com/libp2p/go-libp2p/core/metrics"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -22,7 +25,7 @@ var Registry = prometheus.NewRegistry()
 
 var factory = promauto.With(Registry)
 
-// P2pMetrics is an interface for getting p2p network stats used by the background updater.
+// P2pMetrics is the part of p2p.P2p the node gauges are read from.
 type P2pMetrics interface {
 	ConnectedPeersCount() int
 	OpenConnectionsCount() int
@@ -30,64 +33,121 @@ type P2pMetrics interface {
 	RoutingTableSize() int
 	BootstrapPeersStats() (total int, connected int)
 	IsConnected(peerID peer.ID) bool
+	HasDirectConnection(peerID peer.ID) bool
 	GetPeerLatency(id peer.ID) time.Duration
+	NetworkStatsByProtocol() map[protocol.ID]libp2pmetrics.Stats
 }
 
-// ConfigMetrics is an interface for getting config data used by the background updater.
+// ConfigMetrics is the part of the config and the auth state the node gauges
+// are read from.
 type ConfigMetrics interface {
-	GetKnownPeersSnapshot() (total, confirmed, connected int, peerIDs []peer.ID)
+	GetKnownPeersSnapshot() (total, confirmed int, peerIDs []peer.ID)
 	GetBlockedPeersCount() int
 	GetAuthRequestCounts() (ingoing, outgoing int)
 }
 
-// StartBackgroundUpdater periodically updates gauge-type metrics from their data sources.
-func StartBackgroundUpdater(ctx context.Context, conf ConfigMetrics, p2pMetrics P2pMetrics) {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
+// NodeInfo is what awl_node_info tells about the node.
+type NodeInfo struct {
+	Version string
+	PeerID  string
+	// App is the application the node runs in: awl, awl-tray or android.
+	App string
+}
 
-	// Initial update
-	startTime := time.Now()
-	NodeStartTimestamp.Set(float64(startTime.Unix()))
-	updateGauges(conf, p2pMetrics, startTime)
+type source struct {
+	node      NodeInfo
+	conf      ConfigMetrics
+	p2p       P2pMetrics
+	startTime time.Time
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			updateGauges(conf, p2pMetrics, startTime)
+// scrapeSource is what collectNode reads on every scrape.
+var scrapeSource atomic.Pointer[source]
+
+func init() {
+	// CollectorFunc describes itself by collecting, and nothing is collected
+	// before CollectFrom: the registry takes it as an unchecked collector.
+	Registry.MustRegister(prometheus.CollectorFunc(collectNode))
+}
+
+// CollectFrom makes the node gauges read their values from conf and p2pMetrics
+// on every scrape: they are always fresh, and the series of a peer that is
+// gone disappear by themselves. The gauges are absent until it is called. A
+// node restarted in the same process (awl-tray, Android) calls it again, and
+// the new sources replace the old ones.
+func CollectFrom(node NodeInfo, conf ConfigMetrics, p2pMetrics P2pMetrics) {
+	scrapeSource.Store(&source{node: node, conf: conf, p2p: p2pMetrics, startTime: time.Now()})
+}
+
+// StopCollecting drops the sources set by CollectFrom, so a closed node is not
+// kept in memory. The gauges are absent again.
+func StopCollecting() {
+	scrapeSource.Store(nil)
+}
+
+func collectNode(ch chan<- prometheus.Metric) {
+	s := scrapeSource.Load()
+	if s == nil {
+		return
+	}
+	gauge := func(desc *prometheus.Desc, value float64, labelValues ...string) {
+		ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, value, labelValues...)
+	}
+
+	// Node
+	gauge(nodeInfoDesc, 1, s.node.Version, s.node.PeerID, runtime.Version(), runtime.GOOS, runtime.GOARCH, s.node.App)
+	gauge(nodeStartTimestampDesc, float64(s.startTime.Unix()))
+	gauge(nodeUptimeSecondsDesc, time.Since(s.startTime).Seconds())
+
+	// Peer metrics
+	total, confirmed, peerIDs := s.conf.GetKnownPeersSnapshot()
+	direct, relayed := 0, 0
+	for _, peerID := range peerIDs {
+		if !s.p2p.IsConnected(peerID) {
+			continue
 		}
+		if s.p2p.HasDirectConnection(peerID) {
+			direct++
+		} else {
+			relayed++
+		}
+		if latency := s.p2p.GetPeerLatency(peerID); latency > 0 {
+			gauge(p2pPeerLatencySecondsDesc, latency.Seconds(), peerID.String())
+		}
+	}
+	gauge(peersKnownTotalDesc, float64(total))
+	gauge(peersConfirmedTotalDesc, float64(confirmed))
+	gauge(peersConnectedDesc, float64(direct), pathDirect)
+	gauge(peersConnectedDesc, float64(relayed), pathRelay)
+	gauge(peersBlockedTotalDesc, float64(s.conf.GetBlockedPeersCount()))
+
+	ingoing, outgoing := s.conf.GetAuthRequestCounts()
+	gauge(peersAuthRequestsIngoingDesc, float64(ingoing))
+	gauge(peersAuthRequestsOutgoingDesc, float64(outgoing))
+
+	// P2P metrics
+	gauge(p2pConnectedPeersDesc, float64(s.p2p.ConnectedPeersCount()))
+	gauge(p2pOpenConnectionsDesc, float64(s.p2p.OpenConnectionsCount()))
+	gauge(p2pOpenStreamsDesc, float64(s.p2p.OpenStreamsCount()))
+	gauge(p2pDHTRoutingTableSizeDesc, float64(s.p2p.RoutingTableSize()))
+
+	bootstrapTotal, bootstrapConnected := s.p2p.BootstrapPeersStats()
+	gauge(p2pBootstrapPeersTotalDesc, float64(bootstrapTotal))
+	gauge(p2pBootstrapPeersConnectedDesc, float64(bootstrapConnected))
+
+	// The libp2p bandwidth counter is never reset or trimmed, so its totals
+	// only grow and are counters
+	for proto, stats := range s.p2p.NetworkStatsByProtocol() {
+		// An empty label value is the same as no label
+		label := string(proto)
+		if label == "" {
+			label = "unknown"
+		}
+		ch <- prometheus.MustNewConstMetric(p2pBandwidthBytesTotalDesc, prometheus.CounterValue, float64(stats.TotalIn), label, "in")
+		ch <- prometheus.MustNewConstMetric(p2pBandwidthBytesTotalDesc, prometheus.CounterValue, float64(stats.TotalOut), label, "out")
 	}
 }
 
-func updateGauges(conf ConfigMetrics, p2pMetrics P2pMetrics, startTime time.Time) {
-	// Peer metrics
-	total, confirmed, connected, peerIDs := conf.GetKnownPeersSnapshot()
-	PeersKnownTotal.Set(float64(total))
-	PeersConfirmedTotal.Set(float64(confirmed))
-	PeersConnected.Set(float64(connected))
-	PeersBlockedTotal.Set(float64(conf.GetBlockedPeersCount()))
-
-	ingoing, outgoing := conf.GetAuthRequestCounts()
-	PeersAuthRequestsIngoing.Set(float64(ingoing))
-	PeersAuthRequestsOutgoing.Set(float64(outgoing))
-
-	// P2P metrics
-	P2PConnectedPeers.Set(float64(p2pMetrics.ConnectedPeersCount()))
-	P2POpenConnections.Set(float64(p2pMetrics.OpenConnectionsCount()))
-	P2POpenStreams.Set(float64(p2pMetrics.OpenStreamsCount()))
-	P2PDHTRoutingTableSize.Set(float64(p2pMetrics.RoutingTableSize()))
-
-	bootstrapTotal, bootstrapConnected := p2pMetrics.BootstrapPeersStats()
-	P2PBootstrapPeersTotal.Set(float64(bootstrapTotal))
-	P2PBootstrapPeersConnected.Set(float64(bootstrapConnected))
-
-	// Per-peer latency
-	for _, peerID := range peerIDs {
-		latency := p2pMetrics.GetPeerLatency(peerID)
-		P2PPeerLatencySeconds.WithLabelValues(peerID.String()).Set(latency.Seconds())
-	}
-
-	// Node uptime
-	NodeUptimeSeconds.Set(time.Since(startTime).Seconds())
+func newDesc(subsystem, name, help string, labelNames ...string) *prometheus.Desc {
+	return prometheus.NewDesc(prometheus.BuildFQName(namespace, subsystem, name), help, labelNames, nil)
 }

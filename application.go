@@ -193,6 +193,13 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 
 	a.VPNGateway = service.NewVPNGateway(a.Conf, a.Tunnel, a.vpnDevice, a.P2p, a.NetManager, a.Dns)
 
+	// Metrics. Read on every scrape of /metrics, so set up before the API.
+	metrics.CollectFrom(
+		metrics.NodeInfo{Version: config.Version, PeerID: p2pHost.ID().String(), App: a.Conf.AppType().String()},
+		&configMetricsAdapter{conf: a.Conf, authStatus: a.AuthStatus},
+		a.P2p,
+	)
+
 	handler := api.NewHandler(a.Conf, a.P2p, a.AuthStatus, a.Tunnel, a.SOCKS5, a.LogBuffer, a.Dns, a.VPNGateway)
 	a.Api = handler
 	err = handler.SetupAPI()
@@ -208,11 +215,6 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	if !a.Conf.DNS.DisableDNS && !a.Conf.VPNConfig.DisableVPNInterface {
 		a.setupDNS()
 	}
-
-	// Metrics
-	metrics.SetNodeInfo(config.Version, p2pHost.ID().String())
-	cma := &configMetricsAdapter{conf: a.Conf, authStatus: a.AuthStatus, p2p: a.P2p}
-	go metrics.StartBackgroundUpdater(a.ctx, cma, a.P2p)
 
 	// VPN Gateway mode setup
 	err = a.VPNGateway.SetupAtStartup()
@@ -325,6 +327,7 @@ func (a *Application) Close() {
 			a.logger.Errorf("closing api server: %v", err)
 		}
 	}
+	metrics.StopCollecting()
 
 	if a.Tunnel != nil {
 		a.Tunnel.Close()
@@ -717,22 +720,17 @@ func (a *DNSService) NetstackDNSServerIP() net.IP {
 type configMetricsAdapter struct {
 	conf       *config.Config
 	authStatus *service.AuthStatus
-	p2p        *p2p.P2p
 }
 
-func (a *configMetricsAdapter) GetKnownPeersSnapshot() (total, confirmed, connected int, peerIDs []peer.ID) {
+func (a *configMetricsAdapter) GetKnownPeersSnapshot() (total, confirmed int, peerIDs []peer.ID) {
 	a.conf.RLock()
 	defer a.conf.RUnlock()
 	total = len(a.conf.KnownPeers)
 	peerIDs = make([]peer.ID, 0, total)
 	for _, kp := range a.conf.KnownPeers {
-		pid := kp.PeerId()
-		peerIDs = append(peerIDs, pid)
+		peerIDs = append(peerIDs, kp.PeerId())
 		if kp.Confirmed {
 			confirmed++
-		}
-		if a.p2p.IsConnected(pid) {
-			connected++
 		}
 	}
 	return
