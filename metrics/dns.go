@@ -2,25 +2,24 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	DNSQueriesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	DNSQueriesTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "dns",
 		Name:      "queries_total",
 		Help:      "Total DNS queries handled.",
 	}, []string{"handler"})
 
-	DNSQueryErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+	DNSQueryErrorsTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "dns",
 		Name:      "query_errors_total",
 		Help:      "Total DNS query errors (upstream failures).",
 	})
 
-	DNSQueryDurationSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
+	DNSQueryDurationSeconds = factory.NewHistogram(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Subsystem: "dns",
 		Name:      "query_duration_seconds",
@@ -28,14 +27,14 @@ var (
 		Buckets:   []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 10},
 	})
 
-	DNSInterceptPacketsTotal = promauto.NewCounter(prometheus.CounterOpts{
+	DNSInterceptPacketsTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "dns",
 		Name:      "intercept_packets_total",
 		Help:      "Total IP packets intercepted from the tunnel into the DNS netstack bridge.",
 	})
 
-	DNSInterceptDroppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	DNSInterceptDroppedTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "dns",
 		Name:      "intercept_dropped_total",

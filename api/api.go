@@ -16,9 +16,12 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	glog "github.com/labstack/gommon/log"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
 	"github.com/anywherelan/awl/config"
+	awlmetrics "github.com/anywherelan/awl/metrics"
 	"github.com/anywherelan/awl/p2p"
 	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/ringbuffer"
@@ -88,11 +91,23 @@ func (h *Handler) SetupAPI() error {
 // use global to register metric only once
 var metricsMiddleware = echoprometheus.NewMiddlewareWithConfig(
 	echoprometheus.MiddlewareConfig{
-		Namespace: "awl",
-		Subsystem: "api",
+		Namespace:  "awl",
+		Subsystem:  "api",
+		Registerer: awlmetrics.Registry,
 	},
 )
-var metricsHandler = echoprometheus.NewHandler()
+
+// metricsHandler serves the default registry (libp2p, kad-dht, Go runtime)
+// together with the awl metrics. It is built by hand: echoprometheus can take
+// several registries, but then it leaves out the promhttp_* metrics of the
+// handler itself.
+var metricsHandler = echo.WrapHandler(promhttp.InstrumentMetricHandler(
+	prometheus.DefaultRegisterer,
+	promhttp.HandlerFor(
+		prometheus.Gatherers{prometheus.DefaultGatherer, awlmetrics.Registry},
+		promhttp.HandlerOpts{DisableCompression: true},
+	),
+))
 
 func (h *Handler) setupRouter(address string) (*echo.Echo, error) {
 	e := echo.New()

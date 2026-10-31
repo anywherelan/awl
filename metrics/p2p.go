@@ -2,60 +2,59 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	P2PBootstrapPeersTotal = promauto.NewGauge(prometheus.GaugeOpts{
+	P2PBootstrapPeersTotal = factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "bootstrap_peers_total",
 		Help:      "Total number of configured bootstrap peers.",
 	})
 
-	P2PBootstrapPeersConnected = promauto.NewGauge(prometheus.GaugeOpts{
+	P2PBootstrapPeersConnected = factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "bootstrap_peers_connected",
 		Help:      "Number of connected bootstrap peers.",
 	})
 
-	P2PDHTRoutingTableSize = promauto.NewGauge(prometheus.GaugeOpts{
+	P2PDHTRoutingTableSize = factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "dht_routing_table_size",
 		Help:      "DHT routing table size.",
 	})
 
-	P2POpenConnections = promauto.NewGauge(prometheus.GaugeOpts{
+	P2POpenConnections = factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "open_connections",
 		Help:      "Number of open connections.",
 	})
 
-	P2POpenStreams = promauto.NewGauge(prometheus.GaugeOpts{
+	P2POpenStreams = factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "open_streams",
 		Help:      "Number of open streams.",
 	})
 
-	P2PConnectedPeers = promauto.NewGauge(prometheus.GaugeOpts{
+	P2PConnectedPeers = factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "connected_peers",
 		Help:      "Total number of connected peers (all, not just known).",
 	})
 
-	P2PPeerLatencySeconds = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	P2PPeerLatencySeconds = factory.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "peer_latency_seconds",
 		Help:      "Last measured latency to known peers in seconds.",
 	}, []string{"peer_id"})
 
-	P2PRedialsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	P2PRedialsTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "redials_total",
@@ -63,7 +62,7 @@ var (
 			"our dial connected (success), it did not (failure), or the peer came back on its own first (peer_connected).",
 	}, []string{"result"})
 
-	P2PRedialDurationSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	P2PRedialDurationSeconds = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "redial_duration_seconds",
@@ -71,7 +70,7 @@ var (
 		Buckets:   []float64{0.25, 0.5, 1, 1.5, 2, 3, 4, 5},
 	}, []string{"result"})
 
-	P2PReconnectResetsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	P2PReconnectResetsTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",
 		Name:      "reconnect_resets_total",

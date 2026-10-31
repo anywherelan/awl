@@ -5,25 +5,24 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	NodeInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	NodeInfo = factory.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "node",
 		Name:      "info",
 		Help:      "Static node information.",
 	}, []string{"version", "peer_id", "go_version", "os", "arch"})
 
-	NodeUptimeSeconds = promauto.NewGauge(prometheus.GaugeOpts{
+	NodeUptimeSeconds = factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "node",
 		Name:      "uptime_seconds",
 		Help:      "Node uptime in seconds.",
 	})
 
-	NodeStartTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+	NodeStartTimestamp = factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "node",
 		Name:      "start_timestamp",

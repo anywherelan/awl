@@ -6,11 +6,21 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 const (
 	namespace = "awl"
 )
+
+// Registry holds the awl metrics, the awl /metrics endpoint serves it along
+// with the default registry. They are kept out of the default registry because
+// awl-bootstrap-node imports awl packages that use them: it serves the default
+// registry and would export the awl metrics too, all of them zero.
+var Registry = prometheus.NewRegistry()
+
+var factory = promauto.With(Registry)
 
 // P2pMetrics is an interface for getting p2p network stats used by the background updater.
 type P2pMetrics interface {

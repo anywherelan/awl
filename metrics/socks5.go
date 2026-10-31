@@ -4,18 +4,17 @@ import (
 	"slices"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	SOCKS5ConnectionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	SOCKS5ConnectionsTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "socks5",
 		Name:      "connections_total",
 		Help:      "Total SOCKS5 connections.",
 	}, []string{"direction"})
 
-	SOCKS5ActiveConnections = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	SOCKS5ActiveConnections = factory.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "socks5",
 		Name:      "active_connections",
@@ -23,21 +22,21 @@ var (
 	}, []string{"direction"})
 
 	// TODO: add?
-	SOCKS5BytesTransferredTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	SOCKS5BytesTransferredTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "socks5",
 		Name:      "bytes_transferred_total",
 		Help:      "Total bytes transferred via SOCKS5.",
 	}, []string{"direction"})
 
-	SOCKS5ErrorsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	SOCKS5ErrorsTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "socks5",
 		Name:      "errors_total",
 		Help:      "Total SOCKS5 errors.",
 	}, []string{"direction", "reason"})
 
-	SOCKS5ConnectionDurationSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	SOCKS5ConnectionDurationSeconds = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Subsystem: "socks5",
 		Name:      "connection_duration_seconds",
