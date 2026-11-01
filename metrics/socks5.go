@@ -21,14 +21,6 @@ var (
 		Help:      "Current active SOCKS5 connections.",
 	}, []string{"direction"})
 
-	// TODO: add?
-	SOCKS5BytesTransferredTotal = factory.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Subsystem: "socks5",
-		Name:      "bytes_transferred_total",
-		Help:      "Total bytes transferred via SOCKS5.",
-	}, []string{"direction"})
-
 	SOCKS5ErrorsTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "socks5",

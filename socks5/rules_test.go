@@ -10,43 +10,44 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func TestIsAllowedExitAddr(t *testing.T) {
+func TestExitAddrRefusal(t *testing.T) {
 	awlPrefixes := []netip.Prefix{netip.MustParsePrefix("10.66.0.0/16"), netip.MustParsePrefix("fd66::/64")}
 	cases := []struct {
-		addr  string
-		allow bool
+		addr string
+		// empty when the address is allowed
+		refusal string
 	}{
-		{"8.8.8.8", true},
-		{"2a00:1450:4001::1", true},
-		{"::ffff:8.8.8.8", true},
+		{"8.8.8.8", ""},
+		{"2a00:1450:4001::1", ""},
+		{"::ffff:8.8.8.8", ""},
 
-		{"127.0.0.1", false},
-		{"127.1.2.3", false},
-		{"::1", false},
-		{"::ffff:127.0.0.1", false},
-		{"0.0.0.0", false},
-		{"::", false},
-		{"::ffff:0.0.0.0", false},
-		{"169.254.169.254", false},
-		{"fe80::1", false},
-		{"10.1.2.3", false},
-		{"172.16.0.1", false},
-		{"192.168.1.1", false},
-		{"::ffff:192.168.1.1", false},
-		{"100.64.0.1", false},
-		{"fd00::1", false},
-		{"224.0.0.251", false},
-		{"ff02::fb", false},
-		{"10.66.0.2", false},
-		{"fd66::2", false},
+		{"127.0.0.1", "loopback_address"},
+		{"127.1.2.3", "loopback_address"},
+		{"::1", "loopback_address"},
+		{"::ffff:127.0.0.1", "loopback_address"},
+		{"0.0.0.0", "loopback_address"},
+		{"::", "loopback_address"},
+		{"::ffff:0.0.0.0", "loopback_address"},
+		{"169.254.169.254", "link_local_address"},
+		{"fe80::1", "link_local_address"},
+		{"10.1.2.3", "private_address"},
+		{"172.16.0.1", "private_address"},
+		{"192.168.1.1", "private_address"},
+		{"::ffff:192.168.1.1", "private_address"},
+		{"100.64.0.1", "private_address"},
+		{"fd00::1", "private_address"},
+		{"224.0.0.251", "multicast_address"},
+		{"ff02::fb", "multicast_address"},
+		{"10.66.0.2", "awl_address"},
+		{"fd66::2", "awl_address"},
 	}
 	for _, tc := range cases {
-		require.Equal(t, tc.allow, isAllowedExitAddr(netip.MustParseAddr(tc.addr), awlPrefixes), tc.addr)
+		require.Equal(t, tc.refusal, exitAddrRefusal(netip.MustParseAddr(tc.addr), awlPrefixes), tc.addr)
 	}
 
 	// An awl subnet outside the private ranges is refused too.
-	require.False(t, isAllowedExitAddr(netip.MustParseAddr("203.0.113.5"), []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}))
-	require.True(t, isAllowedExitAddr(netip.MustParseAddr("203.0.113.5"), nil))
+	require.Equal(t, "awl_address", exitAddrRefusal(netip.MustParseAddr("203.0.113.5"), []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}))
+	require.Empty(t, exitAddrRefusal(netip.MustParseAddr("203.0.113.5"), nil))
 }
 
 // TestExitNodeRefusesLocalHost is the S1 regression test: no form of a local

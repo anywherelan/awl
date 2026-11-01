@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 
 	"github.com/anywherelan/awl/awldns"
+	"github.com/anywherelan/awl/metrics"
 	"github.com/anywherelan/awl/vpn/privatenet"
 )
 
@@ -241,30 +242,41 @@ type ExitNodeRule struct {
 }
 
 func (r *ExitNodeRule) Allow(ctx context.Context, req *socks5.Request) (context.Context, bool) {
-	if req.DestAddr == nil {
-		return ctx, false
+	reason := "invalid_address"
+	if req.DestAddr != nil {
+		if addr, ok := netip.AddrFromSlice(req.DestAddr.IP); ok {
+			reason = exitAddrRefusal(addr, r.awlPrefixes)
+		}
 	}
-	addr, ok := netip.AddrFromSlice(req.DestAddr.IP)
-	if !ok {
-		return ctx, false
+	if reason != "" {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("server", reason).Inc()
 	}
 
-	return ctx, isAllowedExitAddr(addr, r.awlPrefixes)
+	return ctx, reason == ""
 }
 
-func isAllowedExitAddr(addr netip.Addr, awlPrefixes []netip.Prefix) bool {
+// exitAddrRefusal returns why the exit node does not connect to addr, or "" if
+// it does. The awl subnets are checked before the LAN ranges they are in.
+func exitAddrRefusal(addr netip.Addr, awlPrefixes []netip.Prefix) string {
 	addr = addr.Unmap()
-	if addr.IsLoopback() || addr.IsUnspecified() || addr.IsLinkLocalUnicast() || addr.IsMulticast() ||
-		privatenet.Contains(addr) {
-		return false
+	switch {
+	case addr.IsLoopback() || addr.IsUnspecified():
+		return "loopback_address"
+	case addr.IsLinkLocalUnicast():
+		return "link_local_address"
+	case addr.IsMulticast():
+		return "multicast_address"
 	}
 	for _, prefix := range awlPrefixes {
 		if prefix.Contains(addr) {
-			return false
+			return "awl_address"
 		}
 	}
+	if privatenet.Contains(addr) {
+		return "private_address"
+	}
 
-	return true
+	return ""
 }
 
 // exitNodeResolver refuses .awl names before they reach the system resolver:
@@ -276,6 +288,7 @@ type exitNodeResolver struct {
 
 func (r exitNodeResolver) Resolve(ctx context.Context, name string) (context.Context, net.IP, error) {
 	if awldns.InLocalDomain(name) {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("server", "awl_name").Inc()
 		return ctx, nil, fmt.Errorf("%s names are not proxied", awldns.LocalDomain)
 	}
 	return r.DNSResolver.Resolve(ctx, name)
