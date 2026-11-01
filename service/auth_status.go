@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -98,6 +99,21 @@ func NewAuthStatus(p2pService P2p, conf *config.Config, eventbus awlevent.Bus) *
 	return auth
 }
 
+// countUnreadRequest counts a received auth or status request that could not
+// be read. The deadline error differs between yamux and QUIC, but both are
+// net.Error with Timeout.
+func countUnreadRequest(request string, err error) {
+	reason := "read_error"
+	var netErr net.Error
+	switch {
+	case errors.Is(err, protocol.ErrMessageTooLarge):
+		reason = "message_too_large"
+	case errors.As(err, &netErr) && netErr.Timeout():
+		reason = "read_timeout"
+	}
+	metrics.PeersReceivedRequestsDroppedTotal.WithLabelValues(request, reason).Inc()
+}
+
 func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	metrics.PeersStatusRequestsReceivedTotal.Inc()
 	defer func() {
@@ -123,6 +139,7 @@ func (s *AuthStatus) StatusStreamHandler(stream network.Stream) {
 	// Receiving info
 	oppositePeerInfo, err := protocol.ReceiveStatus(stream)
 	if err != nil {
+		countUnreadRequest("status", err)
 		s.logger.Errorf("receiving status info from %s: %v", peerID, err)
 		return
 	}
@@ -374,6 +391,7 @@ func (s *AuthStatus) AuthStreamHandler(stream network.Stream) {
 	peerID := remotePeer.String()
 	authPeer, err := protocol.ReceiveAuth(stream)
 	if err != nil {
+		countUnreadRequest("auth", err)
 		s.logger.Errorf("receiving auth from %s: %v", peerID, err)
 		return
 	}
@@ -795,6 +813,7 @@ func (s *AuthStatus) addIngoingAuthUnlocked(peerID peer.ID, authPeer protocol.Au
 			}
 		}
 		if now.Sub(stalestAt) < staleIngoingAuthAge {
+			metrics.PeersReceivedRequestsDroppedTotal.WithLabelValues("auth", "queue_full").Inc()
 			s.logger.Warnf("auth request from %s (%s) is not kept: %d requests are already waiting for an accept",
 				authPeer.Name, peerID, len(s.ingoingAuths))
 			return false

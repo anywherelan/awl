@@ -61,6 +61,15 @@ var (
 		Help:      "Total number of status requests received.",
 	})
 
+	// PeersReceivedRequestsDroppedTotal counts only the requests other peers
+	// send us: those are what a peer can flood us with.
+	PeersReceivedRequestsDroppedTotal = factory.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: "peers",
+		Name:      "received_requests_dropped_total",
+		Help:      "Total number of received auth and status requests that were not handled, by request and reason.",
+	}, []string{"request", "reason"})
+
 	InvitesRedeemedTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",

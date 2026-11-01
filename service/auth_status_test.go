@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/metrics"
 	"github.com/anywherelan/awl/protocol"
 )
 
@@ -53,9 +55,10 @@ func TestBackgroundExchangesSkipDisconnectedPeers(t *testing.T) {
 	require.Equal(t, []peer.ID{online}, p2p.reached)
 }
 
-// TestExchangeStreamsTimeOut: a peer that opens an auth or status stream and
-// then goes silent does not hold it past exchangeStreamTimeout.
-func TestExchangeStreamsTimeOut(t *testing.T) {
+// TestUnreadRequests: the server closes an auth or status stream it cannot
+// read a request from, and counts the request as dropped. A peer that goes
+// silent does not hold the stream past exchangeStreamTimeout.
+func TestUnreadRequests(t *testing.T) {
 	oldTimeout := exchangeStreamTimeout
 	exchangeStreamTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { exchangeStreamTimeout = oldTimeout })
@@ -75,18 +78,41 @@ func TestExchangeStreamsTimeOut(t *testing.T) {
 	server.SetStreamHandler(protocol.GetStatusMethod, auth.StatusStreamHandler)
 	require.NoError(t, client.Connect(t.Context(), peer.AddrInfo{ID: server.ID(), Addrs: server.Addrs()}))
 
-	for _, proto := range []libp2pProtocol.ID{protocol.AuthMethod, protocol.GetStatusMethod} {
-		t.Run(string(proto), func(t *testing.T) {
-			stream, err := client.NewStream(t.Context(), server.ID(), proto)
-			require.NoError(t, err)
-			defer func() { _ = stream.Reset() }()
-			// Only a guard against a hanging test, well above the timeout
-			require.NoError(t, stream.SetReadDeadline(time.Now().Add(5*time.Second)))
+	requests := []struct {
+		proto   libp2pProtocol.ID
+		request string
+	}{
+		{protocol.AuthMethod, "auth"},
+		{protocol.GetStatusMethod, "status"},
+	}
+	cases := []struct {
+		name   string
+		send   []byte
+		reason string
+	}{
+		{"silent", nil, "read_timeout"},
+		// Whitespace only, so that the decoder reads up to the limit
+		{"too large", bytes.Repeat([]byte(" "), protocol.MaxStatusMessageSize+1), "message_too_large"},
+		{"not JSON", []byte("not json\n"), "read_error"},
+	}
+	for _, r := range requests {
+		for _, tc := range cases {
+			t.Run(r.request+" "+tc.name, func(t *testing.T) {
+				want := requestsDropped(t, r.request, tc.reason) + 1
+				stream, err := client.NewStream(t.Context(), server.ID(), r.proto)
+				require.NoError(t, err)
+				defer func() { _ = stream.Reset() }()
+				// Only a guard against a hanging test, well above the timeout
+				require.NoError(t, stream.SetDeadline(time.Now().Add(5*time.Second)))
+				// The server stops reading at its limit, so the write may not finish
+				go func() { _, _ = stream.Write(tc.send) }()
 
-			// Nothing is sent: the server gives up and closes the stream
-			_, err = stream.Read(make([]byte, 1))
-			require.ErrorIs(t, err, io.EOF)
-		})
+				// The server gives up and closes the stream
+				_, err = stream.Read(make([]byte, 1))
+				require.ErrorIs(t, err, io.EOF)
+				require.Equal(t, want, requestsDropped(t, r.request, tc.reason))
+			})
+		}
 	}
 }
 
@@ -104,12 +130,14 @@ func TestIngoingAuthsQueue(t *testing.T) {
 		}
 		require.Equal(t, maxIngoingAuths, q.drainEvents())
 
+		dropped := requestsDropped(t, "auth", "queue_full")
 		for i, client := range clients[maxIngoingAuths:] {
 			response := q.sendAuth(t, client, fmt.Sprintf("extra %d", i))
 			// Answered as pending, so that the sender repeats it later
 			require.Equal(t, protocol.AuthPeerResponse{}, response)
 		}
 		require.Zero(t, q.drainEvents())
+		require.Equal(t, dropped+10, requestsDropped(t, "auth", "queue_full"))
 		q.requireQueued(t, clients[:maxIngoingAuths]...)
 	})
 
@@ -223,6 +251,30 @@ func (q *authQueueTest) requireQueued(t *testing.T, clients ...host.Host) {
 		want = append(want, client.ID().String())
 	}
 	require.ElementsMatch(t, want, slices.Collect(maps.Keys(q.auth.GetIngoingAuthRequests())))
+}
+
+// requestsDropped returns awl_peers_received_requests_dropped_total for
+// request and reason. The registry is shared by all the tests of the package,
+// so compare it before and after.
+func requestsDropped(t *testing.T, request, reason string) float64 {
+	t.Helper()
+	families, err := metrics.Registry.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() != "awl_peers_received_requests_dropped_total" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			labels := make(map[string]string)
+			for _, label := range metric.GetLabel() {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["request"] == request && labels["reason"] == reason {
+				return metric.GetCounter().GetValue()
+			}
+		}
+	}
+	return 0
 }
 
 func newTestHost(tb testing.TB) host.Host {
