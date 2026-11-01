@@ -19,13 +19,13 @@ var (
 		Help:      "Total DNS query errors (upstream failures).",
 	})
 
-	DNSQueryDurationSeconds = factory.NewHistogram(prometheus.HistogramOpts{
+	DNSQueryDurationSeconds = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Subsystem: "dns",
 		Name:      "query_duration_seconds",
-		Help:      "DNS query duration in seconds.",
+		Help:      "DNS query duration in seconds, by handler.",
 		Buckets:   []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 10},
-	})
+	}, []string{"handler"})
 
 	DNSInterceptPacketsTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
