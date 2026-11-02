@@ -3,10 +3,12 @@ global:
   scrape_timeout: 10s
   evaluation_interval: 15s
 scrape_configs:
+  # Prometheus itself: no dashboard uses its metrics, they are kept for
+  # checking the stack.
   - job_name: prometheus
     honor_timestamps: true
-    scrape_interval: 3s
-    scrape_timeout: 2s
+    scrape_interval: 2m
+    scrape_timeout: 10s
     metrics_path: /metrics
     scheme: http
     static_configs:
@@ -14,10 +16,14 @@ scrape_configs:
           - localhost:9090
   - job_name: awl
     honor_timestamps: true
-    scrape_interval: 3s
-    scrape_timeout: 2s
+    scrape_interval: 10s
+    scrape_timeout: 5s
     metrics_path: /metrics
     scheme: http
     static_configs:
+      # The dashboards name the node by instance. alloy/config.alloy sets the
+      # same name for its profiles.
       - targets:
           - host.docker.internal:8639
+        labels:
+          instance: local

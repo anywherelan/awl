@@ -6,6 +6,18 @@ services:
       - "host.docker.internal:127.0.0.1"
   pyroscope:
     network_mode: "host"
+    # on the host network Pyroscope advertises the LAN address it found at start to itself;
+    # after the address changes (another Wi-Fi) queries and pushes time out, so pin it to loopback
+    command:
+      - -config.file=/etc/pyroscope/config.yaml
+      - -ingester.lifecycler.addr=127.0.0.1
+      - -distributor.ring.instance-addr=127.0.0.1
+      - -query-frontend.instance-addr=127.0.0.1
+      - -query-scheduler.ring.instance-addr=127.0.0.1
+      - -store-gateway.sharding-ring.instance-addr=127.0.0.1
+      - -compactor.ring.instance-addr=127.0.0.1
+      - -overrides-exporter.ring.instance-addr=127.0.0.1
+      - -memberlist.advertise-addr=127.0.0.1
   alloy:
     network_mode: "host"
     extra_hosts:
