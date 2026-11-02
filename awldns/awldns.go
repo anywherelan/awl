@@ -199,7 +199,7 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 	metrics.DNSQueriesTotal.WithLabelValues("awl").Inc()
 	start := time.Now()
 	defer func() {
-		metrics.DNSQueryDurationSeconds.Observe(time.Since(start).Seconds())
+		metrics.DNSQueryDurationSeconds.WithLabelValues("awl").Observe(time.Since(start).Seconds())
 	}()
 
 	if len(req.Question) == 0 {
@@ -240,13 +240,10 @@ func (r *Resolver) dnsLocalDomainHandler(resp dns.ResponseWriter, req *dns.Msg) 
 	_ = resp.WriteMsg(m)
 }
 
+// ptrHandler answers reverse queries for the addresses of our peers. Any other
+// query it forwards, and that one is counted as proxy only.
 func (r *Resolver) ptrHandler(resp dns.ResponseWriter, req *dns.Msg) {
-	metrics.DNSQueriesTotal.WithLabelValues("awl_ptr").Inc()
 	start := time.Now()
-	defer func() {
-		metrics.DNSQueryDurationSeconds.Observe(time.Since(start).Seconds())
-	}()
-
 	if len(req.Question) == 0 || req.Question[0].Qtype != dns.TypePTR {
 		r.dnsProxyHandler(resp, req)
 		return
@@ -261,6 +258,11 @@ func (r *Resolver) ptrHandler(resp dns.ResponseWriter, req *dns.Msg) {
 		r.dnsProxyHandler(resp, req)
 		return
 	}
+
+	metrics.DNSQueriesTotal.WithLabelValues("awl_ptr").Inc()
+	defer func() {
+		metrics.DNSQueryDurationSeconds.WithLabelValues("awl_ptr").Observe(time.Since(start).Seconds())
+	}()
 
 	m := new(dns.Msg)
 	m.SetReply(req)
@@ -285,7 +287,7 @@ func (r *Resolver) dnsProxyHandler(resp dns.ResponseWriter, req *dns.Msg) {
 	metrics.DNSQueriesTotal.WithLabelValues("proxy").Inc()
 	start := time.Now()
 	defer func() {
-		metrics.DNSQueryDurationSeconds.Observe(time.Since(start).Seconds())
+		metrics.DNSQueryDurationSeconds.WithLabelValues("proxy").Observe(time.Since(start).Seconds())
 	}()
 
 	cfg := r.loadConfig()
@@ -298,7 +300,7 @@ func (r *Resolver) dnsProxyHandler(resp dns.ResponseWriter, req *dns.Msg) {
 	upstreamResp, _, err := dnsClient.Exchange(req, cfg.upstreamDNS)
 	if err != nil {
 		metrics.DNSQueryErrorsTotal.Inc()
-		r.logger.Warnf("send request to upstream dns: %v", err)
+		r.logger.Warnf("forward %s to upstream dns %s over %s: %v", describeQuery(req), cfg.upstreamDNS, dnsClient.Net, err)
 		m := new(dns.Msg)
 		m.SetRcode(req, dns.RcodeServerFailure)
 		_ = resp.WriteMsg(m)
@@ -306,6 +308,16 @@ func (r *Resolver) dnsProxyHandler(resp dns.ResponseWriter, req *dns.Msg) {
 	}
 
 	_ = resp.WriteMsg(upstreamResp)
+}
+
+// describeQuery returns the first question of req for the log, as
+// "A example.com.".
+func describeQuery(req *dns.Msg) string {
+	if len(req.Question) == 0 {
+		return "a query with no question"
+	}
+	question := req.Question[0]
+	return dns.Type(question.Qtype).String() + " " + question.Name
 }
 
 func (r *Resolver) loadConfig() config {

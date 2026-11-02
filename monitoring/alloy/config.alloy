@@ -1,9 +1,16 @@
+// awl does not turn on mutex and block profiling, so those profiles are left
+// out. The profiles are taken once a minute: the heap profile costs awl the
+// most CPU to take. instance is the same as in prometheus.yml: awl Profiles
+// finds the profiles of a node by it.
+
 pyroscope.scrape "anywherelan" {
   targets = [{
-    __address__ = "host.docker.internal:8639",
+    __address__    = "host.docker.internal:8639",
     "service_name" = "anywherelan",
+    "instance"     = "local",
   }]
-  forward_to = [pyroscope.write.local.receiver]
+  forward_to      = [pyroscope.write.local.receiver]
+  scrape_interval = "60s"
 
   profiling_config {
     profile.process_cpu {
@@ -22,14 +29,10 @@ pyroscope.scrape "anywherelan" {
       delta   = false
     }
     profile.mutex {
-      enabled = true
-      path    = "/api/v0/debug/pprof/mutex"
-      delta   = true
+      enabled = false
     }
     profile.block {
-      enabled = true
-      path    = "/api/v0/debug/pprof/block"
-      delta   = true
+      enabled = false
     }
   }
 }

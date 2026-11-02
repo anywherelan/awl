@@ -348,19 +348,26 @@ func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
 				select {
 				case vpnPeer.outboundCh <- copyPacket:
 				default:
+					metrics.VPNPacketsDroppedTotal.WithLabelValues("outbound_channel_full").Inc()
 					t.device.PutTempPacket(copyPacket)
 				}
 			}
 			continue
 		}
 
+		// IPv6 neighbor discovery, mDNS and the like. The OS sends them to the
+		// TUN all the time, so they are not counted.
+		if isNonRoutableIP(dst) {
+			continue
+		}
+		// No peer has this address: it was removed, or the address is wrong.
+		if t.isAWLSubnet(dst) {
+			metrics.VPNPacketsDroppedTotal.WithLabelValues("unknown_address").Inc()
+			continue
+		}
+
 		// VPN gateway client mode: forward non-local packets to the gateway peer.
 		if t.vpnGatewayClientEnabled && t.vpnGatewayPeer != nil {
-			isAWLSubnet := t.isAWLSubnet(dst)
-
-			if isNonRoutableIP(dst) || isAWLSubnet {
-				continue
-			}
 			packet.GatewayDir = vpn.GatewayDirForward
 			select {
 			case t.vpnGatewayPeer.outboundCh <- packet:
@@ -370,6 +377,9 @@ func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
 			}
 			continue
 		}
+		// Without a gateway only the awl subnet is routed to the TUN. A packet
+		// here means the routes do not match the tunnel.
+		metrics.VPNPacketsDroppedTotal.WithLabelValues("gateway_client_disabled").Inc()
 	}
 }
 
@@ -536,6 +546,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 
 			if !t.p2p.IsConnected(vp.peerID) {
 				// we should be connected beforehand, e.g. in p2p.MaintainBackgroundConnections
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("peer_offline").Add(float64(len(packetsBatch)))
 				clearTempPackets(packetsBatch)
 				continue
 			}
@@ -547,6 +558,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			currentPacketsForStream += len(packetsBatch)
 			err := sendPacket(packetsBatch)
 			if err != nil {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("stream_error").Add(float64(len(packetsBatch)))
 				localIP := *vp.localIP.Load()
 				t.logger.Warnf("failed to send %d packets to peerID (%s) local ip (%s): %v", len(packetsBatch), vp.peerID, localIP, err)
 				closeStream()
@@ -784,6 +796,7 @@ func (t *Tunnel) writeInboundBatch(packets []*vpn.Packet, bufs [][]byte, senderI
 			sender = senderIP
 		}
 		if !localIP.IsValid() {
+			metrics.VPNPacketsDroppedTotal.WithLabelValues("ipv6_disabled").Inc()
 			continue // No local IP for this family
 		}
 
@@ -798,6 +811,7 @@ func (t *Tunnel) writeInboundBatch(packets []*vpn.Packet, bufs [][]byte, senderI
 				continue
 			}
 			if !sender.IsValid() {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("ipv6_disabled").Inc()
 				continue
 			}
 			packet.SetSrc(sender)
@@ -811,6 +825,7 @@ func (t *Tunnel) writeInboundBatch(packets []*vpn.Packet, bufs [][]byte, senderI
 			// src preserved
 		default: // P2P
 			if !sender.IsValid() {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("ipv6_disabled").Inc()
 				continue
 			}
 			packet.SetSrc(sender)

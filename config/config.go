@@ -618,6 +618,12 @@ func (c *Config) DevMode() bool {
 	return c.LoggerLevel == "dev"
 }
 
+// AppType is the application the config was loaded for. It is set when the
+// config is created and never changes.
+func (c *Config) AppType() AppType {
+	return c.appType
+}
+
 func (c *Config) Export() []byte {
 	c.RLock()
 	defer c.RUnlock()

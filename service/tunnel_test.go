@@ -15,6 +15,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/metrics"
 	"github.com/anywherelan/awl/vpn"
 )
 
@@ -65,6 +66,88 @@ func TestTunnelKeepsAddressFamily(t *testing.T) {
 	packets := []*vpn.Packet{udpPacket(t, "fd00:66::1", "::ffff:10.66.0.2")}
 	require.False(t, tt.routeToPeer(packets))
 	require.NotNil(t, packets[0], "the packet stays with the caller")
+}
+
+// TestTunnelCountsDroppedPackets checks the reason counted for a packet read
+// from the TUN that goes nowhere.
+func TestTunnelCountsDroppedPackets(t *testing.T) {
+	tests := []struct {
+		name    string
+		dst     string
+		gateway bool
+		// empty when the packet is not counted
+		reason string
+	}{
+		{name: "unknown address", dst: "10.66.0.9", reason: "unknown_address"},
+		{name: "unknown address IPv6", dst: "fd00:66::9", reason: "unknown_address"},
+		{name: "unknown address with gateway", dst: "10.66.0.9", gateway: true, reason: "unknown_address"},
+		{name: "internet without gateway", dst: "1.1.1.1", reason: "gateway_client_disabled"},
+		{name: "multicast", dst: "224.0.0.251"},
+		{name: "IPv6 multicast", dst: "ff02::fb"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tt := newTestTunnel(t)
+			if tc.gateway {
+				tt.vpnGatewayClientEnabled = true
+				tt.vpnGatewayPeer = tt.peer
+			}
+			src := "10.66.0.1"
+			if netip.MustParseAddr(tc.dst).Is6() {
+				src = "fd00:66::1"
+			}
+
+			want := droppedPackets(t)
+			if tc.reason != "" {
+				want[tc.reason]++
+			}
+			require.False(t, tt.routeToPeer([]*vpn.Packet{udpPacket(t, src, tc.dst)}))
+			require.Equal(t, want, droppedPackets(t))
+		})
+	}
+}
+
+// TestTunnelCountsIPv6Disabled checks that an IPv6 packet from a peer is counted as
+// dropped when it cannot be rewritten to our addresses.
+func TestTunnelCountsIPv6Disabled(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(tt *testTunnel)
+	}{
+		{"IPv6 off on our side", func(tt *testTunnel) { tt.awlSubnet6 = netip.Prefix{} }},
+		{"no IPv6 address of the sender", func(tt *testTunnel) { tt.peer.localIPv6.Store(nil) }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tt := newTestTunnel(t)
+			tc.setup(tt)
+
+			want := droppedPackets(t)
+			want["ipv6_disabled"]++
+			packets := []*vpn.Packet{udpPacket(t, "fd00:66::2", "fd00:66::1")}
+			require.NoError(t, tt.writeInboundBatch(packets, nil, *tt.peer.localIP.Load(), tt.peer))
+			require.Empty(t, tt.tun.written)
+			require.Equal(t, want, droppedPackets(t))
+		})
+	}
+}
+
+// droppedPackets returns awl_vpn_packets_dropped_total by reason. The registry
+// is shared by all the tests of the package, so compare it before and after.
+func droppedPackets(t *testing.T) map[string]float64 {
+	t.Helper()
+	families, err := metrics.Registry.Gather()
+	require.NoError(t, err)
+	values := make(map[string]float64)
+	for _, family := range families {
+		if family.GetName() != "awl_vpn_packets_dropped_total" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			values[metric.GetLabel()[0].GetValue()] = metric.GetCounter().GetValue()
+		}
+	}
+	return values
 }
 
 // BenchmarkHandleReadPackets measures routing one unicast packet to a peer.

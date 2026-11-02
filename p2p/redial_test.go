@@ -8,8 +8,9 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peerstore"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
+
+	awlmetrics "github.com/anywherelan/awl/metrics"
 )
 
 // The hosts here have no bootstrap peers and nothing in their routing tables,
@@ -66,7 +67,7 @@ func TestRedial_FailureIsNotCounted(t *testing.T) {
 // is shared by all the tests of the package, so compare it before and after.
 func metricValue(t *testing.T, name, labelValue string) float64 {
 	t.Helper()
-	families, err := prometheus.DefaultGatherer.Gather()
+	families, err := awlmetrics.Registry.Gather()
 	require.NoError(t, err)
 	for _, family := range families {
 		if family.GetName() != name {

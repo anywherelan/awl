@@ -2,81 +2,75 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+// values of the path label of awl_peers_connected
+const (
+	pathDirect = "direct"
+	pathRelay  = "relay"
+)
+
+// Read from the node on every scrape, see CollectFrom.
+var (
+	peersKnownTotalDesc = newDesc("peers", "known_total",
+		"Total number of known peers.")
+
+	peersConnectedDesc = newDesc("peers", "connected",
+		"Number of currently connected known peers, by path: direct, or only through a relay (relay).",
+		"path")
+
+	peersConfirmedTotalDesc = newDesc("peers", "confirmed_total",
+		"Number of confirmed (mutual) peers.")
+
+	peersBlockedTotalDesc = newDesc("peers", "blocked_total",
+		"Number of blocked peers.")
+
+	peersAuthRequestsIngoingDesc = newDesc("peers", "auth_requests_ingoing",
+		"Number of pending ingoing auth requests.")
+
+	peersAuthRequestsOutgoingDesc = newDesc("peers", "auth_requests_outgoing",
+		"Number of pending outgoing auth requests.")
 )
 
 var (
-	PeersKnownTotal = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "known_total",
-		Help:      "Total number of known peers.",
-	})
-
-	PeersConnected = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "connected",
-		Help:      "Number of currently connected known peers.",
-	})
-
-	PeersConfirmedTotal = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "confirmed_total",
-		Help:      "Number of confirmed (mutual) peers.",
-	})
-
-	PeersBlockedTotal = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "blocked_total",
-		Help:      "Number of blocked peers.",
-	})
-
-	PeersAuthRequestsIngoing = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "auth_requests_ingoing",
-		Help:      "Number of pending ingoing auth requests.",
-	})
-
-	PeersAuthRequestsOutgoing = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Subsystem: "peers",
-		Name:      "auth_requests_outgoing",
-		Help:      "Number of pending outgoing auth requests.",
-	})
-
-	PeersAuthRequestsSentTotal = promauto.NewCounter(prometheus.CounterOpts{
+	PeersAuthRequestsSentTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",
 		Name:      "auth_requests_sent_total",
 		Help:      "Total number of auth requests sent.",
 	})
 
-	PeersAuthRequestsReceivedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	PeersAuthRequestsReceivedTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",
 		Name:      "auth_requests_received_total",
 		Help:      "Total number of auth requests received.",
 	})
 
-	PeersStatusRequestsSentTotal = promauto.NewCounter(prometheus.CounterOpts{
+	PeersStatusRequestsSentTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",
 		Name:      "status_requests_sent_total",
 		Help:      "Total number of status requests sent.",
 	})
 
-	PeersStatusRequestsReceivedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	PeersStatusRequestsReceivedTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",
 		Name:      "status_requests_received_total",
 		Help:      "Total number of status requests received.",
 	})
 
-	InvitesRedeemedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	// PeersReceivedRequestsDroppedTotal counts only the requests other peers
+	// send us: those are what a peer can flood us with.
+	PeersReceivedRequestsDroppedTotal = factory.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: "peers",
+		Name:      "received_requests_dropped_total",
+		Help:      "Total number of received auth and status requests that were not handled, by request and reason.",
+	}, []string{"request", "reason"})
+
+	InvitesRedeemedTotal = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",
 		Name:      "invites_redeemed_total",
@@ -85,14 +79,14 @@ var (
 
 	// InviteTokensRejectedTotal explains why a peer that presented an invite
 	// token still ended up in the manual accept queue.
-	InviteTokensRejectedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	InviteTokensRejectedTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",
 		Name:      "invite_tokens_rejected_total",
 		Help:      "Total number of invite tokens rejected, by reason.",
 	}, []string{"reason"})
 
-	PeersConnectionEventsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	PeersConnectionEventsTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "peers",
 		Name:      "connection_events_total",
