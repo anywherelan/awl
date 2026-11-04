@@ -182,18 +182,23 @@ func (d *Device) ReadTUNPackets(packetsHandler func([]*Packet)) {
 	bufs := make([][]byte, batchSize)
 	sizes := make([]int, batchSize)
 
+	// Only the slots the last Read filled can change between reads: Parse and
+	// the handler get packets[:packetsCount], and tun.Read does not change
+	// bufs. The other slots are still clean, so reset only the filled ones.
+	filled := batchSize
 	for {
-		for i := range packets {
+		for i := range filled {
 			if packets[i] == nil {
 				packets[i] = d.GetTempPacket()
+				bufs[i] = packets[i].Buffer[:]
 			} else {
 				packets[i].clear()
 			}
-			bufs[i] = packets[i].Buffer[:]
 			sizes[i] = 0
 		}
 
 		packetsCount, err := d.tun.Read(bufs, sizes, tunPacketOffset)
+		filled = packetsCount
 		for i := 0; i < packetsCount; i++ {
 			size := sizes[i]
 			if size == 0 || size > maxContentSize {
