@@ -32,13 +32,13 @@ func newTUN(ifname string, mtu int, prefix, prefixV6 netip.Prefix) (tun.Device, 
 	}
 
 	addr := &netlink.Addr{IPNet: prefixToIPNet(prefix)}
-	if err := netlink.AddrAdd(link, addr); err != nil {
+	if err := netlink.AddrReplace(link, addr); err != nil {
 		return nil, fmt.Errorf("unable to set IP (%s) to (%v on interface): %v", prefix.Addr(), addr.IPNet, err)
 	}
 
 	if prefixV6.IsValid() {
 		addr := &netlink.Addr{IPNet: prefixToIPNet(prefixV6)}
-		if err := netlink.AddrAdd(link, addr); err != nil {
+		if err := netlink.AddrReplace(link, addr); err != nil {
 			return nil, fmt.Errorf("unable to set IPv6 (%s) to (%v on interface): %v", prefixV6.Addr(), addr.IPNet, err)
 		}
 	}
