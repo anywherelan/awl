@@ -115,8 +115,9 @@ func TestPacket_Parse_RejectsMalformedIPv6(t *testing.T) {
 	}
 }
 
-// defense in depth: RecalculateChecksum must be panic-safe on malformed or
-// truncated packets, including when called without a prior successful Parse.
+// defense in depth: RecalculateChecksum and RewriteAddrs must be panic-safe on
+// malformed or truncated packets, including when called without a prior
+// successful Parse.
 func TestPacket_RecalculateChecksum_MalformedNoPanic(t *testing.T) {
 	build := func(size int, ihlWords, protocol byte) *Packet {
 		raw := make([]byte, size)
@@ -146,6 +147,11 @@ func TestPacket_RecalculateChecksum_MalformedNoPanic(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := build(tc.size, tc.ihlWords, tc.proto)
 			require.NotPanics(t, func() { p.RecalculateChecksum() })
+			src, dst := netip.MustParseAddr("10.66.0.7"), netip.MustParseAddr("10.66.0.1")
+			require.NotPanics(t, func() { p.RewriteAddrs(src, dst) })
+			if p.Parse() {
+				require.NotPanics(t, func() { p.RewriteAddrs(src, dst) })
+			}
 		})
 	}
 }

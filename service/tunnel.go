@@ -814,24 +814,22 @@ func (t *Tunnel) writeInboundBatch(packets []*vpn.Packet, bufs [][]byte, senderI
 				metrics.VPNPacketsDroppedTotal.WithLabelValues("ipv6_disabled").Inc()
 				continue
 			}
-			packet.SetSrc(sender)
+			packet.RewriteAddrs(sender, netip.Addr{})
 			// dst preserved (internet destination)
 		case vpn.GatewayDirReturn:
 			if !isOurGateway {
 				metrics.VPNPacketsDroppedTotal.WithLabelValues("gateway_return_from_non_gateway").Inc()
 				continue
 			}
-			packet.SetDst(localIP)
+			packet.RewriteAddrs(netip.Addr{}, localIP)
 			// src preserved
 		default: // P2P
 			if !sender.IsValid() {
 				metrics.VPNPacketsDroppedTotal.WithLabelValues("ipv6_disabled").Inc()
 				continue
 			}
-			packet.SetSrc(sender)
-			packet.SetDst(localIP)
+			packet.RewriteAddrs(sender, localIP)
 		}
-		packet.RecalculateChecksum()
 		bufs = append(bufs, packet.Buf())
 	}
 
