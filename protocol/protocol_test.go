@@ -140,7 +140,7 @@ func TestAppendPacketToBuf_RoundTrip(t *testing.T) {
 		buf := AppendPacketToBuf(nil, packet, dir)
 		require.Len(t, buf, 8+len(packet))
 
-		size, gotDir, err := ReadPacketHeader(bytes.NewReader(buf))
+		size, gotDir, err := ReadPacketHeader(bytes.NewReader(buf), new([8]byte))
 		require.NoError(t, err)
 		require.Equal(t, uint64(len(packet)), size)
 		require.Equal(t, dir, gotDir)
@@ -152,7 +152,7 @@ func TestAppendPacketToBuf_EmptyPacket(t *testing.T) {
 	buf := AppendPacketToBuf(nil, []byte{}, vpn.GatewayDirNone)
 	require.Len(t, buf, 8)
 
-	size, dir, err := ReadPacketHeader(bytes.NewReader(buf))
+	size, dir, err := ReadPacketHeader(bytes.NewReader(buf), new([8]byte))
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), size)
 	require.Equal(t, vpn.GatewayDirNone, dir)
@@ -163,7 +163,7 @@ func TestReadPacketHeader_RejectsBothFlags(t *testing.T) {
 	v := uint64(100) | tunnelFlagGatewayForward | tunnelFlagGatewayReturn
 	binary.BigEndian.PutUint64(header[:], v)
 
-	_, _, err := ReadPacketHeader(bytes.NewReader(header[:]))
+	_, _, err := ReadPacketHeader(bytes.NewReader(header[:]), new([8]byte))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "both gateway flags")
 }
@@ -172,7 +172,7 @@ func TestReadPacketHeader_RejectsHugeSize(t *testing.T) {
 	var header [8]byte
 	binary.BigEndian.PutUint64(header[:], uint64(vpn.MaxPacketBodySize)+1)
 
-	_, _, err := ReadPacketHeader(bytes.NewReader(header[:]))
+	_, _, err := ReadPacketHeader(bytes.NewReader(header[:]), new([8]byte))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exceeds max")
 }
@@ -181,12 +181,12 @@ func TestReadPacketHeader_AcceptsMaxBodySize(t *testing.T) {
 	var header [8]byte
 	binary.BigEndian.PutUint64(header[:], uint64(vpn.MaxPacketBodySize))
 
-	size, _, err := ReadPacketHeader(bytes.NewReader(header[:]))
+	size, _, err := ReadPacketHeader(bytes.NewReader(header[:]), new([8]byte))
 	require.NoError(t, err)
 	require.Equal(t, uint64(vpn.MaxPacketBodySize), size)
 }
 
 func TestReadPacketHeader_TruncatedStream(t *testing.T) {
-	_, _, err := ReadPacketHeader(bytes.NewReader([]byte{1, 2, 3}))
+	_, _, err := ReadPacketHeader(bytes.NewReader([]byte{1, 2, 3}), new([8]byte))
 	require.Error(t, err)
 }

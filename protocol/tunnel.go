@@ -27,15 +27,17 @@ const (
 	tunnelLengthMask         uint64 = ^(tunnelFlagGatewayForward | tunnelFlagGatewayReturn)
 )
 
-// ReadPacketHeader reads an 8-byte tunnel packet header from the stream and
-// returns the body size and the gateway direction encoded in the high bits.
-// Both direction bits set is rejected as a protocol error.
-func ReadPacketHeader(stream io.Reader) (size uint64, dir vpn.GatewayDir, err error) {
-	var data [8]byte
-	if _, err = io.ReadFull(stream, data[:]); err != nil {
+// ReadPacketHeader reads an 8-byte tunnel packet header from the stream into
+// buf and returns the body size and the gateway direction encoded in the high
+// bits. Both direction bits set is rejected as a protocol error.
+//
+// The caller passes the same buf for all packets of a stream: a local array
+// would escape to the heap through io.ReadFull, one allocation per packet.
+func ReadPacketHeader(stream io.Reader, buf *[8]byte) (size uint64, dir vpn.GatewayDir, err error) {
+	if _, err = io.ReadFull(stream, buf[:]); err != nil {
 		return 0, 0, err
 	}
-	v := binary.BigEndian.Uint64(data[:])
+	v := binary.BigEndian.Uint64(buf[:])
 	fwd := v&tunnelFlagGatewayForward != 0
 	ret := v&tunnelFlagGatewayReturn != 0
 	if fwd && ret {

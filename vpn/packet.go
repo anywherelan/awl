@@ -18,6 +18,9 @@ const (
 	IPProtocolICMPv6 = 58
 
 	ipv4offsetChecksum = 10
+
+	ipv6NextHeaderFragment = 44
+	ipv6FragmentHeaderLen  = 8
 )
 
 type Packet struct {
@@ -106,9 +109,10 @@ func (data *Packet) Parse() bool {
 			return false
 		}
 		// Validate the header length against the actual packet so downstream
-		// slicing (RecalculateChecksum) can't run past the packet and panic.
-		// Transport-length is not enforced here (it would drop legit non-first IP
-		// fragments); RecalculateChecksum guards its own transport slicing.
+		// slicing (RewriteAddrs, RecalculateChecksum) can't run past the packet
+		// and panic. Transport-length is not enforced here (it would drop legit
+		// non-first IP fragments); RewriteAddrs and RecalculateChecksum guard
+		// their own transport slicing.
 		ipHeaderLen := int(packet[0]&0x0f) << 2
 		if ipHeaderLen < ipv4.HeaderLen || ipHeaderLen > len(packet) {
 			return false
@@ -133,6 +137,9 @@ func (data *Packet) Parse() bool {
 	return true
 }
 
+// RecalculateChecksum recomputes the IPv4 header checksum and the transport
+// checksum over the whole packet. Only tests use it, to build packets: awl
+// rewrites received packets with RewriteAddrs.
 func (data *Packet) RecalculateChecksum() {
 	if data.IsIPv6 {
 		data.recalculateChecksumIPv6()
@@ -168,15 +175,13 @@ func (data *Packet) RecalculateChecksum() {
 	}
 }
 
-// recalculateChecksumIPv6 updates TCP/UDP transport-layer checksums after an
-// IPv6 src/dst rewrite. IPv6 has no IP-header checksum (unlike IPv4), but the
-// TCP/UDP pseudo-header includes the 128-bit src and dst addresses, so any
-// address rewrite invalidates the transport checksum and must be followed by
-// this call.
+// recalculateChecksumIPv6 is RecalculateChecksum for IPv6. IPv6 has no
+// IP-header checksum (unlike IPv4), but the TCP/UDP pseudo-header includes the
+// 128-bit src and dst addresses, so an address rewrite invalidates the
+// transport checksum.
 //
-// IPv6 extension headers are NOT walked: awl tunnels ordinary TCP/UDP/ICMP6
-// packets and never generates fragments or options, so the Next Header at
-// offset 6 always names the transport protocol directly.
+// IPv6 extension headers are NOT walked: the Next Header at offset 6 must name
+// the transport protocol. Unlike RewriteAddrs, it does not handle fragments.
 func (data *Packet) recalculateChecksumIPv6() {
 	if len(data.Packet) < ipv6.HeaderLen {
 		return
@@ -224,7 +229,7 @@ func (data *Packet) DstAddr() netip.Addr {
 // SetSrc writes addr into the source address of the parsed packet without
 // allocating. addr must be of the packet's IP version: in an IPv4 packet any
 // other address is ignored, in an IPv6 packet an IPv4 one is written mapped.
-// The checksums are not updated, see RecalculateChecksum.
+// The checksums are not updated, see RewriteAddrs and RecalculateChecksum.
 func (data *Packet) SetSrc(addr netip.Addr) {
 	putAddr(data.Src, addr)
 }
@@ -232,6 +237,125 @@ func (data *Packet) SetSrc(addr netip.Addr) {
 // SetDst is SetSrc for the destination address.
 func (data *Packet) SetDst(addr netip.Addr) {
 	putAddr(data.Dst, addr)
+}
+
+// RewriteAddrs writes src and dst into the parsed packet like SetSrc and
+// SetDst, and updates the checksums incrementally (RFC 1624). An invalid
+// address keeps the field.
+//
+// Only the address words change, so the IPv4 header checksum and the
+// TCP/UDP/ICMPv6 checksum, whose pseudo-header covers the addresses, are
+// adjusted by their difference and the payload is not read. The result is the
+// same as a full recompute when the incoming checksums are valid; a wrong
+// incoming checksum stays wrong.
+//
+// Only the first fragment carries the transport header. Its checksum covers
+// the whole datagram and gets the same update. Later IPv4 fragments get only
+// the IP header checksum updated, later IPv6 fragments are not changed. In
+// IPv6 only a Fragment header right after the IPv6 header is passed; other
+// extension headers are not walked.
+func (data *Packet) RewriteAddrs(src, dst netip.Addr) {
+	var old [2 * net.IPv6len]byte
+	srcLen := copy(old[:], data.Src)
+	dstLen := copy(old[srcLen:], data.Dst)
+	if src.IsValid() {
+		putAddr(data.Src, src)
+	}
+	if dst.IsValid() {
+		putAddr(data.Dst, dst)
+	}
+	delta := addChecksumDelta(0, old[:srcLen], data.Src)
+	delta = addChecksumDelta(delta, old[srcLen:srcLen+dstLen], data.Dst)
+	delta = foldChecksum(delta)
+	// 0xffff is zero in one's complement: the addresses did not change the sum
+	if delta == 0 || delta == 0xffff {
+		return
+	}
+
+	packet := data.Packet
+	protocol := data.IPProtocol
+	var transport []byte
+	if data.IsIPv6 {
+		var ok bool
+		if protocol, transport, ok = findIPv6Transport(packet, protocol); !ok {
+			return
+		}
+	} else {
+		ipHeaderLen := int(packet[0]&0x0f) << 2
+		if ipHeaderLen < ipv4.HeaderLen || ipHeaderLen > len(packet) {
+			return
+		}
+		adjustChecksum(packet[ipv4offsetChecksum:], delta, false)
+		const fragmentOffsetMask = 0x1fff
+		if binary.BigEndian.Uint16(packet[6:])&fragmentOffsetMask != 0 {
+			return
+		}
+		transport = packet[ipHeaderLen:]
+	}
+
+	switch protocol {
+	case IPProtocolTCP:
+		if len(transport) >= 18 {
+			adjustChecksum(transport[16:], delta, false)
+		}
+	case IPProtocolUDP:
+		if len(transport) >= 8 {
+			adjustChecksum(transport[6:], delta, true)
+		}
+	case IPProtocolICMPv6:
+		if data.IsIPv6 && len(transport) >= 4 {
+			adjustChecksum(transport[2:], delta, false)
+		}
+	}
+}
+
+// findIPv6Transport returns the transport protocol and header that follow the
+// IPv6 header and an optional Fragment header. ok is false for a later fragment,
+// which has no transport header.
+func findIPv6Transport(packet []byte, nextHeader byte) (protocol byte, transport []byte, ok bool) {
+	transport = packet[ipv6.HeaderLen:]
+	if nextHeader != ipv6NextHeaderFragment {
+		return nextHeader, transport, true
+	}
+	const fragmentOffsetMask = 0xfff8
+	if len(transport) < ipv6FragmentHeaderLen || binary.BigEndian.Uint16(transport[2:])&fragmentOffsetMask != 0 {
+		return 0, nil, false
+	}
+	return transport[0], transport[ipv6FragmentHeaderLen:], true
+}
+
+// addChecksumDelta adds ~old + new for each 16-bit word of an address to sum.
+// old and new have the same length.
+func addChecksumDelta(sum uint32, old, new []byte) uint32 {
+	for i := 0; i+1 < len(new); i += 2 {
+		sum += uint32(^binary.BigEndian.Uint16(old[i:]))
+		sum += uint32(binary.BigEndian.Uint16(new[i:]))
+	}
+	return sum
+}
+
+func foldChecksum(sum uint32) uint32 {
+	for sum > 0xffff {
+		sum = (sum >> 16) + (sum & 0xffff)
+	}
+	return sum
+}
+
+// adjustChecksum applies RFC 1624 eqn. 3, HC' = ~(~HC + ~m + m'), to the
+// checksum in field[:2]; delta is the folded sum of ~m + m'.
+//
+// For UDP a zero checksum means "no checksum" (RFC 768) and stays zero, and a
+// computed zero is sent as 0xffff (RFC 768, RFC 8200 §8.1).
+func adjustChecksum(field []byte, delta uint32, udp bool) {
+	checksum := binary.BigEndian.Uint16(field)
+	if udp && checksum == 0 {
+		return
+	}
+	checksum = ^uint16(foldChecksum(uint32(^checksum) + delta))
+	if udp && checksum == 0 {
+		checksum = 0xffff
+	}
+	binary.BigEndian.PutUint16(field, checksum)
 }
 
 func putAddr(dst net.IP, addr netip.Addr) {
