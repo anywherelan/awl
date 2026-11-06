@@ -125,10 +125,11 @@ func (t *Tunnel) StreamHandler(stream network.Stream) {
 		return
 	}
 
+	var header [8]byte
 	wrappedStream := &io.LimitedReader{}
 	for {
 		packet := t.device.GetTempPacket()
-		packetSize, dir, err := protocol.ReadPacketHeader(stream)
+		packetSize, dir, err := protocol.ReadPacketHeader(stream, &header)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
 				t.logger.Warnf("read packet header: %v", err)
