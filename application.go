@@ -16,8 +16,13 @@ import (
 	"time"
 
 	"github.com/anywherelan/ts-dns/control/controlknobs"
+	// Watch /etc/resolv.conf in direct mode on linux and report when another
+	// program overwrites it. Does nothing on other OSes.
+	_ "github.com/anywherelan/ts-dns/feature/linuxdnsfight"
 	"github.com/anywherelan/ts-dns/net/dns"
 	"github.com/anywherelan/ts-dns/util/dnsname"
+	tseventbus "github.com/anywherelan/ts-dns/util/eventbus"
+	"github.com/anywherelan/ts-dns/util/syspolicy/policyclient"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
@@ -494,10 +499,24 @@ func (a *DNSService) initDNS(interfaceName string) {
 		a.refreshDNSConfigLocked()
 	}, a.eventbus, new(awlevent.KnownPeerChanged))
 
+	// In direct mode on Linux the configurator watches /etc/resolv.conf and
+	// publishes TrampleDNS when another program overwrites it. Events come
+	// asynchronously and may arrive after Close.
+	dnsBus := tseventbus.New()
+	tseventbus.SubscribeFunc(dnsBus.Client("awl"), func(dns.TrampleDNS) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.dnsOsConfigurator == nil || !a.isAwlDNSSetAsSystem {
+			return
+		}
+		a.logger.Infof("system dns config was overwritten by another program, setting awl dns again")
+		a.applyOSDNSConfigLocked()
+	})
+
 	tsLogger := log.Logger("ts/dnsconf")
 	a.dnsOsConfigurator, err = dns.NewOSConfigurator(func(format string, args ...interface{}) {
 		tsLogger.Infof(format, args...)
-	}, nil, &controlknobs.Knobs{}, interfaceName)
+	}, nil, dnsBus, policyclient.NoPolicyClient{}, &controlknobs.Knobs{}, interfaceName)
 	if err != nil {
 		a.logger.Errorf("unable to create dns os configurator: %v", err)
 		return
@@ -678,6 +697,7 @@ func (a *DNSService) Close() {
 		if err != nil {
 			a.logger.Errorf("closing dns configurator: %v", err)
 		}
+		a.dnsOsConfigurator = nil
 	}
 	if a.dnsResolver != nil {
 		a.dnsResolver.Close()

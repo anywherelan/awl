@@ -16,7 +16,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.26.8
+          go-version: 1.27.3
           cache: true
       - name: Create stub static/
         run: mkdir static && touch static/index.html
@@ -26,8 +26,8 @@ jobs:
       - name: gofmt && go mod tidy
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go mod tidy -compat=1.26
-          cd cmd/awl-tray && go mod tidy -compat=1.26 && cd ../..
+          go mod tidy -compat=1.27
+          cd cmd/awl-tray && go mod tidy -compat=1.27 && cd ../..
           test -z "$(gofmt -d .)" || (gofmt -d . && false)
           test -z "$(git status --porcelain)" || (git status; git diff && false)
       - name: Cross-compile 32-bit and cmd/awl-tray

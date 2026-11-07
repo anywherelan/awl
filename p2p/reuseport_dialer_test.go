@@ -45,7 +45,7 @@ func (c *countingControl) control(_, _ string, _ syscall.RawConn) error {
 // syncedLibp2pVersion is the go-libp2p release reuseportDialer was last
 // compared against. Bump it only after diffing p2p/net/reuseport (dialer.go,
 // reuseport.go) between the two releases and porting what changed.
-const syncedLibp2pVersion = "v0.50.0"
+const syncedLibp2pVersion = "v0.51.0"
 
 // reuseportDialer is a copy of go-libp2p's source port selection and retry
 // rule, so it does not pick up upstream changes on its own. The tests below
