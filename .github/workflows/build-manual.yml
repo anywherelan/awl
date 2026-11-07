@@ -46,7 +46,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.26.8
+          go-version: 1.27.3
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -90,8 +90,8 @@ jobs:
           GOMOBILE_VERSION=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
           go install golang.org/x/mobile/cmd/gomobile@$GOMOBILE_VERSION
           gomobile init
-          go mod tidy -compat=1.26
-          cd cmd/awl-tray && go mod tidy -compat=1.26 && cd ../..
+          go mod tidy -compat=1.27
+          cd cmd/awl-tray && go mod tidy -compat=1.27 && cd ../..
           echo "check go mod tidy and git dirty"
           test -z "$(git status --porcelain)" || (git status; git diff && false)
           cd ../awl-flutter && flutter pub get && cd ../awl
@@ -149,7 +149,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.26.8
+          go-version: 1.27.3
           cache: true
           cache-dependency-path: |
             awl/go.sum
@@ -192,8 +192,8 @@ jobs:
       - name: Download and setup go-legacy-win7
         run: |
           mkdir -p /tmp/go-legacy-setup
-          wget -P /tmp/go-legacy-setup https://github.com/thongtech/go-legacy-win7/releases/download/v1.26.8-1/go-legacy-win7-1.26.8-1.linux_amd64.tar.gz
-          tar -xzf /tmp/go-legacy-setup/go-legacy-win7-1.26.8-1.linux_amd64.tar.gz -C /tmp/go-legacy-setup
+          wget -P /tmp/go-legacy-setup https://github.com/thongtech/go-legacy-win7/releases/download/v1.27.3-1/go-legacy-win7-1.27.3-1.linux_amd64.tar.gz
+          tar -xzf /tmp/go-legacy-setup/go-legacy-win7-1.27.3-1.linux_amd64.tar.gz -C /tmp/go-legacy-setup
           export GOROOT=/tmp/go-legacy-setup/go-legacy-win7
           export PATH=$GOROOT/bin:$PATH
           go version
