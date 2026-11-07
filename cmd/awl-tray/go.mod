@@ -1,6 +1,6 @@
 module awl-tray
 
-go 1.27.0
+go 1.27.3
 
 replace (
 	github.com/anywherelan/awl => ../../
@@ -29,7 +29,7 @@ require (
 	git.sr.ht/~jackmordaunt/go-toast v1.1.2 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/akavel/rsrc v0.10.2 // indirect
-	github.com/anywherelan/ts-dns v0.0.0-20240721135326-6d6b7b811853 // indirect
+	github.com/anywherelan/ts-dns v0.0.0-20261107131752-b79272f28c32 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
@@ -37,7 +37,7 @@ require (
 	github.com/coreos/go-iptables v0.8.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
-	github.com/dblohm7/wingoes v0.0.0-20240119213807-a09d6be7affa // indirect
+	github.com/dblohm7/wingoes v0.0.0-20260526185140-fb298caac7ca // indirect
 	github.com/dchest/jsmin v0.0.0-20220218165748-59f39799265f // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dunglas/httpsfv v1.1.1 // indirect
@@ -45,6 +45,7 @@ require (
 	github.com/filecoin-project/go-clock v0.1.0 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.16 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -59,7 +60,7 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/haxii/socks5 v1.0.0 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
-	github.com/illarion/gonotify v1.0.1 // indirect
+	github.com/illarion/gonotify/v3 v3.0.2 // indirect
 	github.com/ipfs/boxo v0.43.0 // indirect
 	github.com/ipfs/go-cid v0.6.2 // indirect
 	github.com/ipfs/go-datastore v0.9.2 // indirect
@@ -68,7 +69,6 @@ require (
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/josephspurrier/goversioninfo v1.4.0 // indirect
-	github.com/josharian/native v1.1.1-0.20230202152459-5c7d0dd6ab86 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/koron/go-ssdp v0.9.1 // indirect
 	github.com/labstack/echo-contrib v0.50.1 // indirect
@@ -167,8 +167,8 @@ require (
 	go.uber.org/mock v0.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
-	go4.org/mem v0.0.0-20220726221520-4f986261bf13 // indirect
-	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
+	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
+	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
