@@ -2,6 +2,7 @@ package awl
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
 	"errors"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
@@ -147,6 +149,20 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		a.logger.Errorf("failed to export kad-dht metrics: %v", err)
 	}
 	a.P2p = p2p.NewP2p(a.ctx)
+	// The host config takes our IPv6 address on the awl interface, and it is
+	// derived from the peer ID. So on the first start create the identity
+	// before the host.
+	if a.Conf.PrivKey() == nil {
+		privKey, _, err := crypto.GenerateEd25519Key(rand.Reader)
+		if err != nil {
+			return fmt.Errorf("generate identity: %v", err)
+		}
+		id, err := peer.IDFromPrivateKey(privKey)
+		if err != nil {
+			return fmt.Errorf("generate identity: %v", err)
+		}
+		a.Conf.SetIdentity(privKey, id)
+	}
 	p2pHost, err := a.P2p.InitHost(a.makeP2pHostConfig())
 	if err != nil {
 		return err
@@ -410,6 +426,7 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		// time on every socket, so libp2p connections opened *before* gateway
 		// mode is toggled on at runtime are already exempt from the VPN route.
 		SocketControlFunc: a.NetManager.ControlFunc(),
+		VPNPrefixes:       a.vpnPrefixes(),
 		Libp2pOpts: append([]libp2p.Option{
 			libp2p.EnableRelay(),
 			libp2p.EnableAutoNATv2(),
@@ -430,6 +447,20 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		Peerstore:    peerstore,
 		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
 	}
+}
+
+// vpnPrefixes returns our IPv4 and IPv6 addresses on the awl interface with
+// the prefix length of the awl subnets.
+func (a *Application) vpnPrefixes() []netip.Prefix {
+	var prefixes []netip.Prefix
+	if prefix := a.Conf.VPNPrefix(); prefix.IsValid() {
+		prefixes = append(prefixes, prefix)
+	}
+	if prefixV6, ok := a.Conf.VPNPrefixV6(); ok {
+		prefixes = append(prefixes, prefixV6)
+	}
+
+	return prefixes
 }
 
 // knownPeersToMaintain lists the known peers for P2p to keep connected.

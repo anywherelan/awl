@@ -38,6 +38,7 @@ require (
 	github.com/tailscale/wf v0.0.0-20240214030419-6fbb0a674ee6
 	github.com/urfave/cli/v2 v2.27.7
 	github.com/vishvananda/netlink v1.3.1
+	github.com/wlynxg/anet v0.0.5
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.69.0
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
@@ -144,7 +145,6 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
-	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect

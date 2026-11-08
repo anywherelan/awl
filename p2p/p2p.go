@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
+	"runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -76,6 +78,11 @@ type HostConfig struct {
 	// (e.g., SO_MARK on Linux) so they bypass the VPN TUN interface.
 	SocketControlFunc func(network, address string, c syscall.RawConn) error
 
+	// VPNPrefixes are our addresses on the awl interface, IPv4 and IPv6, with
+	// the prefix length of the awl subnets. These addresses are not announced
+	// to other peers.
+	VPNPrefixes []netip.Prefix
+
 	Libp2pOpts  []libp2p.Option
 	ConnManager struct {
 		LowWater    int
@@ -119,6 +126,9 @@ type P2p struct {
 	tcpDialersMu sync.Mutex
 	tcpDialers   []*reuseportDialer
 
+	// the addresses of the host to announce to other peers
+	localAddrs *localAddrs
+
 	// when to try the known and the bootstrap peers that could not be reached
 	retries *retrySchedule
 	// carries the reason, see NotifyNetworkChanged
@@ -134,11 +144,13 @@ type P2p struct {
 
 func NewP2p(ctx context.Context) *P2p {
 	newCtx, ctxCancel := context.WithCancel(ctx)
+	logger := log.Logger("awl/p2p")
 	return &P2p{
 		ctx:       newCtx,
 		ctxCancel: ctxCancel,
-		logger:    log.Logger("awl/p2p"),
+		logger:    logger,
 
+		localAddrs:      &localAddrs{logger: logger, read: readInterfaces},
 		retries:         newRetrySchedule(),
 		networkChanged:  make(chan string, 1),
 		maxRedialDelay:  defaultMaxRedialDelay,
@@ -196,6 +208,7 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 	}
 
 	p.config = hostConfig
+	p.localAddrs.vpnPrefixes = hostConfig.VPNPrefixes
 
 	transportOpts := p.buildTransportOpts(hostConfig.SocketControlFunc)
 
@@ -207,6 +220,7 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 		libp2p.ConnectionManager(p.connManager),
 		libp2p.SwarmOpts(swarm.WithDialRanker(p.getDialRanker())),
 		libp2p.ListenAddrs(listenAddrs...),
+		libp2p.AddrsFactory(p.localAddrs.announced),
 		libp2p.ChainOptions(transportOpts...),
 		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
 			opts := []dht.Option{
@@ -229,6 +243,12 @@ func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
 	}
 	p.host = p2pHost
 	p.startedAt = time.Now()
+	// libp2p fails to list the network interfaces on Android 11+
+	// (go-libp2p#2986), see localAddrs.resolveListenAddrs
+	if runtime.GOOS == "android" {
+		hostListenAddrs := p2pHost.Network().ListenAddresses
+		p.localAddrs.listenAddrs.Store(&hostListenAddrs)
+	}
 
 	return p2pHost, nil
 }
