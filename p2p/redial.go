@@ -3,7 +3,6 @@ package p2p
 import (
 	"context"
 	"math/rand/v2"
-	"slices"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -33,12 +32,12 @@ const (
 // whole round, several hundred times a day.
 //
 // The returned func removes the subscription.
-func (p *P2p) redialOnDisconnect(ctx context.Context, knownPeersFunc func() []KnownPeer) (stop func()) {
+func (p *P2p) redialOnDisconnect(ctx context.Context, isKnownPeer func(peer.ID) bool) (stop func()) {
 	notifee := &network.NotifyBundle{
 		DisconnectedF: func(_ network.Network, conn network.Conn) {
 			// Fires for every connection of every peer, DHT servers included,
 			// and the swarm waits for it to return.
-			go p.redial(ctx, conn.RemotePeer(), knownPeersFunc)
+			go p.redial(ctx, conn.RemotePeer(), isKnownPeer)
 		},
 	}
 	p.host.Network().Notify(notifee)
@@ -46,8 +45,8 @@ func (p *P2p) redialOnDisconnect(ctx context.Context, knownPeersFunc func() []Kn
 	return func() { p.host.Network().StopNotify(notifee) }
 }
 
-func (p *P2p) redial(ctx context.Context, peerID peer.ID, knownPeersFunc func() []KnownPeer) {
-	if p.IsConnected(peerID) || !isKnownPeer(knownPeersFunc(), peerID) {
+func (p *P2p) redial(ctx context.Context, peerID peer.ID, isKnownPeer func(peer.ID) bool) {
+	if p.IsConnected(peerID) || !isKnownPeer(peerID) {
 		return
 	}
 	if _, pending := p.redials.LoadOrStore(peerID, struct{}{}); pending {
@@ -75,7 +74,7 @@ func (p *P2p) redial(ctx context.Context, peerID peer.ID, knownPeersFunc func() 
 		awlmetrics.P2PRedialsTotal.WithLabelValues(redialPeerConnected).Inc()
 		return
 	}
-	if !isKnownPeer(knownPeersFunc(), peerID) {
+	if !isKnownPeer(peerID) {
 		return
 	}
 
@@ -105,10 +104,4 @@ func (p *P2p) redial(ctx context.Context, peerID peer.ID, knownPeersFunc func() 
 	}
 	awlmetrics.P2PRedialsTotal.WithLabelValues(result).Inc()
 	awlmetrics.P2PRedialDurationSeconds.WithLabelValues(result).Observe(took.Seconds())
-}
-
-func isKnownPeer(knownPeers []KnownPeer, peerID peer.ID) bool {
-	return slices.ContainsFunc(knownPeers, func(knownPeer KnownPeer) bool {
-		return knownPeer.ID == peerID
-	})
 }

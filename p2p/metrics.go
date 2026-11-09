@@ -84,12 +84,19 @@ func (p *P2p) PeerUserAgent(peerID peer.ID) string {
 // given peer is direct (i.e. not via a libp2p circuit relay). Returns false if
 // there are no connections at all.
 func (p *P2p) HasDirectConnection(peerID peer.ID) bool {
-	for _, conn := range p.connsToPeer(peerID) {
-		if _, err := conn.RemoteMultiaddr().ValueForProtocol(multiaddr.P_CIRCUIT); err != nil {
-			return true
+	return p.directConnToPeer(peerID) != nil
+}
+
+// directConnToPeer returns a connection to the peer that does not go through a
+// relay, or nil.
+func (p *P2p) directConnToPeer(peerID peer.ID) network.Conn {
+	for _, conn := range p.host.Network().ConnsToPeer(peerID) {
+		if !isRelayAddr(conn.RemoteMultiaddr()) {
+			return conn
 		}
 	}
-	return false
+
+	return nil
 }
 
 func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
@@ -121,7 +128,7 @@ func (p *P2p) PeerConnectionsInfo(peerID peer.ID) []ConnectionInfo {
 func (p *P2p) PeerPublicIP(peerID peer.ID) string {
 	for _, conn := range p.connsToPeer(peerID) {
 		addr := conn.RemoteMultiaddr()
-		if _, err := addr.ValueForProtocol(multiaddr.P_CIRCUIT); err == nil {
+		if isRelayAddr(addr) {
 			continue
 		}
 		if v, err := addr.ValueForProtocol(multiaddr.P_IP4); err == nil {
@@ -315,7 +322,7 @@ func parseMultiaddrToInfo(addr multiaddr.Multiaddr) (ConnectionInfo, bool) {
 		ip, _ := addr.ValueForProtocol(protocols[0].Code)
 		port, _ := addr.ValueForProtocol(protocols[1].Code)
 		info.Address = net.JoinHostPort(ip, port)
-	} else if _, err := addr.ValueForProtocol(multiaddr.P_CIRCUIT); err == nil {
+	} else if isRelayAddr(addr) {
 		info.ThroughRelay = true
 		info.RelayPeerID, _ = addr.ValueForProtocol(multiaddr.P_P2P)
 	} else {

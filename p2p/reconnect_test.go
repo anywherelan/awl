@@ -162,7 +162,7 @@ func TestMaintainBackgroundConnections_NetworkReturns(t *testing.T) {
 
 	go a.MaintainBackgroundConnections(t.Context(), 20*time.Millisecond, func() []KnownPeer {
 		return []KnownPeer{offline}
-	})
+	}, func(id peer.ID) bool { return id == offline.ID })
 
 	const manyFailures = 5
 	require.Eventually(t, func() bool {
@@ -190,7 +190,7 @@ func TestMaintainBackgroundConnections_NotifyNetworkChanged(t *testing.T) {
 	go a.MaintainBackgroundConnections(t.Context(), time.Hour, func() []KnownPeer {
 		rounds.Add(1)
 		return []KnownPeer{offline}
-	})
+	}, func(id peer.ID) bool { return id == offline.ID })
 	startedAnew := func(wantRounds int32) func() bool {
 		return func() bool {
 			return rounds.Load() == wantRounds && a.retries.failuresOf(offline.ID) == 2

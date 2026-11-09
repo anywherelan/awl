@@ -96,6 +96,7 @@ You can also browse profiles directly in the Pyroscope UI at http://localhost:40
 | `awl_p2p_bandwidth_bytes_total` | CounterVec | libp2p traffic, labels: `protocol, direction={in,out}`. `protocol` is `unknown` before a stream agrees on one |
 | `awl_p2p_redials_total` | CounterVec | Redials of a known peer right after it disconnected, labels: `result` (`success`, `failure`, `peer_connected`: the peer came back on its own first) |
 | `awl_p2p_redial_duration_seconds` | HistogramVec | How long the dial of a redial took, labels: `result` |
+| `awl_p2p_lan_dials_total` | CounterVec | Dials of a known peer connected only through a relay, at its addresses in the local network, labels: `result` (`success`, `failure`, `peer_connected`: the peer connected directly first) |
 | `awl_p2p_reconnect_resets_total` | CounterVec | Times the reconnection schedule was reset because the network came back, labels: `reason` (`bootstrap_returned`, `notified`) |
 
 ### DNS Metrics (`awl_dns_*`)
