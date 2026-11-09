@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/stretchr/testify/require"
 
@@ -21,9 +22,7 @@ func TestRedialOnDisconnect(t *testing.T) {
 	b := newTestP2p(t, nil, "/ip4/127.0.0.1/tcp/0")
 	a.maxRedialDelay = 20 * time.Millisecond
 
-	stop := a.redialOnDisconnect(t.Context(), func() []KnownPeer {
-		return []KnownPeer{{ID: b.PeerID()}}
-	})
+	stop := a.redialOnDisconnect(t.Context(), func(id peer.ID) bool { return id == b.PeerID() })
 	t.Cleanup(stop)
 
 	oldConn := connectTCP(t, a, b, "/ip4/127.0.0.1")
@@ -48,9 +47,9 @@ func TestRedial_FailureIsNotCounted(t *testing.T) {
 	dialsBefore := metricValue(t, "awl_p2p_redial_duration_seconds", redialFailure)
 
 	calls := 0
-	a.redial(t.Context(), gone.ID, func() []KnownPeer {
+	a.redial(t.Context(), gone.ID, func(id peer.ID) bool {
 		calls++
-		return []KnownPeer{{ID: gone.ID}}
+		return id == gone.ID
 	})
 	require.Equal(t, 2, calls, "the redial did not get as far as the dial")
 	require.False(t, a.IsConnected(gone.ID))
@@ -102,11 +101,8 @@ func TestRedialOnDisconnect_SkipsNotKnownPeer(t *testing.T) {
 			a.maxRedialDelay = 20 * time.Millisecond
 
 			var calls atomic.Int32
-			stop := a.redialOnDisconnect(t.Context(), func() []KnownPeer {
-				if calls.Add(1) > tt.knownCalls {
-					return nil
-				}
-				return []KnownPeer{{ID: b.PeerID()}}
+			stop := a.redialOnDisconnect(t.Context(), func(id peer.ID) bool {
+				return calls.Add(1) <= tt.knownCalls && id == b.PeerID()
 			})
 			t.Cleanup(stop)
 

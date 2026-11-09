@@ -228,7 +228,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		return fmt.Errorf("failed to setup api: %v", err)
 	}
 
-	go a.P2p.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second, a.knownPeersToMaintain)
+	go a.P2p.MaintainBackgroundConnections(a.ctx, a.Conf.P2pNode.ReconnectionIntervalSec*time.Second, a.knownPeersToMaintain, a.isKnownPeer)
 	go a.AuthStatus.BackgroundRetryAuthRequests(a.ctx)
 	go a.AuthStatus.BackgroundExchangeStatusInfo(a.ctx)
 	go a.SOCKS5.ServeConns(a.ctx)
@@ -479,6 +479,12 @@ func (a *Application) knownPeersToMaintain() []p2p.KnownPeer {
 	}
 
 	return knownPeers
+}
+
+// isKnownPeer tells P2p whether the peer is known.
+func (a *Application) isKnownPeer(peerID peer.ID) bool {
+	_, ok := a.Conf.GetPeer(peerID.String())
+	return ok
 }
 
 type DNSService struct {

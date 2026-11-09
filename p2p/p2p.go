@@ -486,11 +486,19 @@ type KnownPeer struct {
 // bootstrap peers. A peer that cannot be reached is retried less and less
 // often, see retrySchedule; interval is both the pace of the rounds and the
 // first pause of that backoff.
-func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.Duration, knownPeersFunc func() []KnownPeer) {
+//
+// knownPeersFunc lists the known peers for each round. isKnownPeer tells
+// whether one peer is known, for the redials and the LAN dials.
+func (p *P2p) MaintainBackgroundConnections(
+	ctx context.Context, interval time.Duration, knownPeersFunc func() []KnownPeer, isKnownPeer func(peer.ID) bool,
+) {
 	const timeout = 5 * time.Second
 
-	stopRedial := p.redialOnDisconnect(ctx, knownPeersFunc)
+	stopRedial := p.redialOnDisconnect(ctx, isKnownPeer)
 	defer stopRedial()
+	lan := newLANDialer(p, isKnownPeer)
+	stopLAN := lan.start(ctx)
+	defer stopLAN()
 
 	// wait for bootstrapping
 	select {
@@ -507,6 +515,8 @@ func (p *P2p) MaintainBackgroundConnections(ctx context.Context, interval time.D
 	// the peers is stale, so everyone is tried again.
 	startOver := func() (bootstrapConnected int) {
 		p.retries.reset()
+		lan.forgetFailures()
+		p.localAddrs.forgetInterfaces()
 		round(true)
 
 		// retry once after a short delay in case of network instability
@@ -766,8 +776,7 @@ func (p *P2p) getDialRanker() network.DialRanker {
 
 		// finds the closest relay and adds 500 ms delay to all other relay addresses
 		for _, addrDelay := range defaultDelays {
-			_, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_CIRCUIT)
-			if err != nil {
+			if !isRelayAddr(addrDelay.Addr) {
 				continue
 			}
 			relayPIDString, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_P2P)
@@ -788,8 +797,7 @@ func (p *P2p) getDialRanker() network.DialRanker {
 		}
 
 		for i, addrDelay := range defaultDelays {
-			_, err := addrDelay.Addr.ValueForProtocol(multiaddr.P_CIRCUIT)
-			if err != nil {
+			if !isRelayAddr(addrDelay.Addr) {
 				continue
 			}
 

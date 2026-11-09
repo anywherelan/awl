@@ -69,6 +69,14 @@ func (l *localAddrs) interfaces() []localInterface {
 	return ifaces
 }
 
+// forgetInterfaces makes the next call to interfaces read them again: after
+// the network changed, the last list may be out of date.
+func (l *localAddrs) forgetInterfaces() {
+	l.ifacesMu.Lock()
+	defer l.ifacesMu.Unlock()
+	l.ifacesRead = time.Time{}
+}
+
 // readInterfaces lists the network interfaces with anet: on Android 11+ the
 // standard library fails to, elsewhere anet calls the standard library.
 func readInterfaces() ([]localInterface, error) {
@@ -104,11 +112,10 @@ func readInterfaces() ([]localInterface, error) {
 // resolveListenAddrs. libp2p drops the duplicates after the factory.
 //
 // Then it drops the addresses no other peer can reach us at: our own addresses
-// on the awl interface, addresses on interfaces that are not running, such as a
-// bridge with nothing connected or a port with the cable out, and addresses on
-// docker bridges. An address that is on none of the interfaces is kept:
-// observed and port-mapped public addresses are not on any. Relay addresses are
-// kept as well.
+// on the awl interface and addresses on unreachable interfaces, see
+// localInterface.unreachable. An address that is on none of the interfaces is
+// kept: observed and port-mapped public addresses are not on any. Relay
+// addresses are kept as well.
 func (l *localAddrs) announced(hostAddrs []multiaddr.Multiaddr) []multiaddr.Multiaddr {
 	ifaces := l.interfaces()
 	addrs := append(slices.Clone(hostAddrs), l.resolveListenAddrs(ifaces)...)
@@ -121,21 +128,68 @@ func (l *localAddrs) announced(hostAddrs []multiaddr.Multiaddr) []multiaddr.Mult
 	}
 
 	return slices.DeleteFunc(addrs, func(addr multiaddr.Multiaddr) bool {
-		if _, err := addr.ValueForProtocol(multiaddr.P_CIRCUIT); err == nil {
+		ip, ok := directIP(addr)
+		if !ok {
 			return false
 		}
-		netIP, err := manet.ToIP(addr)
-		if err != nil {
-			return false
-		}
-		ip, _ := netip.AddrFromSlice(netIP)
-		ip = ip.Unmap()
-		if slices.ContainsFunc(l.vpnPrefixes, func(prefix netip.Prefix) bool { return prefix.Addr() == ip }) {
+		if l.isVPNAddr(ip) {
 			return true
 		}
 		iface, found := ifaceByIP[ip]
-		return found && (iface.flags&net.FlagRunning == 0 || dockerBridgeName.MatchString(iface.name))
+		return found && iface.unreachable()
 	})
+}
+
+// lanCandidates picks the addresses to dial a peer at over the LAN, out of the
+// ones it announced: private addresses in the subnet of one of our interfaces.
+// The subnets are of the interfaces we announce addresses of, see announced,
+// without loopback and the awl interface. Link-local addresses and addresses in
+// the awl subnets are left out.
+func (l *localAddrs) lanCandidates(peerAddrs []multiaddr.Multiaddr) []multiaddr.Multiaddr {
+	var subnets []netip.Prefix
+	for _, iface := range l.interfaces() {
+		if iface.flags&net.FlagLoopback != 0 || iface.unreachable() {
+			continue
+		}
+		for _, prefix := range iface.prefixes {
+			if !l.isVPNAddr(prefix.Addr()) {
+				subnets = append(subnets, prefix.Masked())
+			}
+		}
+	}
+
+	var candidates []multiaddr.Multiaddr
+	for _, addr := range peerAddrs {
+		ip, ok := directIP(addr)
+		if !ok || !manet.IsPrivateAddr(addr) || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		inVPNSubnet := slices.ContainsFunc(l.vpnPrefixes, func(prefix netip.Prefix) bool {
+			return prefix.Masked().Contains(ip)
+		})
+		inOurSubnet := slices.ContainsFunc(subnets, func(subnet netip.Prefix) bool {
+			return subnet.Contains(ip)
+		})
+		if !inVPNSubnet && inOurSubnet {
+			candidates = append(candidates, addr)
+		}
+	}
+
+	return candidates
+}
+
+// isVPNAddr tells our own address on the awl interface.
+func (l *localAddrs) isVPNAddr(ip netip.Addr) bool {
+	return slices.ContainsFunc(l.vpnPrefixes, func(prefix netip.Prefix) bool {
+		return prefix.Addr() == ip
+	})
+}
+
+// unreachable tells an interface no other peer can reach us at: one that is not
+// running, such as a bridge with nothing connected or a port with the cable out,
+// or a docker bridge.
+func (iface localInterface) unreachable() bool {
+	return iface.flags&net.FlagRunning == 0 || dockerBridgeName.MatchString(iface.name)
 }
 
 // resolveListenAddrs turns every unspecified listen address, such as
@@ -180,4 +234,24 @@ func (l *localAddrs) resolveListenAddrs(ifaces []localInterface) []multiaddr.Mul
 	}
 
 	return resolved
+}
+
+// directIP returns the IP of an address, unless it is a relay address or has no
+// IP, as a DNS address.
+func directIP(addr multiaddr.Multiaddr) (netip.Addr, bool) {
+	if isRelayAddr(addr) {
+		return netip.Addr{}, false
+	}
+	netIP, err := manet.ToIP(addr)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	ip, ok := netip.AddrFromSlice(netIP)
+
+	return ip.Unmap(), ok
+}
+
+func isRelayAddr(addr multiaddr.Multiaddr) bool {
+	_, err := addr.ValueForProtocol(multiaddr.P_CIRCUIT)
+	return err == nil
 }

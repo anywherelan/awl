@@ -51,6 +51,14 @@ var (
 		Buckets:   []float64{0.25, 0.5, 1, 1.5, 2, 3, 4, 5},
 	}, []string{"result"})
 
+	P2PLANDialsTotal = factory.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: "p2p",
+		Name:      "lan_dials_total",
+		Help: "Dials of a known peer connected only through a relay, at its addresses in our LAN, by result: " +
+			"a direct connection opened (success), it did not (failure), or the peer connected directly first (peer_connected).",
+	}, []string{"result"})
+
 	P2PReconnectResetsTotal = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "p2p",

@@ -9,34 +9,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testRunning = net.FlagUp | net.FlagRunning
+
+func testIface(name string, flags net.Flags, prefixes ...string) localInterface {
+	li := localInterface{name: name, flags: flags}
+	for _, p := range prefixes {
+		li.prefixes = append(li.prefixes, netip.MustParsePrefix(p))
+	}
+	return li
+}
+
+// testDesktopIfaces are the network interfaces of a desktop with docker and VMs.
+var testDesktopIfaces = []localInterface{
+	testIface("lo", testRunning|net.FlagLoopback, "127.0.0.1/8", "::1/128"),
+	testIface("wlan0", testRunning, "192.168.1.5/24", "fe80::1/64", "fd12:3456::5/64"),
+	// a LAN that overlaps the awl subnet
+	testIface("eth0", testRunning, "10.66.5.7/16"),
+	// no answer from DHCP
+	testIface("eth1", testRunning, "169.254.7.7/16"),
+	// a public address on the interface, as on a server
+	testIface("eth2", testRunning, "89.36.211.215/24"),
+	testIface("awl0", testRunning|net.FlagPointToPoint, "10.66.0.1/16", "fd00:66::1/48"),
+	testIface("docker0", net.FlagUp, "172.17.0.1/16"),
+	testIface("br-4ff02d8bfb49", testRunning, "172.18.0.1/16"),
+	// a bridge with the real LAN, as on a server with VMs
+	testIface("br0", testRunning, "192.168.10.2/24"),
+	testIface("virbr0", net.FlagUp, "192.168.122.1/24"),
+}
+
+// testVPNPrefixes are our addresses on awl0 of testDesktopIfaces.
+var testVPNPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("10.66.0.1/16"),
+	netip.MustParsePrefix("fd00:66::1/48"),
+}
+
 func TestLocalAddrsAnnounced(t *testing.T) {
-	const running = net.FlagUp | net.FlagRunning
-	iface := func(name string, flags net.Flags, prefixes ...string) localInterface {
-		li := localInterface{name: name, flags: flags}
-		for _, p := range prefixes {
-			li.prefixes = append(li.prefixes, netip.MustParsePrefix(p))
-		}
-		return li
-	}
-	desktop := []localInterface{
-		iface("lo", running|net.FlagLoopback, "127.0.0.1/8"),
-		iface("wlan0", running, "192.168.1.5/24"),
-		// a LAN that overlaps the awl subnet
-		iface("eth0", running, "10.66.5.7/16"),
-		iface("awl0", running|net.FlagPointToPoint, "10.66.0.1/16", "fd00:66::1/48"),
-		iface("docker0", net.FlagUp, "172.17.0.1/16"),
-		iface("br-4ff02d8bfb49", running, "172.18.0.1/16"),
-		// a bridge with the real LAN, as on a server with VMs
-		iface("br0", running, "192.168.10.2/24"),
-		iface("virbr0", net.FlagUp, "192.168.122.1/24"),
-	}
 	// what anet lists on Android, where libp2p sees loopback only
 	android := []localInterface{
-		iface("lo", running|net.FlagLoopback, "127.0.0.1/8", "::1/128"),
-		iface("wlan0", running, "192.168.1.5/24", "fe80::1/64"),
+		testIface("lo", testRunning|net.FlagLoopback, "127.0.0.1/8", "::1/128"),
+		testIface("wlan0", testRunning, "192.168.1.5/24", "fe80::1/64"),
 		// VpnService TUN with our awl address
-		iface("tun0", running|net.FlagPointToPoint, "10.66.0.1/16"),
-		iface("rmnet_data0", running, "10.200.3.4/30"),
+		testIface("tun0", testRunning|net.FlagPointToPoint, "10.66.0.1/16"),
+		testIface("rmnet_data0", testRunning, "10.200.3.4/30"),
 	}
 
 	quic := func(ip string) string { return "/ip4/" + ip + "/udp/4363/quic-v1" }
@@ -51,13 +65,13 @@ func TestLocalAddrsAnnounced(t *testing.T) {
 	}{
 		{
 			name:   "our awl addresses",
-			ifaces: desktop,
+			ifaces: testDesktopIfaces,
 			addrs:  []string{quic("10.66.0.1"), "/ip6/fd00:66::1/udp/4363/quic-v1", quic("10.66.5.7"), quic("192.168.1.5")},
 			want:   []string{quic("10.66.5.7"), quic("192.168.1.5")},
 		},
 		{
 			name:   "unreachable interfaces",
-			ifaces: desktop,
+			ifaces: testDesktopIfaces,
 			addrs: []string{
 				quic("127.0.0.1"), quic("192.168.1.5"),
 				quic("192.168.122.1"), quic("172.17.0.1"), quic("172.18.0.1"),
@@ -89,11 +103,8 @@ func TestLocalAddrsAnnounced(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			l := &localAddrs{
-				vpnPrefixes: []netip.Prefix{
-					netip.MustParsePrefix("10.66.0.1/16"),
-					netip.MustParsePrefix("fd00:66::1/48"),
-				},
-				read: func() ([]localInterface, error) { return tt.ifaces, nil },
+				vpnPrefixes: testVPNPrefixes,
+				read:        func() ([]localInterface, error) { return tt.ifaces, nil },
 			}
 			listen := func() []multiaddr.Multiaddr { return toMultiaddrs(tt.listen) }
 			l.listenAddrs.Store(&listen)
@@ -106,6 +117,45 @@ func TestLocalAddrsAnnounced(t *testing.T) {
 				gotStrings = append(gotStrings, a.String())
 			}
 			require.ElementsMatch(t, tt.want, gotStrings)
+		})
+	}
+}
+
+func TestLocalAddrsLANCandidates(t *testing.T) {
+	l := &localAddrs{
+		vpnPrefixes: testVPNPrefixes,
+		read:        func() ([]localInterface, error) { return testDesktopIfaces, nil },
+	}
+	quic := func(ip string) string { return "/ip4/" + ip + "/udp/4363/quic-v1" }
+
+	tests := []struct {
+		name string
+		addr string
+		want bool
+	}{
+		{name: "LAN", addr: quic("192.168.1.7"), want: true},
+		{name: "LAN over TCP", addr: "/ip4/192.168.1.7/tcp/4363", want: true},
+		{name: "LAN on a bridge", addr: quic("192.168.10.9"), want: true},
+		{name: "IPv6 ULA of the LAN", addr: "/ip6/fd12:3456::7/udp/4363/quic-v1", want: true},
+		{name: "loopback", addr: quic("127.0.0.1")},
+		{name: "IPv4 link-local", addr: quic("169.254.3.4")},
+		{name: "IPv6 link-local", addr: "/ip6/fe80::7/udp/4363/quic-v1"},
+		{name: "awl subnet, though in a LAN too", addr: quic("10.66.0.2")},
+		{name: "awl IPv6 subnet", addr: "/ip6/fd00:66::2/udp/4363/quic-v1"},
+		{name: "docker", addr: quic("172.18.0.2")},
+		{name: "interface that is not running", addr: quic("192.168.122.5")},
+		{name: "private, not in our subnets", addr: quic("192.168.2.7")},
+		{name: "public, in our subnet", addr: quic("89.36.211.9")},
+		{
+			name: "relay in the LAN",
+			addr: quic("192.168.1.1") + "/p2p/12D3KooWGRjpNYgFssihdgTDnr5rdhdh9ruMTbeT41h1fXfGmatZ/p2p-circuit",
+		},
+		{name: "DNS", addr: "/dns4/nas.local/udp/4363/quic-v1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := l.lanCandidates([]multiaddr.Multiaddr{multiaddr.StringCast(tt.addr)})
+			require.Equal(t, tt.want, len(got) == 1)
 		})
 	}
 }
