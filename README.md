@@ -423,6 +423,8 @@ A minimal, populated `config_awl.json` (peer IDs and identity truncated):
 }
 ```
 
+To lower the MTU of the VPN interface (the default is `3500`), set `vpn.mtu` to a value between `1280` and `3500`, for example `"mtu": 1400`. This helps when TCP connections stall because the network drops ICMP "fragmentation needed" messages. Restart awl to apply it. It is not used on Android, where the app creates the interface.
+
 Every field (with comments and types) lives in [`config/config.go`](config/config.go), which is the authoritative reference.
 
 ## Monitoring

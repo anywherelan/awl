@@ -16,7 +16,14 @@ import (
 )
 
 const (
-	InterfaceMTU   = 3500
+	// InterfaceMTU is the default MTU of the TUN interface. It is also the
+	// largest MTU that can be configured: packet buffers and stream limits are
+	// sized for it.
+	InterfaceMTU = 3500
+	// MinInterfaceMTU is the smallest MTU that can be configured. It is the
+	// minimum MTU required by IPv6 (RFC 8200).
+	MinInterfaceMTU = 1280
+
 	maxContentSize = InterfaceMTU + 100
 	// internal tun header. see offset in tun_darwin (4) and tun_linux (virtioNetHdrLen, currently 10)
 	tunPacketOffset = 14
@@ -37,14 +44,29 @@ type Device struct {
 	logger      *log.ZapEventLogger
 }
 
-// NewDevice creates the TUN device, or uses existingTun when it is not nil.
+// ResolveMTU returns the MTU for the TUN interface from the configured value.
+// Zero means the default, InterfaceMTU. A value outside of
+// [MinInterfaceMTU, InterfaceMTU] is not usable: ok is false and the default is returned.
+func ResolveMTU(configured int) (mtu int, ok bool) {
+	if configured == 0 {
+		return InterfaceMTU, true
+	}
+	if configured < MinInterfaceMTU || configured > InterfaceMTU {
+		return InterfaceMTU, false
+	}
+
+	return configured, true
+}
+
+// NewDevice creates the TUN device with the given mtu, or uses existingTun when
+// it is not nil (then mtu is ignored: the owner of the device sets it).
 // prefix and prefixV6 are our addresses with the prefix lengths of the awl
 // subnets; an invalid prefixV6 means IPv6 is not configured.
-func NewDevice(existingTun tun.Device, interfaceName string, prefix, prefixV6 netip.Prefix) (*Device, error) {
+func NewDevice(existingTun tun.Device, interfaceName string, mtu int, prefix, prefixV6 netip.Prefix) (*Device, error) {
 	var tunDevice tun.Device
 	var err error
 	if existingTun == nil {
-		tunDevice, err = newTUN(interfaceName, InterfaceMTU, prefix, prefixV6)
+		tunDevice, err = newTUN(interfaceName, mtu, prefix, prefixV6)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create TUN device: %v", err)
 		}

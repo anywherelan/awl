@@ -201,7 +201,7 @@ func newTestTunnel(tb testing.TB) *testTunnel {
 	conf.Unlock()
 
 	fake := &fakeTUN{events: make(chan tun.Event)}
-	device, err := vpn.NewDevice(fake, "fake", netip.Prefix{}, netip.Prefix{})
+	device, err := vpn.NewDevice(fake, "fake", vpn.InterfaceMTU, netip.Prefix{}, netip.Prefix{})
 	require.NoError(tb, err)
 	tb.Cleanup(func() { _ = device.Close() })
 

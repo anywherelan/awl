@@ -179,7 +179,12 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		prefix := a.Conf.VPNPrefix()
 		prefixV6, hasIPv6 := a.Conf.VPNPrefixV6()
 		interfaceName := a.Conf.VPNConfig.InterfaceName
-		a.vpnDevice, err = vpn.NewDevice(tunDevice, interfaceName, prefix, prefixV6)
+		mtu, ok := vpn.ResolveMTU(a.Conf.VPNConfig.MTU)
+		if !ok {
+			a.logger.Errorf("invalid vpn.mtu %d, must be between %d and %d, using the default %d",
+				a.Conf.VPNConfig.MTU, vpn.MinInterfaceMTU, vpn.InterfaceMTU, mtu)
+		}
+		a.vpnDevice, err = vpn.NewDevice(tunDevice, interfaceName, mtu, prefix, prefixV6)
 		if err != nil {
 			return fmt.Errorf("failed to init vpn: %v", err)
 		}
