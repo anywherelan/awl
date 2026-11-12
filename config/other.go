@@ -23,6 +23,7 @@ import (
 
 	"github.com/anywherelan/awl/awldns"
 	"github.com/anywherelan/awl/awlevent"
+	"github.com/anywherelan/awl/vpn"
 )
 
 const (
@@ -240,6 +241,13 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if !conf.vpnPrefixUnlocked().IsValid() {
 		logger.Errorf("invalid vpn.ipNet %q, using the default %s", conf.VPNConfig.IPNet, DefaultVPNNetworkSubnet)
 		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
+	}
+	if conf.VPNConfig.MTU == 0 {
+		conf.VPNConfig.MTU = vpn.InterfaceMTU
+	} else if conf.VPNConfig.MTU < vpn.MinInterfaceMTU || conf.VPNConfig.MTU > vpn.InterfaceMTU {
+		logger.Errorf("invalid vpn.mtu %d, must be between %d and %d, using the default %d",
+			conf.VPNConfig.MTU, vpn.MinInterfaceMTU, vpn.InterfaceMTU, vpn.InterfaceMTU)
+		conf.VPNConfig.MTU = vpn.InterfaceMTU
 	}
 	if conf.VPNConfig.InterfaceName == "" {
 		if runtime.GOOS == "darwin" {

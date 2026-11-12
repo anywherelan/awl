@@ -108,9 +108,9 @@ type (
 		IPNet               string `json:"ipNet"`
 		IPNetV6             string `json:"ipNetV6"`
 		// MTU of the VPN interface. 0 means the default (3500). Must be in the range
-		// 1280-3500. Lower it if TCP connections stall because ICMP "fragmentation needed"
-		// messages are dropped on the path, for example to 1280. Not used when the
-		// interface is created by the host app (Android).
+		// 1280-3500, otherwise the default is used. Lower it if TCP connections stall
+		// because ICMP "fragmentation needed" messages are dropped on the path, for
+		// example to 1280. Not used when the interface is created by the host app (Android).
 		MTU int `json:"mtu,omitempty"`
 	}
 	// VPNGatewayConfig configures full-tunnel VPN gateway mode.

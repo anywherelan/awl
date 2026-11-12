@@ -179,12 +179,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 		prefix := a.Conf.VPNPrefix()
 		prefixV6, hasIPv6 := a.Conf.VPNPrefixV6()
 		interfaceName := a.Conf.VPNConfig.InterfaceName
-		mtu, ok := vpn.ResolveMTU(a.Conf.VPNConfig.MTU)
-		if !ok {
-			a.logger.Errorf("invalid vpn.mtu %d, must be between %d and %d, using the default %d",
-				a.Conf.VPNConfig.MTU, vpn.MinInterfaceMTU, vpn.InterfaceMTU, mtu)
-		}
-		a.vpnDevice, err = vpn.NewDevice(tunDevice, interfaceName, mtu, prefix, prefixV6)
+		a.vpnDevice, err = vpn.NewDevice(tunDevice, interfaceName, a.Conf.VPNConfig.MTU, prefix, prefixV6)
 		if err != nil {
 			return fmt.Errorf("failed to init vpn: %v", err)
 		}
@@ -588,7 +583,7 @@ func (a *DNSService) initDNSAndroid(vpnDevice *vpn.Device, tunnel *service.Tunne
 		return
 	}
 
-	bridge, err := dnsbridge.New(dnsAddr, vpn.InterfaceMTU, vpnDevice.WriteRawPacket)
+	bridge, err := dnsbridge.New(dnsAddr, a.conf.VPNConfig.MTU, vpnDevice.WriteRawPacket)
 	if err != nil {
 		a.logger.Errorf("create DNS netstack bridge, DNS is disabled: %v", err)
 		return

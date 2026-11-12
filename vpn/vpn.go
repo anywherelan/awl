@@ -44,20 +44,6 @@ type Device struct {
 	logger      *log.ZapEventLogger
 }
 
-// ResolveMTU returns the MTU for the TUN interface from the configured value.
-// Zero means the default, InterfaceMTU. A value outside of
-// [MinInterfaceMTU, InterfaceMTU] is not usable: ok is false and the default is returned.
-func ResolveMTU(configured int) (mtu int, ok bool) {
-	if configured == 0 {
-		return InterfaceMTU, true
-	}
-	if configured < MinInterfaceMTU || configured > InterfaceMTU {
-		return InterfaceMTU, false
-	}
-
-	return configured, true
-}
-
 // NewDevice creates the TUN device with the given mtu, or uses existingTun when
 // it is not nil (then mtu is ignored: the owner of the device sets it).
 // prefix and prefixV6 are our addresses with the prefix lengths of the awl
