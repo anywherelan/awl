@@ -148,17 +148,17 @@ func TestDNSServerIP(t *testing.T) {
 
 	t.Run("DefaultSubnet", func(t *testing.T) {
 		conf := makeConf(DefaultVPNNetworkSubnet)
-		assert.Equal(t, "10.66.255.254", conf.computeNetstackDNSIP().String())
+		assert.Equal(t, "10.95.255.254", conf.computeNetstackDNSIP().String())
 	})
 
 	t.Run("CandidateTakenByPeer", func(t *testing.T) {
-		conf := makeConf(DefaultVPNNetworkSubnet, "10.66.255.254")
-		assert.Equal(t, "10.66.255.253", conf.computeNetstackDNSIP().String())
+		conf := makeConf(DefaultVPNNetworkSubnet, "10.95.255.254")
+		assert.Equal(t, "10.95.255.253", conf.computeNetstackDNSIP().String())
 	})
 
 	t.Run("SeveralCandidatesTakenByPeers", func(t *testing.T) {
-		conf := makeConf(DefaultVPNNetworkSubnet, "10.66.255.254", "10.66.255.253")
-		assert.Equal(t, "10.66.255.252", conf.computeNetstackDNSIP().String())
+		conf := makeConf(DefaultVPNNetworkSubnet, "10.95.255.254", "10.95.255.253")
+		assert.Equal(t, "10.95.255.252", conf.computeNetstackDNSIP().String())
 	})
 
 	t.Run("CandidateTakenByOwnIP", func(t *testing.T) {
@@ -181,6 +181,46 @@ func TestDNSServerIP(t *testing.T) {
 		conf := makeConf("not-a-cidr")
 		assert.Nil(t, conf.computeNetstackDNSIP())
 	})
+}
+
+func TestSetDefaultsIPNet(t *testing.T) {
+	cases := []struct {
+		name     string
+		ipNet    string
+		want     string
+		validErr bool
+	}{
+		{name: "NewConfigGetsDefault", ipNet: "", want: DefaultVPNNetworkSubnet},
+		{name: "Legacy16IsWidened", ipNet: "10.66.0.1/16", want: "10.66.0.1/11"},
+		{name: "Legacy24IsWidened", ipNet: "10.66.0.1/24", want: "10.66.0.1/11"},
+		{name: "AddressSetByHandIsKept", ipNet: "10.66.3.7/16", want: "10.66.3.7/16"},
+		{name: "OtherSubnetIn10_66IsKept", ipNet: "10.66.5.1/24", want: "10.66.5.1/24"},
+		{name: "CustomSubnetIsKept", ipNet: "192.168.50.1/24", want: "192.168.50.1/24"},
+		{name: "CurrentSubnetIsKept", ipNet: "10.66.0.1/11", want: "10.66.0.1/11"},
+		{name: "GarbageFailsValidation", ipNet: "garbage", want: "garbage", validErr: true},
+		{name: "NoPrefixLengthFailsValidation", ipNet: "10.66.0.1", want: "10.66.0.1", validErr: true},
+		{name: "IPv6FailsValidation", ipNet: "fd00:66::1/48", want: "fd00:66::1/48", validErr: true},
+		{name: "IPv4MappedFailsValidation", ipNet: "::ffff:10.66.0.1/107", want: "::ffff:10.66.0.1/107", validErr: true},
+		{name: "Slash31FailsValidation", ipNet: "10.66.0.1/31", want: "10.66.0.1/31", validErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conf := &Config{dataDir: t.TempDir()}
+			conf.VPNConfig.IPNet = tc.ipNet
+			// setDefaults gives a peer without an address one, unless vpn.ipNet is invalid
+			conf.KnownPeers = map[string]KnownPeer{testPeerID: {PeerID: testPeerID}}
+			setDefaults(conf, nil)
+
+			assert.Equal(t, tc.want, conf.VPNConfig.IPNet)
+			if tc.validErr {
+				assert.ErrorContains(t, conf.ValidateForStartup(), "vpn.ipNet")
+				assert.Empty(t, conf.KnownPeers[testPeerID].IPAddr)
+			} else {
+				assert.NoError(t, conf.ValidateForStartup())
+				assert.NotEmpty(t, conf.KnownPeers[testPeerID].IPAddr)
+			}
+		})
+	}
 }
 
 func TestCheckIPUnique(t *testing.T) {

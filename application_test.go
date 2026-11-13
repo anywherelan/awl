@@ -1948,9 +1948,8 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 			ip   string
 		}{
 			{"different network", "192.168.1.1"},
-			{"next network up", "10.67.0.5"},
-			{"next network down", "10.65.255.255"},
-			{"same class B different C", "10.67.1.1"},
+			{"next network up", "10.96.0.5"},
+			{"next network down", "10.63.255.255"},
 		}
 
 		for _, tc := range testCases {
@@ -1963,7 +1962,7 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 					AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
 				})
 				ts.Error(err)
-				ts.ErrorContains(err, "IP "+tc.ip+" does not belong to subnet 10.66.0.0/16")
+				ts.ErrorContains(err, "IP "+tc.ip+" does not belong to subnet 10.64.0.0/11")
 			})
 		}
 	})
@@ -2740,7 +2739,7 @@ func TestDNSHandlerTunnelFilter(t *testing.T) {
 	dnsPacket := testPacketWithDest(0, dnsIP.String())
 	// Must not reach the handler: unknown peer IP and broadcast.
 	otherPacket := testPacketWithDest(0, "10.66.0.50")
-	broadcastPacket := testPacketWithDest(0, "10.66.255.255")
+	broadcastPacket := testPacketWithDest(0, "10.95.255.255")
 	peer1.tun.Outbound <- [][]byte{dnsPacket, otherPacket, broadcastPacket}
 
 	select {

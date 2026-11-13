@@ -234,14 +234,13 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.VPNConfig.IPNet == "" {
 		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 	}
+	// An invalid vpn.ipNet is kept as is for ValidateForStartup to report.
+	conf.migrateLegacyIPNetUnlocked()
 
 	// The IPv6 overlay is opt-in: it stays off until vpn.ipNetV6 is set by hand, see DefaultVPNNetworkSubnet6.
 	// TODO: enable IPv6 for isEmptyConfig once Windows, macOS, Android support is landed
 	conf.deriveOwnIPv6Unlocked()
-	if !conf.vpnPrefixUnlocked().IsValid() {
-		logger.Errorf("invalid vpn.ipNet %q, using the default %s", conf.VPNConfig.IPNet, DefaultVPNNetworkSubnet)
-		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
-	}
+
 	if conf.VPNConfig.MTU == 0 {
 		conf.VPNConfig.MTU = vpn.InterfaceMTU
 	} else if conf.VPNConfig.MTU < vpn.MinInterfaceMTU || conf.VPNConfig.MTU > vpn.InterfaceMTU {
@@ -283,6 +282,9 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	// Computed once here, fixed for the session, recomputed on every load.
 	conf.netstackDNSIP = conf.computeNetstackDNSIP()
 
+	// Without a valid vpn.ipNet there is no subnet to take a peer address from,
+	// and awl does not start anyway.
+	ipNetValid := conf.vpnPrefixUnlocked().IsValid()
 	for peerID := range conf.KnownPeers {
 		peer := conf.KnownPeers[peerID]
 		newAlias := conf.genUniqPeerAlias(peer.Name, peer.Alias, uniqAliases)
@@ -290,7 +292,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 			logger.Warnf("incorrect config: peer (id: %s) alias %s is not unique, updated automaticaly to %s", peerID, peer.Alias, newAlias)
 			peer.Alias = newAlias
 		}
-		if peer.IPAddr == "" {
+		if peer.IPAddr == "" && ipNetValid {
 			peer.IPAddr = conf.GenerateNextIpAddr()
 		}
 		conf.KnownPeers[peerID] = peer
@@ -401,6 +403,9 @@ func (c *Config) ValidateForStartup() error {
 	c.RLock()
 	defer c.RUnlock()
 
+	if _, err := parseIPNet(c.VPNConfig.IPNet); err != nil {
+		return fmt.Errorf("vpn.ipNet %q: %w", c.VPNConfig.IPNet, err)
+	}
 	if s := c.VPNConfig.IPNetV6; s != "" {
 		if _, err := parseIPNetV6(s); err != nil {
 			return fmt.Errorf("vpn.ipNetV6 %q: %w", s, err)

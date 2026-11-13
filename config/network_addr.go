@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -13,13 +14,21 @@ import (
 const (
 	DefaultVPNInterfaceName = "awl0"
 	// TODO: generate subnets if this has already taken
-	DefaultVPNNetworkSubnet  = "10.66.0.1/16"
+	DefaultVPNNetworkSubnet  = "10.66.0.1/11"
 	DefaultVPNNetworkSubnet6 = "fd00:66:0::/48"
 )
 
+// legacyIPNets are the vpn.ipNet defaults of older versions: 10.66.0.1/24
+// before v0.18.0, 10.66.0.1/16 since. See migrateLegacyIPNetUnlocked.
+var legacyIPNets = []string{"10.66.0.1/24", "10.66.0.1/16"}
+
+// maxIPv4PrefixBits rejects /31 and /32: they leave no address besides our own.
+const maxIPv4PrefixBits = 30
+
 // VPNPrefix returns our IPv4 address with the prefix length of the awl subnet.
-// setDefaults replaces an invalid vpn.ipNet with the default, so the result is
-// valid for any config built by NewConfig or LoadConfig.
+// An invalid vpn.ipNet aborts startup, see ValidateForStartup, so the result
+// is valid once Application.Init has started; before that it may be the zero
+// Prefix.
 func (c *Config) VPNPrefix() netip.Prefix {
 	c.RLock()
 	defer c.RUnlock()
@@ -40,12 +49,41 @@ func (c *Config) VPNLocalIPMaskUnlocked() (net.IP, net.IPMask) {
 
 // vpnPrefixUnlocked parses vpn.ipNet; the zero Prefix means it is invalid.
 func (c *Config) vpnPrefixUnlocked() netip.Prefix {
-	prefix, err := netip.ParsePrefix(c.VPNConfig.IPNet)
-	if err != nil || !prefix.Addr().Is4() {
+	prefix, err := parseIPNet(c.VPNConfig.IPNet)
+	if err != nil {
 		return netip.Prefix{}
 	}
 
 	return prefix
+}
+
+// parseIPNet parses vpnConfig.ipNet: our own address with the prefix length of
+// the awl subnet. The returned prefix is not masked.
+func parseIPNet(s string) (netip.Prefix, error) {
+	prefix, err := netip.ParsePrefix(s)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	if !prefix.Addr().Is4() {
+		return netip.Prefix{}, errors.New("not an IPv4 prefix")
+	}
+	if prefix.Bits() > maxIPv4PrefixBits {
+		return netip.Prefix{}, fmt.Errorf("prefix /%d is too long, must be /%d or shorter", prefix.Bits(), maxIPv4PrefixBits)
+	}
+
+	return prefix, nil
+}
+
+// migrateLegacyIPNetUnlocked replaces vpn.ipNet that is one of legacyIPNets
+// with DefaultVPNNetworkSubnet. Our own address stays, and so do the addresses of known
+// peers: they lie inside the wider subnet. A value set by hand is kept.
+func (c *Config) migrateLegacyIPNetUnlocked() {
+	if !slices.Contains(legacyIPNets, c.VPNConfig.IPNet) {
+		return
+	}
+
+	logger.Infof("widened the awl network: vpn.ipNet %s changed to %s, the addresses stay the same", c.VPNConfig.IPNet, DefaultVPNNetworkSubnet)
+	c.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 }
 
 // VPNPrefixV6 returns our IPv6 address with the prefix length of the awl IPv6
