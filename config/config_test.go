@@ -13,6 +13,8 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/anywherelan/awl/vpn"
 )
 
 func TestConfig_GetBootstrapPeers(t *testing.T) {
@@ -333,4 +335,27 @@ func requireSaved(t *testing.T, path string, check func(*Config) bool) {
 		}
 		return check(parsed)
 	}, 3*time.Second, 10*time.Millisecond, "config on disk never matched; last read: %s", last)
+}
+
+func TestSetDefaultsVPNMTU(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		saved int
+		want  int
+	}{
+		{name: "unset uses default", saved: 0, want: vpn.InterfaceMTU},
+		{name: "min", saved: vpn.MinInterfaceMTU, want: vpn.MinInterfaceMTU},
+		{name: "typical ethernet", saved: 1500, want: 1500},
+		{name: "max", saved: vpn.InterfaceMTU, want: vpn.InterfaceMTU},
+		{name: "below min", saved: vpn.MinInterfaceMTU - 1, want: vpn.InterfaceMTU},
+		{name: "negative", saved: -1, want: vpn.InterfaceMTU},
+		{name: "above max", saved: vpn.InterfaceMTU + 1, want: vpn.InterfaceMTU},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conf := &Config{dataDir: t.TempDir()}
+			conf.VPNConfig.MTU = tc.saved
+			setDefaults(conf, nil)
+			assert.Equal(t, tc.want, conf.VPNConfig.MTU)
+		})
+	}
 }
