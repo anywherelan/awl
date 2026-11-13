@@ -100,6 +100,9 @@ func printPeersStatus(api *apiclient.Client, format string, w io.Writer) error {
 				if !peer.Confirmed {
 					status += "\n(not confirmed)"
 				}
+				if peer.DisableVPNTunneling {
+					status += "\n(VPN off)"
+				}
 				row = append(row, status)
 			case TableFormatLastSeen:
 				if peer.LastSeen.IsZero() {
@@ -521,5 +524,32 @@ func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool, w
 	}
 
 	fmt.Fprintln(w, "AllowUsingAsExitNode config updated successfully")
+	return nil
+}
+
+func setVPNTunneling(api *apiclient.Client, peerID string, enable bool, w io.Writer) error {
+	pcfg, err := api.KnownPeerConfig(peerID)
+	if err != nil {
+		return err
+	}
+
+	disable := !enable
+	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peerID,
+		Alias:                pcfg.Alias,
+		DomainName:           pcfg.DomainName,
+		IPAddr:               pcfg.IPAddr,
+		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
+		DisableVPNTunneling:  &disable,
+	})
+	if err != nil {
+		return err
+	}
+
+	if enable {
+		fmt.Fprintln(w, "VPN traffic with the peer is on")
+	} else {
+		fmt.Fprintln(w, "VPN traffic with the peer is off until you turn it on again")
+	}
 	return nil
 }

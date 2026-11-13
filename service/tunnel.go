@@ -258,14 +258,16 @@ func (t *Tunnel) RefreshPeersList() {
 		}
 	}
 
-	// Recompute isGatewayClient for every peer. WeAllowUsingAsExitNode may
-	// have changed for any peer (peer settings update path)
+	// Recompute the per-peer settings for every peer. WeAllowUsingAsExitNode
+	// and DisableVPNTunneling may have changed for any peer (peer settings
+	// update path)
 	for _, kp := range t.conf.KnownPeers {
 		vp, ok := t.peerIDToPeer[kp.PeerId()]
 		if !ok {
 			continue
 		}
 		vp.weAllowUsingAsExitNode.Store(kp.WeAllowUsingAsExitNode)
+		vp.tunnelingDisabled.Store(kp.DisableVPNTunneling)
 	}
 }
 
@@ -318,6 +320,10 @@ func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
 		// P2P broadcast/unicast lookup
 		vpnPeer, isP2P := t.netIPToPeer[dst]
 		if isP2P {
+			if vpnPeer.tunnelingDisabled.Load() {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("tunneling_disabled").Inc()
+				continue
+			}
 			// VPN gateway server: tag NAT-returned packets so the client peer
 			// applies a dst-only rewrite on receive. Discriminator: peer is
 			// our gateway client AND src is outside our awl subnet (i.e. came
@@ -341,7 +347,7 @@ func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
 		// IPv4 broadcast
 		if dst == t.udpBroadcastAddr || dst == ipv4Broadcast {
 			for _, vpnPeer := range t.peerIDToPeer {
-				if !t.p2p.IsConnected(vpnPeer.peerID) {
+				if vpnPeer.tunnelingDisabled.Load() || !t.p2p.IsConnected(vpnPeer.peerID) {
 					continue
 				}
 				copyPacket := t.device.GetTempPacket()
@@ -369,6 +375,12 @@ func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
 
 		// VPN gateway client mode: forward non-local packets to the gateway peer.
 		if t.vpnGatewayClientEnabled && t.vpnGatewayPeer != nil {
+			// Like a gateway that stopped allowing us: traffic waits for the
+			// gateway instead of going around it.
+			if t.vpnGatewayPeer.tunnelingDisabled.Load() {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("tunneling_disabled").Inc()
+				continue
+			}
 			packet.GatewayDir = vpn.GatewayDirForward
 			select {
 			case t.vpnGatewayPeer.outboundCh <- packet:
@@ -416,6 +428,9 @@ type VpnPeer struct {
 	localIP                atomic.Pointer[netip.Addr]
 	localIPv6              atomic.Pointer[netip.Addr]
 	weAllowUsingAsExitNode atomic.Bool
+	// tunnelingDisabled is KnownPeer.DisableVPNTunneling: packets to and from
+	// the peer are dropped.
+	tunnelingDisabled atomic.Bool
 
 	inboundCh  chan *vpn.Packet // from remote peer to us
 	outboundCh chan *vpn.Packet // from us to remote
@@ -766,6 +781,9 @@ func (t *Tunnel) emitGatewayConnectivity(connected bool, gatewayPeerID peer.ID) 
 //
 //   - GatewayDirNone: normal awl peer-to-peer — full src/dst rewrite.
 //
+// With VPN tunneling disabled for the peer the whole batch is dropped, in any
+// direction.
+//
 // awl subnet inspection is intentionally absent here. The on-wire tag carries
 // the sender's intent explicitly, so this side does not need to re-derive it
 // from packet IPs and is not exposed to a subnet mismatch between peers.
@@ -776,6 +794,11 @@ func (t *Tunnel) emitGatewayConnectivity(connected bool, gatewayPeerID peer.ID) 
 // peers agreeing on addresses: an IPv6 address a peer announces for itself is
 // only a hint that we may or may not adopt (see Config.AllocPeerIPv6Unlocked).
 func (t *Tunnel) writeInboundBatch(packets []*vpn.Packet, bufs [][]byte, senderIP netip.Addr, vp *VpnPeer) error {
+	if vp.tunnelingDisabled.Load() {
+		metrics.VPNPacketsDroppedTotal.WithLabelValues("tunneling_disabled").Add(float64(len(packets)))
+		return nil
+	}
+
 	t.peersLock.RLock()
 	serverEnabled := t.vpnGatewayServerEnabled
 	isOurGateway := t.vpnGatewayClientEnabled && vp.peerID == t.vpnGatewayPeerID

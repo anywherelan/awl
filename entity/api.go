@@ -48,6 +48,9 @@ type (
 		// TODO: support ipv6
 		IPAddr               string `validate:"required,ipv4"`
 		AllowUsingAsExitNode bool
+		// DisableVPNTunneling stops all VPN traffic with the peer while it stays
+		// known. Omit it to keep the current value.
+		DisableVPNTunneling *bool
 	}
 	UpdateMySettingsRequest struct {
 		Name string `validate:"max=100,no_control_chars"`
@@ -92,6 +95,7 @@ type (
 		WeAllowUsingAsExitNode        bool
 		AllowedUsingAsExitNode        bool
 		RemoteVPNGatewayServerEnabled bool
+		DisableVPNTunneling           bool
 		// InviteID is set when we let this peer in through one of our invite
 		// links; empty otherwise. Non-secret, see config.KnownPeer.InviteID.
 		InviteID               string

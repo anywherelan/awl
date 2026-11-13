@@ -99,6 +99,12 @@ definitions:
           Declined means the remote peer has blocked us: it declined our
           invitation or removed us from its peers.
         type: boolean
+      disableVPNTunneling:
+        description: |-
+          DisableVPNTunneling stops all VPN traffic with the peer, both ways,
+          VPN gateway traffic included, while it stays connected and known.
+          Local to us: the peer is not told. Does not affect the SOCKS5 proxy.
+        type: boolean
       domainName:
         description: DomainName without zone suffix (.awl)
         type: string
@@ -491,6 +497,8 @@ definitions:
         type: array
       declined:
         type: boolean
+      disableVPNTunneling:
+        type: boolean
       displayName:
         description: 'Deprecated: useless, equal to Alias all the time'
         type: string
@@ -666,6 +674,11 @@ definitions:
         maxLength: 100
         type: string
       allowUsingAsExitNode:
+        type: boolean
+      disableVPNTunneling:
+        description: |-
+          DisableVPNTunneling stops all VPN traffic with the peer while it stays
+          known. Omit it to keep the current value.
         type: boolean
       domainName:
         type: string

@@ -862,7 +862,7 @@ func TestCLI_PeersRename(t *testing.T) {
 	})
 }
 
-// TestCLI_PeersUpdate covers update_domain, update_ip, and allow_exit_node on a shared pair.
+// TestCLI_PeersUpdate covers update_domain, update_ip, allow_exit_node and vpn_tunneling on a shared pair.
 // Each subtest mutates an independent field of peer2's config.
 func TestCLI_PeersUpdate(t *testing.T) {
 	ts := NewTestSuite(t)
@@ -895,6 +895,37 @@ func TestCLI_PeersUpdate(t *testing.T) {
 		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
 		require.NoError(t, err)
 		require.True(t, pcfg.WeAllowUsingAsExitNode)
+	})
+
+	t.Run("VPNTunneling", func(t *testing.T) {
+		out, err := runCLI(ts, peer1, "peers", "vpn_tunneling", "--pid", peer2.PeerID(), "--enable=false")
+		require.NoError(t, err)
+		require.Equal(t, "VPN traffic with the peer is off until you turn it on again\n", out)
+		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.True(t, pcfg.DisableVPNTunneling)
+
+		out, err = runCLI(ts, peer1, "peers", "status", "--format", "s")
+		require.NoError(t, err)
+		require.Contains(t, out, "(VPN off)")
+
+		// Other updates keep it.
+		_, err = runCLI(ts, peer1, "peers", "allow_exit_node", "--pid", peer2.PeerID(), "--allow")
+		require.NoError(t, err)
+		pcfg, err = peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.True(t, pcfg.DisableVPNTunneling)
+		require.True(t, pcfg.WeAllowUsingAsExitNode)
+
+		out, err = runCLI(ts, peer1, "peers", "vpn_tunneling", "--pid", peer2.PeerID(), "--enable")
+		require.NoError(t, err)
+		require.Equal(t, "VPN traffic with the peer is on\n", out)
+		pcfg, err = peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.False(t, pcfg.DisableVPNTunneling)
+
+		_, err = runCLI(ts, peer1, "peers", "vpn_tunneling", "--pid", peer2.PeerID())
+		require.ErrorContains(t, err, "enable")
 	})
 }
 

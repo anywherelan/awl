@@ -2333,6 +2333,77 @@ func TestTunnelPackets(t *testing.T) {
 	ts.EqualValues(ipv6PacketsCount, receivedIPv6, "peer2 should receive exactly %d IPv6 packets", ipv6PacketsCount)
 }
 
+// TestDisableVPNTunneling checks that packets between two peers stop going
+// both ways while one of them has VPN tunneling disabled for the other, that
+// peer settings updates without the field keep it, and that the peers stay
+// connected.
+func TestDisableVPNTunneling(t *testing.T) {
+	ts := NewTestSuite(t)
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.makeFriends(peer2, peer1)
+
+	const packetsCount = 10
+	// sendPackets sends packets from peer1 to peer2 and back, and returns how
+	// many each one received.
+	sendPackets := func() (received1, received2 int64) {
+		peer1.tun.ClearInboundCount()
+		peer2.tun.ClearInboundCount()
+		for i := 0; i < packetsCount; i++ {
+			peer1.tun.Outbound <- [][]byte{testPacket(100)}
+			peer2.tun.Outbound <- [][]byte{testPacket(100)}
+			time.Sleep(10 * time.Millisecond)
+		}
+		time.Sleep(500 * time.Millisecond)
+		return peer1.tun.InboundCount(), peer2.tun.InboundCount()
+	}
+	updateSettings := func(disable *bool) {
+		kp, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                kp.Alias,
+			DomainName:           kp.DomainName,
+			IPAddr:               kp.IPAddr,
+			AllowUsingAsExitNode: kp.WeAllowUsingAsExitNode,
+			DisableVPNTunneling:  disable,
+		})
+		ts.NoError(err)
+	}
+	requireDisabled := func(disabled bool) {
+		knownPeers, err := peer1.api.KnownPeers()
+		ts.NoError(err)
+		ts.Len(knownPeers, 1)
+		ts.Equal(disabled, knownPeers[0].DisableVPNTunneling)
+	}
+
+	// The tunnel picks a settings change up asynchronously, from the event bus.
+	requireDelivered := func(want int64) {
+		ts.EventuallyWithT(func(c *assert.CollectT) {
+			received1, received2 := sendPackets()
+			assert.EqualValues(c, want, received1, "packets from peer2 to peer1")
+			assert.EqualValues(c, want, received2, "packets from peer1 to peer2")
+		}, 10*time.Second, 50*time.Millisecond)
+	}
+
+	requireDelivered(packetsCount)
+
+	disabled, enabled := true, false
+	updateSettings(&disabled)
+	requireDisabled(true)
+	requireDelivered(0)
+	ts.True(peer1.app.P2p.IsConnected(peer2.app.P2p.PeerID()), "the peers should stay connected")
+
+	// An update without the field, from an older client, keeps it.
+	updateSettings(nil)
+	requireDisabled(true)
+	requireDelivered(0)
+
+	updateSettings(&enabled)
+	requireDisabled(false)
+	requireDelivered(packetsCount)
+}
+
 // enableIPv6 is a ConfigModifier that turns the IPv6 overlay on, in the default
 // subnet: a new config has it off.
 func enableIPv6(c *config.Config) {

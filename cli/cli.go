@@ -361,6 +361,21 @@ func (a *Application) init() {
 						},
 					},
 					{
+						Name:  "vpn_tunneling",
+						Usage: "Turn VPN traffic with a known peer on or off, both ways, VPN gateway included; the peer stays known and connected",
+						Flags: peerSelectorFlags(
+							&cli.BoolFlag{
+								Name:     "enable",
+								Usage:    "true to turn VPN traffic on, false to turn it off",
+								Required: true,
+							},
+						),
+						Before: a.initApiAndPeerIdRequired,
+						Action: func(c *cli.Context) error {
+							return setVPNTunneling(a.api, c.String(flagPeerID), c.Bool("enable"), c.App.Writer)
+						},
+					},
+					{
 						Name:  "invite",
 						Usage: "Manage invite links: a peer that uses one is added without a manual accept",
 						Subcommands: []*cli.Command{

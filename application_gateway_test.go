@@ -819,8 +819,9 @@ func TestGatewayBroadcastHandledViaBroadcastPath(t *testing.T) {
 
 // TestGatewayEnableClientNotAllowed verifies that EnableClient rejects
 // peers whose CanUseAsVPNGateway() is false (i.e. the peer either does
-// not advertise VPN gateway service, or has not granted us exit-node use).
-// Each missing flag is exercised independently.
+// not advertise VPN gateway service, or has not granted us exit-node use),
+// and peers we disabled VPN tunneling for. Each case is exercised
+// independently.
 func TestGatewayEnableClientNotAllowed(t *testing.T) {
 	skipIfVPNGatewayUnsupported(t)
 	ts := NewTestSuite(t)
@@ -832,6 +833,7 @@ func TestGatewayEnableClientNotAllowed(t *testing.T) {
 		name              string
 		serveAsGateway    bool
 		allowAsExit       bool
+		disableTunneling  bool
 		expectErrContains string
 	}{
 		{
@@ -846,6 +848,13 @@ func TestGatewayEnableClientNotAllowed(t *testing.T) {
 			allowAsExit:       false,
 			expectErrContains: "AllowedUsingAsExitNode=false",
 		},
+		{
+			name:              "TunnelingDisabled",
+			serveAsGateway:    true,
+			allowAsExit:       true,
+			disableTunneling:  true,
+			expectErrContains: "VPN tunneling is disabled",
+		},
 	}
 
 	for _, tc := range cases {
@@ -856,6 +865,7 @@ func TestGatewayEnableClientNotAllowed(t *testing.T) {
 			kp := client.app.Conf.KnownPeers[other.PeerID()]
 			kp.AllowedUsingAsExitNode = tc.allowAsExit
 			kp.RemoteVPNGatewayServerEnabled = tc.serveAsGateway
+			kp.DisableVPNTunneling = tc.disableTunneling
 			client.app.Conf.KnownPeers[other.PeerID()] = kp
 			client.app.Conf.Unlock()
 
