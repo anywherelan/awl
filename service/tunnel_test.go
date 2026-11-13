@@ -132,6 +132,75 @@ func TestTunnelCountsIPv6Disabled(t *testing.T) {
 	}
 }
 
+// TestTunnelDisabledTunneling checks that no packet goes to or comes from a
+// peer with VPN tunneling disabled, and that the setting follows the config.
+func TestTunnelDisabledTunneling(t *testing.T) {
+	disable := func(tt *testTunnel, disabled bool) {
+		tt.conf.UpdatePeerFields(tt.peer.peerID.String(), func(kp *config.KnownPeer) {
+			kp.DisableVPNTunneling = disabled
+		})
+		tt.RefreshPeersList()
+	}
+
+	t.Run("Outbound", func(t *testing.T) {
+		tt := newTestTunnel(t)
+		disable(tt, true)
+		for _, tc := range hotPathCases {
+			want := droppedPackets(t)
+			want["tunneling_disabled"]++
+			require.False(t, tt.routeToPeer([]*vpn.Packet{udpPacket(t, tc.ours, tc.theirs)}))
+			require.Equal(t, want, droppedPackets(t))
+		}
+	})
+
+	t.Run("Broadcast", func(t *testing.T) {
+		tt := newTestTunnel(t)
+		disable(tt, true)
+		// The peer is skipped before its connectedness is checked: fakeP2p
+		// panics if asked.
+		require.False(t, tt.routeToPeer([]*vpn.Packet{udpPacket(t, "10.66.0.1", "10.66.255.255")}))
+	})
+
+	t.Run("ThroughGateway", func(t *testing.T) {
+		tt := newTestTunnel(t)
+		tt.vpnGatewayClientEnabled = true
+		tt.vpnGatewayPeerID = tt.peer.peerID
+		tt.vpnGatewayPeer = tt.peer
+		disable(tt, true)
+
+		want := droppedPackets(t)
+		want["tunneling_disabled"]++
+		require.False(t, tt.routeToPeer([]*vpn.Packet{udpPacket(t, "10.66.0.1", "1.1.1.1")}))
+		require.Equal(t, want, droppedPackets(t))
+	})
+
+	t.Run("Inbound", func(t *testing.T) {
+		tt := newTestTunnel(t)
+		disable(tt, true)
+
+		packets := []*vpn.Packet{
+			udpPacket(t, "10.66.0.2", "10.66.0.1"),
+			udpPacket(t, "fd00:66::2", "fd00:66::1"),
+		}
+		want := droppedPackets(t)
+		want["tunneling_disabled"] += float64(len(packets))
+		require.NoError(t, tt.writeInboundBatch(packets, nil, *tt.peer.localIP.Load(), tt.peer))
+		require.Empty(t, tt.tun.written)
+		require.Equal(t, want, droppedPackets(t))
+	})
+
+	t.Run("EnabledAgain", func(t *testing.T) {
+		tt := newTestTunnel(t)
+		disable(tt, true)
+		disable(tt, false)
+
+		require.True(t, tt.routeToPeer([]*vpn.Packet{udpPacket(t, "10.66.0.1", "10.66.0.2")}))
+		packets := []*vpn.Packet{udpPacket(t, "10.66.0.2", "10.66.0.1")}
+		require.NoError(t, tt.writeInboundBatch(packets, nil, *tt.peer.localIP.Load(), tt.peer))
+		require.Len(t, tt.tun.written, 1)
+	})
+}
+
 // droppedPackets returns awl_vpn_packets_dropped_total by reason. The registry
 // is shared by all the tests of the package, so compare it before and after.
 func droppedPackets(t *testing.T) map[string]float64 {

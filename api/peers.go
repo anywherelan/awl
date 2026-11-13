@@ -162,6 +162,9 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	knownPeer.Alias = req.Alias
 	knownPeer.DomainName = req.DomainName
 	knownPeer.WeAllowUsingAsExitNode = req.AllowUsingAsExitNode
+	if req.DisableVPNTunneling != nil {
+		knownPeer.DisableVPNTunneling = *req.DisableVPNTunneling
+	}
 
 	h.conf.UpsertPeerUnlocked(knownPeer)
 
