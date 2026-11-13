@@ -380,7 +380,7 @@
     {
       "type": "timeseries",
       "title": "Dropped packets",
-      "description": "On the way to peers: peer_offline (the peer is not connected), stream_error (opening or writing the stream failed), unknown_address (no peer has this awl address), gateway_client_disabled (a packet to the internet with the gateway client off: from an app bound to every interface, such as a torrent client, or from routes that do not match the tunnel), outbound_channel_full and gateway_channel_full (the queue to a peer, 2000 packets, is full: the link to it is the bottleneck). From peers: inbound_channel_full, parse_error, ipv6_disabled (IPv6 is off on this node or for the sender) and the gateway_* refusals.",
+      "description": "On the way to peers: peer_offline (the peer is not connected), stream_error (opening or writing the stream failed), unknown_address (no peer has this awl address), gateway_client_disabled (a packet to the internet with the gateway client off: from an app bound to every interface, such as a torrent client, or from routes that do not match the tunnel), outbound_channel_full and gateway_channel_full (the queue to a peer, 2000 packets, is full: the link to it is the bottleneck). From peers: inbound_channel_full, parse_error, ipv6_disabled (IPv6 is off on this node or for the sender) and the gateway_* refusals. Both ways: tunneling_disabled (VPN traffic with the peer is turned off).",
       "id": 4,
       "datasource": {
         "type": "prometheus",

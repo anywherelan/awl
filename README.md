@@ -248,6 +248,10 @@ ping awl-tester.awl
 
 More options for invite links, declining requests and unblocking peers are in the [CLI cheat sheet](#common-examples).
 
+### Turning VPN traffic with a peer off
+
+To cut a peer off for a while without removing it, turn VPN traffic with it off: `awl cli peers vpn_tunneling --name tester --enable=false`, or `DisableVPNTunneling` in the `peers/update_settings` API. awl then drops packets to and from that peer, VPN gateway traffic included, so a gateway behind such a peer does not pass internet traffic until you turn it back on. The peer stays in your list and connected, and isn't told. The SOCKS5 proxy isn't affected. `awl cli peers status` marks the peer with *VPN off*. `--enable=true` turns traffic back on.
+
 ## Using devices as SOCKS5 proxy
 
 Once you have at least one connected device, you can route your outbound traffic through it. Any device can act as a SOCKS5 exit node (Android included) as long as they allow it.
@@ -486,6 +490,8 @@ awl cli peers unblock --name awl-tester
 awl cli peers rename        --name awl-tester --new_name tester
 awl cli peers update_domain --name tester     --domain test-box
 awl cli peers update_ip     --name tester     --ip 10.66.0.5
+# turn VPN traffic with a peer off, both ways, while it stays known and connected; --enable=true turns it back on
+awl cli peers vpn_tunneling --name tester --enable=false
 
 # --- invite links ---
 

@@ -188,6 +188,10 @@ type (
 		// address via the status protocol. IPAddrV6 is kept while it is false, so
 		// the peer gets the same address back when it enables IPv6 again.
 		RemoteIPv6Enabled bool `json:"remoteIPv6Enabled"`
+		// DisableVPNTunneling stops all VPN traffic with the peer, both ways,
+		// VPN gateway traffic included, while it stays connected and known.
+		// Local to us: the peer is not told. Does not affect the SOCKS5 proxy.
+		DisableVPNTunneling bool `json:"disableVPNTunneling"`
 		// InviteID marks a peer we let in through one of our invite links
 		// (Config.Invites). Non-secret, kept forever: it is what lets the UI say
 		// "added via invite X".

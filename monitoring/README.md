@@ -68,7 +68,7 @@ You can also browse profiles directly in the Pyroscope UI at http://localhost:40
 | `awl_vpn_packets_received_total` | Counter | Packets received from tunnel streams |
 | `awl_vpn_bytes_sent_total` | Counter | Bytes sent via tunnel |
 | `awl_vpn_bytes_received_total` | Counter | Bytes received from tunnel |
-| `awl_vpn_packets_dropped_total` | CounterVec | Dropped packets, labels: `reason`. On the way to peers: `peer_offline`, `stream_error`, `unknown_address` (no peer has the address), `gateway_client_disabled` (a packet to the internet with the gateway client off, for example from an app bound to every interface), `outbound_channel_full`, `gateway_channel_full`. From peers: `inbound_channel_full`, `parse_error`, `ipv6_disabled`, `gateway_server_disabled`, `gateway_not_allowed`, `gateway_return_from_non_gateway` |
+| `awl_vpn_packets_dropped_total` | CounterVec | Dropped packets, labels: `reason`. On the way to peers: `peer_offline`, `stream_error`, `unknown_address` (no peer has the address), `gateway_client_disabled` (a packet to the internet with the gateway client off, for example from an app bound to every interface), `outbound_channel_full`, `gateway_channel_full`. From peers: `inbound_channel_full`, `parse_error`, `ipv6_disabled`, `gateway_server_disabled`, `gateway_not_allowed`, `gateway_return_from_non_gateway`. Both ways: `tunneling_disabled` (VPN traffic with the peer is turned off) |
 | `awl_vpn_tun_read_errors_total` | Counter | TUN read errors |
 | `awl_vpn_tun_write_errors_total` | Counter | TUN write errors |
 | `awl_vpn_stream_open_errors_total` | Counter | Tunnel stream open errors |
