@@ -73,7 +73,7 @@ Tradeoffs worth knowing about:
 - fully peer-to-peer, no coordination server (see [Why Anywherelan](#why-anywherelan) above)
 - route **all** your traffic through a device: full-tunnel VPN gateway / exit node
 - route traffic through a device as a SOCKS5 proxy
-- automatic NAT traversal via libp2p; falls back to community relays when a direct path isn't possible
+- automatic NAT traversal via libp2p; falls back to community relays, or to [your own device](#relaying-through-your-own-device), when a direct path isn't possible
 - TLS 1.3 encryption (QUIC or TCP+TLS)
 - built-in DNS: reach devices at `work-laptop.awl` instead of typing IPs
 - invite links: add a device by a link or a QR code, with auto accept
@@ -247,6 +247,16 @@ ping awl-tester.awl
 ```
 
 More options for invite links, declining requests and unblocking peers are in the [CLI cheat sheet](#common-examples).
+
+### Relaying through your own device
+
+When two of your devices can't connect directly, for example both are behind a strict NAT, their traffic goes through a community relay. A device of yours with a public IP, such as a VPS, can relay for them instead. On that device, set `p2pNode.relayForKnownPeers` to `true` in the [config](#configuration) and restart awl.
+
+- Only the peers this device knows can use it, and only to reach other peers it knows. A peer you remove from it can no longer connect through it.
+- Peers use it on their own: once the relay device has added or accepted a peer, the peer reserves a slot there. It then tries the relay along with the DHT whenever it connects to another peer. Peers on older versions of awl don't use it.
+- Unlike community relays, it doesn't limit how long a relayed connection lasts or how much data it carries. Hole punching keeps trying to replace a relayed connection with a direct one.
+- Traffic stays end-to-end encrypted, the relay sees only encrypted bytes. It does use the bandwidth of the relay device.
+- It works only while the device is reachable from the internet: it has a public IP or awl's port is forwarded to it (TCP and UDP 4363 by default). awl finds this out on its own with the help of the bootstrap nodes.
 
 ## Using devices as SOCKS5 proxy
 

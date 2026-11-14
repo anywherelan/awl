@@ -135,6 +135,8 @@ type P2p struct {
 	networkChanged chan string
 	// known peers with a redial pending, see redialOnDisconnect
 	redials sync.Map
+	// our reservations at the known peers that relay for us
+	knownRelays *knownRelays
 	// not constants for the tests to shorten them
 	maxRedialDelay  time.Duration
 	firstRetryDelay time.Duration
@@ -145,7 +147,7 @@ type P2p struct {
 func NewP2p(ctx context.Context) *P2p {
 	newCtx, ctxCancel := context.WithCancel(ctx)
 	logger := log.Logger("awl/p2p")
-	return &P2p{
+	p := &P2p{
 		ctx:       newCtx,
 		ctxCancel: ctxCancel,
 		logger:    logger,
@@ -158,6 +160,9 @@ func NewP2p(ctx context.Context) *P2p {
 
 		dhtBootstrapFinishedChan: make(chan struct{}),
 	}
+	p.knownRelays = newKnownRelays(p)
+
+	return p
 }
 
 func (p *P2p) InitHost(hostConfig HostConfig) (host.Host, error) {
@@ -353,13 +358,49 @@ func (p *P2p) ConnectPeer(ctx context.Context, peerID peer.ID) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
+	relayAddrs := p.knownRelays.circuitAddrs(peerID)
+	if len(relayAddrs) == 0 {
+		return p.connectFoundPeer(ctx, peerID)
+	}
+
+	// A known peer that relays for us may reach the peer when the DHT can't
+	// find it, so both are tried at once. The DHT lookup ends as soon as the
+	// peer is connected. Hole punching replaces a relayed connection with a
+	// direct one where it can.
+	results := make(chan error, 2)
+	go func() {
+		results <- p.connectFoundPeer(ctx, peerID)
+	}()
+	go func() {
+		// Not p.host: the routed host would answer a failed dial with a DHT
+		// lookup, the one above.
+		err := p.basicHost.Connect(ctx, peer.AddrInfo{ID: peerID, Addrs: relayAddrs})
+		if err != nil {
+			err = fmt.Errorf("could not connect to peer %s through known peers: %v", peerID, err)
+		}
+		results <- err
+	}()
+
+	var errs []error
+	for range 2 {
+		err := <-results
+		if err == nil {
+			return nil
+		}
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// connectFoundPeer connects to the peer at the addresses found in the DHT.
+func (p *P2p) connectFoundPeer(ctx context.Context, peerID peer.ID) error {
 	peerInfo, err := p.FindPeer(ctx, peerID)
 	if err != nil {
 		return fmt.Errorf("could not find peer %s: %v", peerID.String(), err)
 	}
-	err = p.host.Connect(ctx, peerInfo)
 
-	return err
+	return p.host.Connect(ctx, peerInfo)
 }
 
 func (p *P2p) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
@@ -480,6 +521,9 @@ type KnownPeer struct {
 	// Eager peers are tried every round with no backoff, however long they have
 	// been unreachable.
 	Eager bool
+	// Confirmed peers keep us in their known peers: if one relays for its
+	// known peers, we reserve a slot there, see knownRelays.
+	Confirmed bool
 }
 
 // MaintainBackgroundConnections keeps the node connected to its known and
@@ -499,6 +543,8 @@ func (p *P2p) MaintainBackgroundConnections(
 	lan := newLANDialer(p, isKnownPeer)
 	stopLAN := lan.start(ctx)
 	defer stopLAN()
+	stopRelays := p.knownRelays.start()
+	defer stopRelays()
 
 	// wait for bootstrapping
 	select {
@@ -577,6 +623,8 @@ func (p *P2p) signalNetworkChanged(reason string) {
 func (p *P2p) connectToKnownPeers(
 	ctx context.Context, timeout, retryBase time.Duration, knownPeers []KnownPeer, force bool,
 ) (bootstrapBefore, bootstrapAfter int) {
+	// the reservations are requested in the background, beyond the round
+	reserveCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -597,6 +645,9 @@ func (p *P2p) connectToKnownPeers(
 				return
 			}
 
+			if knownPeer.Confirmed {
+				p.knownRelays.maintain(reserveCtx, knownPeer.ID)
+			}
 			p.pingPeer(ctx, knownPeer.ID)
 		}()
 	}

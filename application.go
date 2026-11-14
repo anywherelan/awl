@@ -415,6 +415,18 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		panic(err)
 	}
 
+	libp2pOpts := []libp2p.Option{
+		libp2p.EnableRelay(),
+		libp2p.EnableAutoNATv2(),
+		libp2p.ResourceManager(mgr),
+		libp2p.EnableHolePunching(),
+		libp2p.NATPortMap(),
+		libp2p.PrometheusRegisterer(prometheus.DefaultRegisterer),
+	}
+	if a.Conf.P2pNode.RelayForKnownPeers {
+		libp2pOpts = append(libp2pOpts, p2p.KnownPeersRelayService(a.isKnownPeer))
+	}
+
 	return p2p.HostConfig{
 		PrivKeyBytes:             a.Conf.PrivKey(),
 		ListenAddrs:              a.Conf.GetListenAddresses(),
@@ -427,14 +439,7 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		// mode is toggled on at runtime are already exempt from the VPN route.
 		SocketControlFunc: a.NetManager.ControlFunc(),
 		VPNPrefixes:       a.vpnPrefixes(),
-		Libp2pOpts: append([]libp2p.Option{
-			libp2p.EnableRelay(),
-			libp2p.EnableAutoNATv2(),
-			libp2p.ResourceManager(mgr),
-			libp2p.EnableHolePunching(),
-			libp2p.NATPortMap(),
-			libp2p.PrometheusRegisterer(prometheus.DefaultRegisterer),
-		}, a.ExtraLibp2pOpts...),
+		Libp2pOpts:        append(libp2pOpts, a.ExtraLibp2pOpts...),
 		ConnManager: struct {
 			LowWater    int
 			HighWater   int
@@ -472,8 +477,9 @@ func (a *Application) knownPeersToMaintain() []p2p.KnownPeer {
 	knownPeers := make([]p2p.KnownPeer, 0, len(a.Conf.KnownPeers))
 	for _, kp := range a.Conf.KnownPeers {
 		p := p2p.KnownPeer{
-			ID:    kp.PeerId(),
-			Eager: kp.ReconnectEagerly(now),
+			ID:        kp.PeerId(),
+			Eager:     kp.ReconnectEagerly(now),
+			Confirmed: kp.Confirmed,
 		}
 		knownPeers = append(knownPeers, p)
 	}

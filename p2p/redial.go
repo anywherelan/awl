@@ -82,10 +82,11 @@ func (p *P2p) redial(ctx context.Context, peerID peer.ID, isKnownPeer func(peer.
 	defer cancel()
 	start := time.Now()
 	// Unlike ConnectPeer, no DHT lookup: we were connected a moment ago, the DHT
-	// cannot know anything newer than the addresses still in the peerstore.
+	// cannot know anything newer than the addresses still in the peerstore,
+	// and the relays among known peers.
 	// Not p.host either: the routed host would answer a failed dial with a
 	// lookup. If these addresses do not work, the next round is to find out.
-	err := p.basicHost.Connect(dialCtx, peer.AddrInfo{ID: peerID})
+	err := p.basicHost.Connect(dialCtx, peer.AddrInfo{ID: peerID, Addrs: p.knownRelays.circuitAddrs(peerID)})
 	took := time.Since(start)
 	var result string
 	switch {
