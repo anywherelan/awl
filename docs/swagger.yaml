@@ -109,7 +109,12 @@ definitions:
           "added via invite X".
         type: string
       ipAddr:
-        description: IPAddr used for forwarding
+        description: |-
+          IPAddr is our view of the peer's IPv4 address, used for forwarding:
+          set by the user, or on the first status exchange the address the peer
+          announced if it is free in our subnet, otherwise one derived from its
+          peer ID (Config.AllocPeerIPUnlocked). Not changed by later
+          announcements. Empty until the first status exchange.
         type: string
       ipAddrV6:
         description: |-
@@ -223,6 +228,13 @@ definitions:
         type: string
       ipNetV6:
         type: string
+      mtu:
+        description: |-
+          MTU of the VPN interface. 0 means the default (3500). Must be in the range
+          1280-3500, otherwise the default is used. Lower it if TCP connections stall
+          because ICMP "fragmentation needed" messages are dropped on the path, for
+          example to 1280.
+        type: integer
     type: object
   config.VPNGatewayConfig:
     properties:
@@ -242,12 +254,21 @@ definitions:
     type: object
   entity.AuthRequest:
     properties:
+      ipv4Addr:
+        description: |-
+          IPv4Addr is the sender's own awl IPv4 address, as in PeerStatusInfo. It
+          is only a suggestion for the accept form: the address is assigned on the
+          first status exchange. Additive like Token.
+        type: string
       name:
         type: string
       peerID:
         type: string
       suggestedIP:
-        description: SuggestedIP is a free IP address generated for this peer
+        description: |-
+          SuggestedIP is the address the peer would get: the one it announced
+          (IPv4Addr) if it is free, otherwise one derived from its peer ID.
+          Empty if the subnet has no free address.
         type: string
     type: object
   entity.AvailableProxy:
@@ -502,6 +523,7 @@ definitions:
           links; empty otherwise. Non-secret, see config.KnownPeer.InviteID.
         type: string
       ipAddr:
+        description: empty until the first status exchange with the peer
         type: string
       ipAddrV6:
         type: string
@@ -670,14 +692,15 @@ definitions:
       domainName:
         type: string
       ipaddr:
-        description: 'TODO: support ipv6'
+        description: |-
+          optional: empty keeps the current address
+          TODO: support ipv6
         type: string
       peerID:
         type: string
     required:
     - alias
     - domainName
-    - ipaddr
     - peerID
     type: object
   entity.UpdateProxySettingsRequest:

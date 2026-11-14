@@ -44,7 +44,11 @@ type (
 		// and uses KnownPeer.CanUseAsVPNGateway() to decide whether the
 		// peer is a valid VPN gateway target.
 		VPNGatewayServerEnabled bool
-		IPv6Addr                string `json:"ipv6Addr,omitempty"`
+		// IPv4Addr is the sender's own awl IPv4 address. The receiver takes it
+		// as its view of the sender if it is free in its subnet, see
+		// config.KnownPeer.IPAddr. Empty from awl older than v0.21.0.
+		IPv4Addr string `json:"ipv4Addr,omitempty"`
+		IPv6Addr string `json:"ipv6Addr,omitempty"`
 	}
 )
 
@@ -75,6 +79,10 @@ type AuthPeer struct {
 	// the field is always empty there and swagger does not advertise it —
 	// json:"-" is not an option, it would drop the token from the wire too.
 	Token string `json:",omitempty" swaggerignore:"true"`
+	// IPv4Addr is the sender's own awl IPv4 address, as in PeerStatusInfo. It
+	// is only a suggestion for the accept form: the address is assigned on the
+	// first status exchange. Additive like Token.
+	IPv4Addr string `json:"ipv4Addr,omitempty"`
 }
 
 // AuthPeerResponse is the answer to an auth request: where the sender stands

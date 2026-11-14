@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -53,10 +52,11 @@ type (
 		// broadcast−1 shifted down past taken addresses. Computed once in
 		// setDefaults from the config snapshot (not serialized), fixed for the
 		// session. Reserved on every platform so it is never handed to a peer
-		// (see CheckIPUnique), though only the Android netstack DNS interceptor
-		// (awldns/dnsbridge) actually serves on it today; kept reserved on
-		// desktop for a future userspace-netstack path.
-		netstackDNSIP net.IP
+		// (see checkPeerAddrUnlocked), though only the Android netstack DNS
+		// interceptor (awldns/dnsbridge) actually serves on it today; kept
+		// reserved on desktop for a future userspace-netstack path. The zero
+		// Addr when the subnet has no free address.
+		netstackDNSIP netip.Addr
 
 		// saveTrigger carries save requests to the writer goroutine. Capacity
 		// one, so a request that finds it full is simply dropped: a write is
@@ -110,7 +110,7 @@ type (
 		// MTU of the VPN interface. 0 means the default (3500). Must be in the range
 		// 1280-3500, otherwise the default is used. Lower it if TCP connections stall
 		// because ICMP "fragmentation needed" messages are dropped on the path, for
-		// example to 1280. Not used when the interface is created by the host app (Android).
+		// example to 1280.
 		MTU int `json:"mtu,omitempty"`
 	}
 	// VPNGatewayConfig configures full-tunnel VPN gateway mode.
@@ -157,7 +157,11 @@ type (
 		Name string `json:"name"`
 		// User provided name
 		Alias string `json:"alias"`
-		// IPAddr used for forwarding
+		// IPAddr is our view of the peer's IPv4 address, used for forwarding:
+		// set by the user, or on the first status exchange the address the peer
+		// announced if it is free in our subnet, otherwise one derived from its
+		// peer ID (Config.AllocPeerIPUnlocked). Not changed by later
+		// announcements. Empty until the first status exchange.
 		IPAddr string `json:"ipAddr"`
 		// IPAddrV6 is our view of the peer's IPv6 overlay address: the address the
 		// peer announced if it is valid in our subnet, otherwise one derived from
@@ -474,7 +478,7 @@ func (c *Config) SetIdentity(key crypto.PrivKey, id peer.ID) {
 
 	c.P2pNode.Identity = identity
 	c.P2pNode.PeerID = id.String()
-	c.deriveOwnIPv6Unlocked()
+	c.deriveOwnAddrsUnlocked()
 	c.Save()
 	c.Unlock()
 }

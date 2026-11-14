@@ -147,7 +147,7 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 			ctx := t.Context()
 			peer1, peer2 := ts.NewSimnetPeerPair(sc.latency, sc.bandwidthMbps, nil, nil)
 
-			packet := testPacket(packetSize)
+			packet := testPacketToPeer(packetSize, peer1, peer2)
 			peer2.tun.SetInboundCapture(packetSize, nil)
 			peer2.tun.ClearInboundCount()
 
@@ -453,12 +453,12 @@ func (ts *TestSuite) setupSimnetGatewayPair(latency time.Duration, bandwidthBps 
 	return client, exitNode
 }
 
-// runGatewayBlast injects gateway-mode packets (src=10.66.0.1, dst=8.8.8.8) at
+// runGatewayBlast injects gateway-mode packets (src=own IP, dst=8.8.8.8) at
 // `sender` for the given duration, then sleeps for `drainTail` to let in-flight
 // packets reach their final TUN. The caller chooses which peer's InboundCount
 // to read (one-way: exit node; round-trip: client).
 func runGatewayBlast(ctx context.Context, sender TestPeer, packetSize int, duration, drainTail time.Duration) (actualDuration time.Duration) {
-	packet := testPacketWithSrcDest(packetSize, "10.66.0.1", "8.8.8.8")
+	packet := testPacketWithSrcDest(packetSize, ownIP(sender), "8.8.8.8")
 	packetsBatch := make([][]byte, TestTUNBatchSize*10)
 	for i := range packetsBatch {
 		packetsBatch[i] = packet

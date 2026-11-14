@@ -12,7 +12,6 @@ import (
 	"net/netip"
 	"net/url"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -326,6 +325,18 @@ func (ts *TestSuite) requireMutuallyConfirmed(peer1, peer2 TestPeer) {
 	}, 15*time.Second, 50*time.Millisecond, "both sides must end up confirmed")
 }
 
+// requireAddresses waits until each peer sees the other at the address the
+// other has itself, the one it announces. A peer gets its address with the
+// status exchange, so this fails for an add flow that does not run one.
+func (ts *TestSuite) requireAddresses(peer1, peer2 TestPeer) {
+	ts.EventuallyWithT(func(c *assert.CollectT) {
+		peer2OnPeer1, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+		peer1OnPeer2, _ := peer2.app.Conf.GetPeer(peer1.PeerID())
+		assert.Equal(c, ownIP(peer2), peer2OnPeer1.IPAddr)
+		assert.Equal(c, ownIP(peer1), peer1OnPeer2.IPAddr)
+	}, 15*time.Second, 50*time.Millisecond, "both sides must get the announced addresses")
+}
+
 // requireNoAuthRequestsLeft waits until none of the peers has a request to
 // answer or to retry.
 func (ts *TestSuite) requireNoAuthRequestsLeft(peers ...TestPeer) {
@@ -372,6 +383,7 @@ func TestMutualAddConfirmsBothSides(t *testing.T) {
 
 	ts.requireMutuallyConfirmed(peer1, peer2)
 	ts.requireNoAuthRequestsLeft(peer1, peer2)
+	ts.requireAddresses(peer1, peer2)
 
 	ts.Eventually(func() bool {
 		peer2OnPeer1, err := peer1.api.KnownPeerConfig(peer2.PeerID())
@@ -588,6 +600,8 @@ func TestAutoAcceptFriendRequest(t *testing.T) {
 	ts.True(exists)
 	ts.True(knownPeer.Confirmed)
 	ts.False(knownPeer.Declined)
+
+	ts.requireAddresses(peer1, peer2)
 }
 
 func TestFriendRequestWithCustomIP(t *testing.T) {
@@ -646,16 +660,21 @@ func TestFriendRequestWithCustomIP(t *testing.T) {
 		// Try to use peer2's IP which is 10.66.0.222
 		err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer5.PeerID(), Alias: "peer_5", IPAddr: "10.66.0.222"})
 		ts.Error(err)
-		ts.ErrorContains(err, "ip 10.66.0.222 is already used by peer")
+		ts.ErrorContains(err, "IP 10.66.0.222 is already used by peer")
 	})
 }
 
 func TestGetAuthRequestsSuggestedIP(t *testing.T) {
 	ts := NewTestSuite(t)
 
+	// peer2 and peer3 announce the same address, so it can be suggested only
+	// for one of them.
+	const sameAddr = "10.70.0.5"
+	sameIPNet := func(c *config.Config) { c.VPNConfig.IPNet = sameAddr + "/11" }
+
 	peer1 := ts.NewTestPeer(false)
-	peer2 := ts.NewTestPeer(false)
-	peer3 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeerWithConfig(sameIPNet)
+	peer3 := ts.NewTestPeerWithConfig(sameIPNet)
 	ts.ensurePeersAvailableInDHT(peer1, peer2)
 	ts.ensurePeersAvailableInDHT(peer1, peer3)
 
@@ -676,16 +695,87 @@ func TestGetAuthRequestsSuggestedIP(t *testing.T) {
 	ts.NoError(err)
 	ts.Len(reqs, 2)
 
-	// Verify they are valid and unused
-	ips := []string{reqs[0].SuggestedIP, reqs[1].SuggestedIP}
-	sort.Strings(ips)
-	ts.Equal("10.66.0.2", ips[0])
-	ts.Equal("10.66.0.3", ips[1])
+	// The requests come sorted by peer ID. The first one gets the announced
+	// address, the second one the address derived from its peer ID.
+	peers := map[string]TestPeer{peer2.PeerID(): peer2, peer3.PeerID(): peer3}
+	ts.Equal(sameAddr, reqs[0].IPv4Addr)
+	ts.Equal(sameAddr, reqs[1].IPv4Addr)
+	ts.Equal(sameAddr, reqs[0].SuggestedIP)
+	derived, ok := peers[reqs[1].PeerID].app.Conf.DerivedVPNAddr()
+	ts.True(ok)
+	ts.Equal(derived.String(), reqs[1].SuggestedIP)
 
-	err = peer1.app.Conf.CheckIPUnique(ips[0], "")
+	for _, req := range reqs {
+		peer1.app.Conf.RLock()
+		err = peer1.app.Conf.CheckPeerIPUnlocked(req.SuggestedIP, "")
+		peer1.app.Conf.RUnlock()
+		ts.NoError(err)
+	}
+}
+
+// TestPeerAddressFromStatus covers how a peer gets its address: none until it
+// accepts the friend request, then the one it announces, so both sides see the
+// same addresses. An address set by the user stays.
+func TestPeerAddressFromStatus(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeer(false)
+	ts.ensurePeersAvailableInDHT(peer1, peer2)
+
+	err := peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
 	ts.NoError(err)
-	err = peer1.app.Conf.CheckIPUnique(ips[1], "")
+	ts.Eventually(func() bool {
+		reqs, err := peer2.api.AuthRequests()
+		ts.NoError(err)
+		return len(reqs) == 1
+	}, 15*time.Second, 50*time.Millisecond)
+
+	knownPeer, exists := peer1.app.Conf.GetPeer(peer2.PeerID())
+	ts.True(exists)
+	ts.Empty(knownPeer.IPAddr, "no address until the peer accepts")
+
+	// Accepted without an address in the form: it comes with the status.
+	err = peer2.api.ReplyFriendRequest(entity.FriendRequestReply{PeerID: peer1.PeerID(), Alias: "peer_1"})
 	ts.NoError(err)
+	ts.requireAddresses(peer1, peer2)
+
+	// Later status exchanges keep an address set by the user.
+	const customIP = "10.66.0.100"
+	peer2Config, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+	ts.NoError(err)
+	err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:     peer2.PeerID(),
+		Alias:      peer2Config.Alias,
+		DomainName: peer2Config.DomainName,
+		IPAddr:     customIP,
+	})
+	ts.NoError(err)
+	err = peer1.app.AuthStatus.ExchangeNewStatusInfo(context.Background(), peer2.app.P2p.PeerID(), config.KnownPeer{})
+	ts.NoError(err)
+	knownPeer, _ = peer1.app.Conf.GetPeer(peer2.PeerID())
+	ts.Equal(customIP, knownPeer.IPAddr)
+}
+
+// TestLegacyOwnIPNotTaken covers a node upgraded from an older version: it
+// keeps 10.66.0.1, which every such node has. Others give it the address
+// derived from its peer ID instead.
+func TestLegacyOwnIPNotTaken(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(false)
+	peer2 := ts.NewTestPeerWithConfig(func(c *config.Config) {
+		// what setDefaults leaves of the old default 10.66.0.1/16
+		c.VPNConfig.IPNet = "10.66.0.1/11"
+	})
+	ts.Equal("10.66.0.1", ownIP(peer2))
+
+	ts.makeFriends(peer1, peer2)
+
+	derived, ok := peer2.app.Conf.DerivedVPNAddr()
+	ts.True(ok)
+	knownPeer, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+	ts.Equal(derived.String(), knownPeer.IPAddr)
 }
 
 func TestUniquePeerAlias(t *testing.T) {
@@ -1056,6 +1146,7 @@ func TestAddPeerViaInviteLink(t *testing.T) {
 		knownPeer, _ := peer2.app.Conf.GetPeer(creator.PeerID())
 		return knownPeer.AllowedUsingAsExitNode
 	}, 15*time.Second, 50*time.Millisecond)
+	ts.requireAddresses(creator, peer2)
 
 	invites, err := creator.api.Invites()
 	ts.NoError(err)
@@ -1504,12 +1595,12 @@ func TestInviteTokenSurvivesRestart(t *testing.T) {
 
 	peer2 := ts.NewTestPeerWithConfig(func(conf *config.Config) {
 		// What AddPeer stored before the restart, plus the fields setDefaults
-		// fills in while loading a config from disk.
+		// fills in while loading a config from disk. No address yet: the peer
+		// gets it on the first status exchange.
 		conf.KnownPeers[link.PeerID] = config.KnownPeer{
 			PeerID:             link.PeerID,
 			Name:               link.Name,
 			Alias:              link.Name,
-			IPAddr:             conf.GenerateNextIpAddr(),
 			DomainName:         awldns.NormalizeDomainName(link.Name),
 			CreatedAt:          time.Now(),
 			PendingInviteToken: link.Token,
@@ -1920,7 +2011,6 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 			ip       string
 			errorMsg string
 		}{
-			{"empty string", "", "Field validation for 'IPAddr' failed"},
 			{"invalid format", "invalid", "Field validation for 'IPAddr' failed on the 'ipv4' tag"},
 			{"out of range octets", "256.1.1.1", "Field validation for 'IPAddr' failed on the 'ipv4' tag"},
 			{"incomplete IP", "10.66.0", "Field validation for 'IPAddr' failed on the 'ipv4' tag"},
@@ -1948,9 +2038,8 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 			ip   string
 		}{
 			{"different network", "192.168.1.1"},
-			{"next network up", "10.67.0.5"},
-			{"next network down", "10.65.255.255"},
-			{"same class B different C", "10.67.1.1"},
+			{"next network up", "10.96.0.5"},
+			{"next network down", "10.63.255.255"},
 		}
 
 		for _, tc := range testCases {
@@ -1963,7 +2052,7 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 					AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
 				})
 				ts.Error(err)
-				ts.ErrorContains(err, "IP "+tc.ip+" does not belong to subnet 10.66.0.0/16")
+				ts.ErrorContains(err, "IP "+tc.ip+" does not belong to subnet 10.64.0.0/11")
 			})
 		}
 	})
@@ -1978,12 +2067,36 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
 		})
 		ts.Error(err)
-		ts.ErrorContains(err, "ip "+initialPeer3IP+" is already used by peer")
+		ts.ErrorContains(err, "IP "+initialPeer3IP+" is already used by peer")
 
 		// Verify peer2's IP wasn't changed
 		unchangedConfig, err := peer1.api.KnownPeerConfig(peer2.PeerID())
 		ts.NoError(err)
 		ts.Equal(initialPeer2IP, unchangedConfig.IPAddr)
+	})
+
+	t.Run("EmptyKeepsAddress", func(t *testing.T) {
+		newAlias := "renamed_peer2"
+		err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                newAlias,
+			DomainName:           peer2Config.DomainName,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
+
+		updatedConfig, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		ts.NoError(err)
+		ts.Equal(newAlias, updatedConfig.Alias)
+		ts.Equal(initialPeer2IP, updatedConfig.IPAddr)
+
+		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               peer2.PeerID(),
+			Alias:                peer2Config.Alias,
+			DomainName:           peer2Config.DomainName,
+			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+		})
+		ts.NoError(err)
 	})
 
 	t.Run("SamePeerKeepsSameIP", func(t *testing.T) {
@@ -2070,48 +2183,25 @@ func TestUpdatePeerSettingsIPAddr(t *testing.T) {
 		ts.NoError(err)
 	})
 
-	t.Run("EdgeCaseIPs", func(t *testing.T) {
-		// TODO: revise .0 and .255 cases implementation
-
-		// Test network address (.0) - currently allowed in implementation
-		err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
-			PeerID:               peer2.PeerID(),
-			Alias:                peer2Config.Alias,
-			DomainName:           peer2Config.DomainName,
-			IPAddr:               "10.66.0.0",
-			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
-		})
-		ts.NoError(err)
-
-		// Test broadcast address (.255) - currently allowed in implementation
-		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
-			PeerID:               peer2.PeerID(),
-			Alias:                peer2Config.Alias,
-			DomainName:           peer2Config.DomainName,
-			IPAddr:               "10.66.0.255",
-			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
-		})
-		ts.NoError(err)
-
-		// Test valid IP at the high edge of range
-		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
-			PeerID:               peer2.PeerID(),
-			Alias:                peer2Config.Alias,
-			DomainName:           peer2Config.DomainName,
-			IPAddr:               "10.66.0.254",
-			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
-		})
-		ts.NoError(err)
-
-		// Restore original IP
-		err = peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
-			PeerID:               peer2.PeerID(),
-			Alias:                peer2Config.Alias,
-			DomainName:           peer2Config.DomainName,
-			IPAddr:               initialPeer2IP,
-			AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
-		})
-		ts.NoError(err)
+	t.Run("ReservedIPs", func(t *testing.T) {
+		testCases := []struct {
+			ip       string
+			errorMsg string
+		}{
+			{"10.64.0.0", "is the network address of subnet 10.64.0.0/11"},
+			{"10.95.255.255", "is the broadcast address of subnet 10.64.0.0/11"},
+			{ownIP(peer1), "is the local node's own address"},
+		}
+		for _, tc := range testCases {
+			err := peer1.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+				PeerID:               peer2.PeerID(),
+				Alias:                peer2Config.Alias,
+				DomainName:           peer2Config.DomainName,
+				IPAddr:               tc.ip,
+				AllowUsingAsExitNode: peer2Config.WeAllowUsingAsExitNode,
+			})
+			ts.ErrorContains(err, tc.errorMsg)
+		}
 	})
 
 	t.Run("IPChangeWithTunnelPackets", func(t *testing.T) {
@@ -2185,7 +2275,7 @@ func TestDisableVPNInterface(t *testing.T) {
 	ts.NoError(err)
 	ts.False(peer2Status.VPN.VPNInterfaceEnabled)
 	ts.NotEmpty(peer2Status.VPN.InterfaceName)
-	ts.Equal(config.DefaultVPNNetworkSubnet, peer2Status.VPN.IPNet)
+	ts.Equal(peer2.app.Conf.VPNPrefix().String(), peer2Status.VPN.IPNet)
 
 	ts.makeFriends(peer2, peer1)
 
@@ -2284,9 +2374,9 @@ func TestTunnelPackets(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
-	sendPackets := func(peer TestPeer) {
+	sendPackets := func(peer, to TestPeer) {
 		defer wg.Done()
-		packet := testPacket(packetSize)
+		packet := testPacketToPeer(packetSize, peer, to)
 		packetsBatch := make([][]byte, TestTUNBatchSize)
 		for i := range packetsBatch {
 			packetsBatch[i] = packet
@@ -2300,8 +2390,8 @@ func TestTunnelPackets(t *testing.T) {
 	}
 
 	wg.Add(2)
-	go sendPackets(peer1)
-	go sendPackets(peer2)
+	go sendPackets(peer1, peer2)
+	go sendPackets(peer2, peer1)
 	wg.Wait()
 
 	ts.EventuallyWithT(func(c *assert.CollectT) {
@@ -2573,7 +2663,7 @@ func BenchmarkTunnelPackets(b *testing.B) {
 			b.ResetTimer()
 
 			b.SetBytes(int64(packetSize))
-			packet := testPacket(packetSize)
+			packet := testPacketToPeer(packetSize, peer1, peer2)
 			peer2.tun.SetInboundCapture(len(packet), nil)
 			peer2.tun.ClearInboundCount()
 			packetsBatch := make([][]byte, TestTUNBatchSize*10)
@@ -2740,7 +2830,7 @@ func TestDNSHandlerTunnelFilter(t *testing.T) {
 	dnsPacket := testPacketWithDest(0, dnsIP.String())
 	// Must not reach the handler: unknown peer IP and broadcast.
 	otherPacket := testPacketWithDest(0, "10.66.0.50")
-	broadcastPacket := testPacketWithDest(0, "10.66.255.255")
+	broadcastPacket := testPacketWithDest(0, "10.95.255.255")
 	peer1.tun.Outbound <- [][]byte{dnsPacket, otherPacket, broadcastPacket}
 
 	select {

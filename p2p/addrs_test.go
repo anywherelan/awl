@@ -23,13 +23,15 @@ func testIface(name string, flags net.Flags, prefixes ...string) localInterface 
 var testDesktopIfaces = []localInterface{
 	testIface("lo", testRunning|net.FlagLoopback, "127.0.0.1/8", "::1/128"),
 	testIface("wlan0", testRunning, "192.168.1.5/24", "fe80::1/64", "fd12:3456::5/64"),
-	// a LAN that overlaps the awl subnet
+	// a LAN inside the awl subnet
 	testIface("eth0", testRunning, "10.66.5.7/16"),
+	// a work VPN with all of 10.0.0.0/8, wider than the awl subnet
+	testIface("tun1", testRunning|net.FlagPointToPoint, "10.8.0.2/8"),
 	// no answer from DHCP
 	testIface("eth1", testRunning, "169.254.7.7/16"),
 	// a public address on the interface, as on a server
 	testIface("eth2", testRunning, "89.36.211.215/24"),
-	testIface("awl0", testRunning|net.FlagPointToPoint, "10.66.0.1/16", "fd00:66::1/48"),
+	testIface("awl0", testRunning|net.FlagPointToPoint, "10.66.0.1/11", "fd00:66::1/48"),
 	testIface("docker0", net.FlagUp, "172.17.0.1/16"),
 	testIface("br-4ff02d8bfb49", testRunning, "172.18.0.1/16"),
 	// a bridge with the real LAN, as on a server with VMs
@@ -39,7 +41,7 @@ var testDesktopIfaces = []localInterface{
 
 // testVPNPrefixes are our addresses on awl0 of testDesktopIfaces.
 var testVPNPrefixes = []netip.Prefix{
-	netip.MustParsePrefix("10.66.0.1/16"),
+	netip.MustParsePrefix("10.66.0.1/11"),
 	netip.MustParsePrefix("fd00:66::1/48"),
 }
 
@@ -49,7 +51,7 @@ func TestLocalAddrsAnnounced(t *testing.T) {
 		testIface("lo", testRunning|net.FlagLoopback, "127.0.0.1/8", "::1/128"),
 		testIface("wlan0", testRunning, "192.168.1.5/24", "fe80::1/64"),
 		// VpnService TUN with our awl address
-		testIface("tun0", testRunning|net.FlagPointToPoint, "10.66.0.1/16"),
+		testIface("tun0", testRunning|net.FlagPointToPoint, "10.66.0.1/11"),
 		testIface("rmnet_data0", testRunning, "10.200.3.4/30"),
 	}
 
@@ -140,7 +142,8 @@ func TestLocalAddrsLANCandidates(t *testing.T) {
 		{name: "loopback", addr: quic("127.0.0.1")},
 		{name: "IPv4 link-local", addr: quic("169.254.3.4")},
 		{name: "IPv6 link-local", addr: "/ip6/fe80::7/udp/4363/quic-v1"},
-		{name: "awl subnet, though in a LAN too", addr: quic("10.66.0.2")},
+		{name: "LAN inside the awl subnet", addr: quic("10.66.5.9"), want: true},
+		{name: "awl subnet inside a wider network", addr: quic("10.90.0.2")},
 		{name: "awl IPv6 subnet", addr: "/ip6/fd00:66::2/udp/4363/quic-v1"},
 		{name: "docker", addr: quic("172.18.0.2")},
 		{name: "interface that is not running", addr: quic("192.168.122.5")},

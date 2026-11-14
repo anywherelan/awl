@@ -87,7 +87,10 @@ func printPeersStatus(api *apiclient.Client, format string, w io.Writer) error {
 				if peer.IpAddrV6 != "" {
 					info = append(info, peer.IpAddrV6)
 				}
-				info = append(info, peer.IpAddr)
+				// empty until the first status exchange with the peer
+				if peer.IpAddr != "" {
+					info = append(info, peer.IpAddr)
+				}
 
 				row = append(row, strings.Join(info, "\n"))
 			case TableFormatPeerID:

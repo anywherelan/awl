@@ -2,6 +2,7 @@ package awl
 
 import (
 	"context"
+	"maps"
 	"net/netip"
 	"testing"
 	"time"
@@ -125,11 +126,11 @@ func TestNormalVPNWithGateway(t *testing.T) {
 
 	src, dst := parsePacketIPs(rawPkt)
 	// Normal VPN: src = client's assigned IP in exit node's config,
-	// dst = exit node's local IP (10.66.0.1)
+	// dst = exit node's own IP
 	clientConfig, err := exitNode.api.KnownPeerConfig(client.PeerID())
 	ts.NoError(err)
 	ts.Equal(clientConfig.IPAddr, src.String(), "src should be client's assigned IP (normal VPN)")
-	ts.Equal("10.66.0.1", dst.String(), "dst should be local IP (normal VPN)")
+	ts.Equal(ownIP(exitNode), dst.String(), "dst should be local IP (normal VPN)")
 }
 
 // TestGatewayBidirectional verifies the full round-trip: client sends to internet,
@@ -143,7 +144,7 @@ func TestGatewayBidirectional(t *testing.T) {
 	clientInbound := captureInbound(client, 10)
 
 	// 1. Client sends to internet
-	outPacket := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", internetIP)
+	outPacket := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), internetIP)
 	client.tun.Outbound <- [][]byte{outPacket}
 
 	// Verify exit node receives it
@@ -162,7 +163,7 @@ func TestGatewayBidirectional(t *testing.T) {
 	ts.True(ok, "client should receive return gateway packet")
 	src, dst = parsePacketIPs(rawPkt)
 	ts.Equal(internetIP, src.String())
-	ts.Equal("10.66.0.1", dst.String())
+	ts.Equal(ownIP(client), dst.String())
 }
 
 // TestGatewayPermissionDenied covers two complementary revocation paths:
@@ -202,7 +203,7 @@ func TestGatewayPermissionDenied(t *testing.T) {
 
 		captureInbound(exitNode, 10)
 
-		packet := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", internetIP)
+		packet := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), internetIP)
 		client.tun.Outbound <- [][]byte{packet}
 
 		expectNoInbound(ts, exitNode, 2*time.Second,
@@ -280,15 +281,15 @@ func TestGatewayServerAllowsNormalAwlWithoutExitPermission(t *testing.T) {
 	//   awlPkt — peer-to-peer awl traffic addressed to the gateway machine.
 	//   gwPkt  — gateway-bound packet (dst is on the public internet).
 	// The first must be delivered, the second must be dropped silently.
-	awlPkt := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", exitNodeIP)
-	gwPkt := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", internetIP)
+	awlPkt := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), exitNodeIP)
+	gwPkt := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), internetIP)
 	client.tun.Outbound <- [][]byte{awlPkt, gwPkt}
 
 	rawPkt, ok := recvPacketWithTimeout(exitInbound)
 	ts.True(ok, "exit node must deliver normal awl traffic even without exit-node permission")
 	src, dst := parsePacketIPs(rawPkt)
 	ts.Equal(clientAssignedIP, src.String(), "awl packet src should be client's assigned IP")
-	ts.Equal("10.66.0.1", dst.String(), "awl packet dst should be local IP")
+	ts.Equal(ownIP(exitNode), dst.String(), "awl packet dst should be local IP")
 
 	// No second packet — the gateway-bound one must have been dropped.
 	select {
@@ -320,7 +321,7 @@ func TestGatewayNonRoutableIPsNotForwarded(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			exitNode.tun.ClearInboundCount()
 
-			packet := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", tc.ip)
+			packet := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), tc.ip)
 			client.tun.Outbound <- [][]byte{packet}
 
 			expectNoInbound(ts, exitNode, 1*time.Second,
@@ -330,7 +331,7 @@ func TestGatewayNonRoutableIPsNotForwarded(t *testing.T) {
 }
 
 // TestGatewayAwlSubnetNotForwarded verifies that packets to AWL subnet addresses
-// (10.66.0.x) that don't match any known peer are NOT forwarded through the gateway.
+// (10.64.0.0/11) that don't match any known peer are NOT forwarded through the gateway.
 func TestGatewayAwlSubnetNotForwarded(t *testing.T) {
 	ts := NewTestSuite(t)
 	client, exitNode, _ := setupGatewayPeers(ts)
@@ -338,7 +339,7 @@ func TestGatewayAwlSubnetNotForwarded(t *testing.T) {
 	resetInboundCounter(exitNode)
 
 	// Send to an AWL subnet IP that doesn't belong to any known peer
-	packet := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", "10.66.0.250")
+	packet := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), "10.66.0.250")
 	client.tun.Outbound <- [][]byte{packet}
 
 	expectNoInbound(ts, exitNode, 1*time.Second,
@@ -353,7 +354,7 @@ func TestGatewayPeerLifecycle(t *testing.T) {
 
 	exitInbound := captureInbound(exitNode, 10)
 
-	packet := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", internetIP)
+	packet := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), internetIP)
 
 	// 1. Gateway enabled — packet should arrive at exit node
 	client.tun.Outbound <- [][]byte{packet}
@@ -417,7 +418,7 @@ func TestGatewayWithThreePeers(t *testing.T) {
 		ts.True(ok, "regular peer should receive normal VPN packet")
 
 		_, dst := parsePacketIPs(rawPkt)
-		ts.Equal("10.66.0.1", dst.String(), "dst should be local IP (normal VPN)")
+		ts.Equal(ownIP(regularPeer), dst.String(), "dst should be local IP (normal VPN)")
 
 		// Case #8: even with gateway on, awl-subnet traffic must not be
 		// duplicated through the exit node.
@@ -436,7 +437,7 @@ func TestGatewayWithThreePeers(t *testing.T) {
 		ts.True(ok, "exit node should receive normal VPN packet")
 
 		_, dst := parsePacketIPs(rawPkt)
-		ts.Equal("10.66.0.1", dst.String(), "dst should be local IP (normal VPN)")
+		ts.Equal(ownIP(exitNode), dst.String(), "dst should be local IP (normal VPN)")
 	})
 
 	// Test 3: Gateway traffic goes to exit node, not regular peer
@@ -444,7 +445,7 @@ func TestGatewayWithThreePeers(t *testing.T) {
 		exitInbound := captureInbound(exitNode, 10)
 		resetInboundCounter(regularPeer)
 
-		packet := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", internetIP)
+		packet := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), internetIP)
 		client.tun.Outbound <- [][]byte{packet}
 
 		_, ok := recvPacketWithTimeout(exitInbound)
@@ -469,7 +470,7 @@ func TestGatewayWithThreePeers(t *testing.T) {
 		ts.True(ok, "client should receive packet from regular peer")
 
 		_, dst := parsePacketIPs(rawPkt)
-		ts.Equal("10.66.0.1", dst.String(), "dst should be client's local IP")
+		ts.Equal(ownIP(client), dst.String(), "dst should be client's local IP")
 	})
 }
 
@@ -486,7 +487,7 @@ func TestGatewayMultipleDestinations(t *testing.T) {
 		exitInbound := captureInbound(exitNode, 20)
 
 		for _, destIP := range ips {
-			packet := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", destIP)
+			packet := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), destIP)
 			client.tun.Outbound <- [][]byte{packet}
 		}
 
@@ -514,7 +515,7 @@ func TestGatewayMultipleDestinations(t *testing.T) {
 
 			src, dst := parsePacketIPs(rawPkt)
 			ts.Equal(expectedSrc, src.String(), "src should be preserved")
-			ts.Equal("10.66.0.1", dst.String(), "dst should be rewritten to local IP")
+			ts.Equal(ownIP(client), dst.String(), "dst should be rewritten to local IP")
 		}
 	})
 }
@@ -533,7 +534,7 @@ func TestGatewayExitNodeNotServing(t *testing.T) {
 
 	resetInboundCounter(exitNode)
 
-	packet := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", internetIP)
+	packet := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), internetIP)
 	client.tun.Outbound <- [][]byte{packet}
 
 	expectNoInbound(ts, exitNode, 500*time.Millisecond,
@@ -556,8 +557,8 @@ func TestGatewayMixedBatch(t *testing.T) {
 		exitInbound := captureInbound(exitNode, 20)
 
 		// Send a normal awl packet and a gateway packet in one batch.
-		awlPacket := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", exitNodeIP)
-		gwPacket := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", internetIP)
+		awlPacket := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), exitNodeIP)
+		gwPacket := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), internetIP)
 		client.tun.Outbound <- [][]byte{awlPacket, gwPacket}
 
 		rawPkt1, ok := recvPacketWithTimeout(exitInbound)
@@ -569,7 +570,7 @@ func TestGatewayMixedBatch(t *testing.T) {
 		var normalPkt, gatewayPkt []byte
 		for _, pkt := range [][]byte{rawPkt1, rawPkt2} {
 			_, dst := parsePacketIPs(pkt)
-			if dst.String() == "10.66.0.1" {
+			if dst.String() == ownIP(exitNode) {
 				normalPkt = pkt
 			} else {
 				gatewayPkt = pkt
@@ -578,10 +579,10 @@ func TestGatewayMixedBatch(t *testing.T) {
 		ts.NotNil(normalPkt, "should have a normal awl packet")
 		ts.NotNil(gatewayPkt, "should have a gateway packet")
 
-		// Normal packet: full rewrite (src=clientAssignedIP, dst=10.66.0.1)
+		// Normal packet: full rewrite (src=clientAssignedIP, dst=exit node's own IP)
 		src, dst := parsePacketIPs(normalPkt)
 		ts.Equal(clientAssignedIP, src.String(), "normal packet src should be client's assigned IP")
-		ts.Equal("10.66.0.1", dst.String(), "normal packet dst should be local IP")
+		ts.Equal(ownIP(exitNode), dst.String(), "normal packet dst should be local IP")
 
 		// Gateway packet: src-only rewrite (src=clientAssignedIP, dst preserved)
 		src, dst = parsePacketIPs(gatewayPkt)
@@ -600,7 +601,7 @@ func TestGatewayMixedBatch(t *testing.T) {
 		// Inject at exit node's TUN one gateway-return and one normal awl packet,
 		// both addressed to the client's assigned IP.
 		gwReturnPkt := testPacketWithSrcDest(gatewayTestPacketSize, internetIP, clientAssignedIP)
-		normalPkt := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", clientAssignedIP)
+		normalPkt := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(exitNode), clientAssignedIP)
 		exitNode.tun.Outbound <- [][]byte{gwReturnPkt, normalPkt}
 
 		rawPkt1, ok := recvPacketWithTimeout(clientInbound)
@@ -621,15 +622,15 @@ func TestGatewayMixedBatch(t *testing.T) {
 		ts.NotNil(returnPktData, "should have a gateway return packet")
 		ts.NotNil(normalPktData, "should have a normal awl packet")
 
-		// Gateway return: dst-only rewrite (src preserved, dst=10.66.0.1)
+		// Gateway return: dst-only rewrite (src preserved, dst=client's own IP)
 		src, dst := parsePacketIPs(returnPktData)
 		ts.Equal(internetIP, src.String(), "gateway return src should be preserved")
-		ts.Equal("10.66.0.1", dst.String(), "gateway return dst should be local IP")
+		ts.Equal(ownIP(client), dst.String(), "gateway return dst should be local IP")
 
-		// Normal awl: full rewrite (src=exitNodeIPInClient, dst=10.66.0.1)
+		// Normal awl: full rewrite (src=exitNodeIPInClient, dst=client's own IP)
 		src, dst = parsePacketIPs(normalPktData)
 		ts.Equal(exitNodeIPInClient, src.String(), "normal packet src should be exit node's assigned IP")
-		ts.Equal("10.66.0.1", dst.String(), "normal packet dst should be local IP")
+		ts.Equal(ownIP(client), dst.String(), "normal packet dst should be local IP")
 	})
 }
 
@@ -806,7 +807,7 @@ func TestGatewayBroadcastHandledViaBroadcastPath(t *testing.T) {
 
 	exitInbound := captureInbound(exitNode, 10)
 
-	packet := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", "255.255.255.255")
+	packet := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), "255.255.255.255")
 	client.tun.Outbound <- [][]byte{packet}
 
 	// Exit node receives it — the broadcast code path sends it to all peers
@@ -966,7 +967,7 @@ func TestGatewayRebindOnPeerReadd(t *testing.T) {
 
 	// Sanity: gateway packets flow before we touch anything.
 	exitInbound := captureInbound(exitNode, 10)
-	packet := testPacketWithSrcDest(gatewayTestPacketSize, "10.66.0.1", internetIP)
+	packet := testPacketWithSrcDest(gatewayTestPacketSize, ownIP(client), internetIP)
 	client.tun.Outbound <- [][]byte{packet}
 	_, ok = recvPacketWithTimeout(exitInbound)
 	ts.True(ok, "gateway should flow before peer removal")
@@ -1083,15 +1084,11 @@ func TestGatewayListAvailableGatewaysFiltersToVPNGatewayOnly(t *testing.T) {
 	ts.Equal(vpnExit.PeerID(), gateways[0].PeerID)
 }
 
-// TestGatewayInvalidPeerIDAtStartupClearsGracefully covers the only graceful
-// path in VPNGateway.SetupAtStartup: a persisted GatewayPeerID that fails
-// peer.Decode (malformed string). In that case the setup logs a warning,
-// calls DisableClient to wipe the bad config entries, and lets Init complete
-// normally.
-//
-// Any other failure during startup (valid-format peer ID but not in
-// KnownPeers, OS-level apply failure, etc.) propagates from EnableClient and
-// fails Init — see TestGatewayUnknownPeerIDAtStartupFailsBoot.
+// TestGatewayInvalidPeerIDAtStartupClearsGracefully covers a persisted
+// GatewayPeerID that fails peer.Decode (malformed string). In that case the
+// setup logs an error, calls DisableClient to wipe the bad config entries, and
+// lets Init complete normally. A failure to apply the gateway still fails
+// Init.
 func TestGatewayInvalidPeerIDAtStartupClearsGracefully(t *testing.T) {
 	skipIfVPNGatewayUnsupported(t)
 	ts := NewTestSuite(t)
@@ -1116,37 +1113,48 @@ func TestGatewayInvalidPeerIDAtStartupClearsGracefully(t *testing.T) {
 		"malformed GatewayPeerID must be cleared at startup")
 }
 
-// TestGatewayUnknownPeerIDAtStartupFailsBoot pins down the symmetric case to
-// TestGatewayInvalidPeerIDAtStartupClearsGracefully: a valid-format peer ID
-// that is not in KnownPeers is NOT a recoverable startup error. EnableClient
-// returns "peer ... is not in known peers" from Tunnel.SetVPNGatewayPeer,
-// SetupAtStartup wraps it, and Init fails. The persisted config is left
-// untouched so a human can investigate why the peer disappeared.
-func TestGatewayUnknownPeerIDAtStartupFailsBoot(t *testing.T) {
+// TestGatewayPeerNotInTunnelAtStartupClearsGracefully covers a gateway peer
+// that can't be in the tunnel: it is not in KnownPeers, or it has no address.
+// Both happen only after a hand edit of the config. Like a malformed peer ID,
+// the setup disables gateway client mode and lets Init complete.
+func TestGatewayPeerNotInTunnelAtStartupClearsGracefully(t *testing.T) {
 	skipIfVPNGatewayUnsupported(t)
-	ts := NewTestSuite(t)
 
-	// Valid-format peer ID that won't be in KnownPeers.
-	const unknownPeerID = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N"
+	const gatewayPeerID = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N"
 
-	tp, err := ts.NewTestPeerExpectingInitError(
-		func(c *config.Config) {
-			c.VPNGateway.ClientEnabled = true
-			c.VPNGateway.GatewayPeerID = unknownPeerID
-		},
-		nil,
-	)
-	ts.Error(err, "Init must fail when GatewayPeerID is valid format but not in KnownPeers")
-	ts.Contains(err.Error(), "not in known peers",
-		"underlying error must come from Tunnel.SetVPNGatewayPeer")
+	cases := []struct {
+		name  string
+		peers map[string]config.KnownPeer
+	}{
+		{name: "NotInKnownPeers"},
+		{name: "NoAddress", peers: map[string]config.KnownPeer{gatewayPeerID: {
+			PeerID:                        gatewayPeerID,
+			Name:                          "gateway",
+			Confirmed:                     true,
+			CreatedAt:                     time.Now(),
+			AllowedUsingAsExitNode:        true,
+			RemoteVPNGatewayServerEnabled: true,
+		}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := NewTestSuite(t)
+			tp := ts.NewTestPeerWithAppConfig(
+				func(c *config.Config) {
+					maps.Copy(c.KnownPeers, tc.peers)
+					c.VPNGateway.ClientEnabled = true
+					c.VPNGateway.GatewayPeerID = gatewayPeerID
+				},
+				nil,
+			)
 
-	// Config must be left as-is — only DisableClient (the malformed-ID path)
-	// wipes it; the unknown-peer path bubbles up the error so an operator
-	// can decide what to do.
-	ts.True(tp.app.Conf.VPNGateway.ClientEnabled,
-		"unknown peer at startup must NOT auto-wipe ClientEnabled")
-	ts.Equal(unknownPeerID, tp.app.Conf.VPNGateway.GatewayPeerID,
-		"unknown peer at startup must NOT auto-wipe GatewayPeerID")
+			ts.False(tp.app.VPNGateway.IsClientActive(), "gateway routes must not be installed")
+			tp.app.Conf.RLock()
+			defer tp.app.Conf.RUnlock()
+			ts.False(tp.app.Conf.VPNGateway.ClientEnabled)
+			ts.Equal("", tp.app.Conf.VPNGateway.GatewayPeerID)
+		})
+	}
 }
 
 // TestGatewayRevokedPermissionAtStartupKeepsGateway covers a gateway peer
