@@ -1,29 +1,42 @@
 package config
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"slices"
-
-	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 const (
 	DefaultVPNInterfaceName = "awl0"
+	// DefaultVPNNetworkSubnet is the awl subnet. The zero host part means
+	// "derive our address from the peer ID", see deriveOwnAddrsUnlocked.
 	// TODO: generate subnets if this has already taken
-	DefaultVPNNetworkSubnet  = "10.66.0.1/11"
+	DefaultVPNNetworkSubnet  = "10.64.0.0/11"
 	DefaultVPNNetworkSubnet6 = "fd00:66:0::/48"
 )
 
-// legacyIPNets are the vpn.ipNet defaults of older versions: 10.66.0.1/24
-// before v0.18.0, 10.66.0.1/16 since. See migrateLegacyIPNetUnlocked.
-var legacyIPNets = []string{"10.66.0.1/24", "10.66.0.1/16"}
+const (
+	// maxIPv4PrefixBits rejects /31 and /32: they leave no address besides our own.
+	maxIPv4PrefixBits = 30
+	// maxIPv6PrefixBits keeps at least 64 host bits, so that addresses derived
+	// from peer IDs practically never collide.
+	maxIPv6PrefixBits = 64
+)
 
-// maxIPv4PrefixBits rejects /31 and /32: they leave no address besides our own.
-const maxIPv4PrefixBits = 30
+// legacyOwnIP is our own address in every config from before v0.21.0, older
+// versions did not derive it. A peer that announces it tells us nothing, see
+// AllocPeerIPUnlocked.
+const legacyOwnIP = "10.66.0.1"
+
+// legacyIPNets are the vpn.ipNet defaults of older versions: /24 before
+// v0.18.0, /16 since. See migrateLegacyIPNetUnlocked.
+var legacyIPNets = []string{legacyOwnIP + "/24", legacyOwnIP + "/16"}
+
+// migratedIPNet replaces legacyIPNets: the same own address in the awl subnet.
+// Not DefaultVPNNetworkSubnet: its zero host part would give us a new address.
+const migratedIPNet = legacyOwnIP + "/11"
 
 // VPNPrefix returns our IPv4 address with the prefix length of the awl subnet.
 // An invalid vpn.ipNet aborts startup, see ValidateForStartup, so the result
@@ -36,29 +49,15 @@ func (c *Config) VPNPrefix() netip.Prefix {
 	return c.vpnPrefixUnlocked()
 }
 
-// TODO: remove after unification with ipv6
-func (c *Config) VPNLocalIPMaskUnlocked() (net.IP, net.IPMask) {
-	prefix := c.vpnPrefixUnlocked()
-	if !prefix.IsValid() {
-		logger.Errorf("invalid vpn.ipNet %q", c.VPNConfig.IPNet)
-		return nil, nil
-	}
-
-	return net.IP(prefix.Addr().AsSlice()), net.CIDRMask(prefix.Bits(), net.IPv4len*8)
-}
-
 // vpnPrefixUnlocked parses vpn.ipNet; the zero Prefix means it is invalid.
 func (c *Config) vpnPrefixUnlocked() netip.Prefix {
-	prefix, err := parseIPNet(c.VPNConfig.IPNet)
-	if err != nil {
-		return netip.Prefix{}
-	}
-
+	prefix, _ := parseIPNet(c.VPNConfig.IPNet)
 	return prefix
 }
 
 // parseIPNet parses vpnConfig.ipNet: our own address with the prefix length of
-// the awl subnet. The returned prefix is not masked.
+// the awl subnet. A zero host part means "derive our address from the peer
+// ID", see deriveOwnAddrsUnlocked. The returned prefix is not masked.
 func parseIPNet(s string) (netip.Prefix, error) {
 	prefix, err := netip.ParsePrefix(s)
 	if err != nil {
@@ -74,18 +73,6 @@ func parseIPNet(s string) (netip.Prefix, error) {
 	return prefix, nil
 }
 
-// migrateLegacyIPNetUnlocked replaces vpn.ipNet that is one of legacyIPNets
-// with DefaultVPNNetworkSubnet. Our own address stays, and so do the addresses of known
-// peers: they lie inside the wider subnet. A value set by hand is kept.
-func (c *Config) migrateLegacyIPNetUnlocked() {
-	if !slices.Contains(legacyIPNets, c.VPNConfig.IPNet) {
-		return
-	}
-
-	logger.Infof("widened the awl network: vpn.ipNet %s changed to %s, the addresses stay the same", c.VPNConfig.IPNet, DefaultVPNNetworkSubnet)
-	c.VPNConfig.IPNet = DefaultVPNNetworkSubnet
-}
-
 // VPNPrefixV6 returns our IPv6 address with the prefix length of the awl IPv6
 // subnet. When IPv6 is off, ok is false and the prefix is invalid.
 func (c *Config) VPNPrefixV6() (prefix netip.Prefix, ok bool) {
@@ -95,17 +82,17 @@ func (c *Config) VPNPrefixV6() (prefix netip.Prefix, ok bool) {
 	return c.vpnPrefixV6Unlocked()
 }
 
-// ErrIPv6Disabled is returned by AllocPeerIPv6Unlocked when the IPv6 overlay is
-// off on our side.
-var ErrIPv6Disabled = errors.New("IPv6 overlay is disabled")
-
-// maxIPv6PrefixBits keeps at least 64 host bits, so that addresses derived from
-// peer IDs practically never collide.
-const maxIPv6PrefixBits = 64
+// vpnPrefixV6Unlocked returns our IPv6 address with the prefix length of the
+// awl IPv6 subnet. ok is false when IPv6 is disabled (vpn.ipNetV6 is empty) or
+// the value is invalid; the latter aborts startup, see ValidateForStartup.
+func (c *Config) vpnPrefixV6Unlocked() (prefix netip.Prefix, ok bool) {
+	prefix, err := parseIPNetV6(c.VPNConfig.IPNetV6)
+	return prefix, err == nil
+}
 
 // parseIPNetV6 parses vpnConfig.ipNetV6: our own address with the prefix length
 // of the awl IPv6 subnet. A zero host part means "derive our address from the
-// peer ID", see deriveOwnIPv6Unlocked. The returned prefix is not masked.
+// peer ID", see deriveOwnAddrsUnlocked. The returned prefix is not masked.
 func parseIPNetV6(s string) (netip.Prefix, error) {
 	prefix, err := netip.ParsePrefix(s)
 	if err != nil {
@@ -121,89 +108,65 @@ func parseIPNetV6(s string) (netip.Prefix, error) {
 	return prefix, nil
 }
 
-// vpnPrefixV6Unlocked returns our IPv6 address with the prefix length of the
-// awl IPv6 subnet. ok is false when IPv6 is disabled or the value is invalid;
-// the latter aborts startup, see ValidateForStartup.
-func (c *Config) vpnPrefixV6Unlocked() (prefix netip.Prefix, ok bool) {
-	if c.VPNConfig.IPNetV6 == "" {
-		return netip.Prefix{}, false
+// migrateLegacyIPNetUnlocked replaces vpn.ipNet that is one of legacyIPNets
+// with migratedIPNet. Our own address stays, and so do the addresses of known
+// peers: they lie inside the wider subnet. A value set by hand is kept.
+func (c *Config) migrateLegacyIPNetUnlocked() {
+	if !slices.Contains(legacyIPNets, c.VPNConfig.IPNet) {
+		return
 	}
-	prefix, err := parseIPNetV6(c.VPNConfig.IPNetV6)
-	return prefix, err == nil
+
+	logger.Infof("widened the awl network: vpn.ipNet %s changed to %s, the addresses stay the same", c.VPNConfig.IPNet, migratedIPNet)
+	c.VPNConfig.IPNet = migratedIPNet
 }
 
-// AllocPeerIPv6Unlocked picks our view of the IPv6 address of peerID, which
-// announced the address announced: see pickPeerAddr. rejectErr says why the
-// announced address was not taken. Caller must hold the config write lock and
-// store the result in the same critical section, so that two peers cannot be
-// given the same address.
-func (c *Config) AllocPeerIPv6Unlocked(peerID, announced string) (addr string, rejectErr, err error) {
-	prefix, ok := c.vpnPrefixV6Unlocked()
-	if !ok {
-		return "", nil, ErrIPv6Disabled
-	}
-	id, err := peer.Decode(peerID)
-	if err != nil {
-		return "", nil, fmt.Errorf("decode peer id: %w", err)
+// deriveOwnAddrsUnlocked replaces a zero host part of vpn.ipNet and
+// vpn.ipNetV6 (as in DefaultVPNNetworkSubnet and DefaultVPNNetworkSubnet6,
+// meaning "not chosen yet") with an address derived from our peer ID. The
+// result is stored, so it does not change afterwards; an address set by hand
+// is kept. Known peers are not checked: on the first start there are none,
+// and our own address matters more. An invalid value is left for
+// ValidateForStartup to report.
+func (c *Config) deriveOwnAddrsUnlocked() {
+	unchosen := func(prefix netip.Prefix) bool {
+		return prefix.IsValid() && prefix.Addr() == prefix.Masked().Addr()
 	}
 
-	picked, rejectErr, err := pickPeerAddr(id, prefix, announced, func(a netip.Addr) error {
-		return c.checkPeerIPv6Unlocked(a, peerID)
+	if prefix := c.vpnPrefixUnlocked(); unchosen(prefix) {
+		if derived, ok := derivedOwnPrefix(c.P2pNode.PeerID, prefix); ok {
+			c.VPNConfig.IPNet = derived.String()
+		}
+	}
+	if prefix, _ := c.vpnPrefixV6Unlocked(); unchosen(prefix) {
+		if derived, ok := derivedOwnPrefix(c.P2pNode.PeerID, prefix); ok {
+			c.VPNConfig.IPNetV6 = derived.String()
+		}
+	}
+}
+
+// derivedOwnPrefix returns prefix with our own address derived from peerID in
+// place of its host part. Only the network and broadcast addresses are
+// skipped. ok is false without a valid peer ID.
+func derivedOwnPrefix(peerID string, prefix netip.Prefix) (netip.Prefix, bool) {
+	addr, _, err := pickAddr(peerID, prefix, "", func(a netip.Addr) error {
+		return checkHostAddr(a, prefix)
 	})
-	if err != nil {
-		return "", rejectErr, err
-	}
-
-	return picked.String(), rejectErr, nil
+	return netip.PrefixFrom(addr, prefix.Bits()), err == nil
 }
 
-// checkPeerIPv6Unlocked reports whether addr may be our view of the IPv6
-// address of peer exceptPeerID: an IPv6 address inside our subnet that is not
-// reserved, not our own and not used by another known peer.
-func (c *Config) checkPeerIPv6Unlocked(addr netip.Addr, exceptPeerID string) error {
-	prefix, ok := c.vpnPrefixV6Unlocked()
-	if !ok {
-		return ErrIPv6Disabled
-	}
+// DerivedVPNAddr returns the IPv4 address derived from our peer ID in the awl
+// subnet: our address if vpn.ipNet had a zero host part. ok is false without
+// an identity or with an invalid vpn.ipNet.
+func (c *Config) DerivedVPNAddr() (netip.Addr, bool) {
+	c.RLock()
+	defer c.RUnlock()
 
-	if !addr.Is6() || addr.Is4In6() {
-		return fmt.Errorf("%s is not an IPv6 address", addr)
-	}
-	if !prefix.Contains(addr) {
-		return fmt.Errorf("%s does not belong to subnet %s", addr, prefix.Masked())
-	}
-	if addr == prefix.Masked().Addr() {
-		return fmt.Errorf("%s is the Subnet-Router anycast address of %s", addr, prefix.Masked())
-	}
-	if addr == prefix.Addr() {
-		return fmt.Errorf("%s is the local node's own address", addr)
-	}
-	for _, known := range c.KnownPeers {
-		if known.PeerID == exceptPeerID {
-			continue
-		}
-		if used, err := netip.ParseAddr(known.IPAddrV6); err == nil && used == addr {
-			return fmt.Errorf("%s is already used by peer %s", addr, known.Alias)
-		}
-	}
-
-	return nil
-}
-
-// PeerIPv6Unlocked returns the IPv6 address of kp for routing and DNS. ok is
-// false while either side has IPv6 off. The stored address is not re-validated:
-// it was checked when assigned (AllocPeerIPv6Unlocked), and editing it by hand
-// is on whoever does it.
-func (c *Config) PeerIPv6Unlocked(kp KnownPeer) (netip.Addr, bool) {
-	if !kp.RemoteIPv6Enabled || c.VPNConfig.IPNetV6 == "" {
+	prefix := c.vpnPrefixUnlocked()
+	if !prefix.IsValid() {
 		return netip.Addr{}, false
 	}
-	addr, err := netip.ParseAddr(kp.IPAddrV6)
-	if err != nil {
-		return netip.Addr{}, false
-	}
-
-	return addr, true
+	derived, ok := derivedOwnPrefix(c.P2pNode.PeerID, prefix)
+	return derived.Addr(), ok
 }
 
 // NetstackDNSIP returns the in-subnet IP reserved for the awl DNS server,
@@ -215,148 +178,30 @@ func (c *Config) NetstackDNSIP() net.IP {
 	c.RLock()
 	defer c.RUnlock()
 
-	return c.netstackDNSIP
+	if !c.netstackDNSIP.IsValid() {
+		return nil
+	}
+	return net.IP(c.netstackDNSIP.AsSlice())
 }
 
 // computeNetstackDNSIP derives the reserved DNS server IP from the current
-// config snapshot: broadcast-1, shifted down until an address is free to
-// assign (CheckIPUnique rejects our own IP, the broadcast address and peers).
-// Deterministic; returns nil when the subnet has no free address. Not thread
-// safe — called from setDefaults at construction only, where netstackDNSIP is
-// still nil, so CheckIPUnique's own DNS-reservation check is a no-op here and
-// cannot recurse. The result is cached in netstackDNSIP and read everywhere
-// else via NetstackDNSIP.
-func (c *Config) computeNetstackDNSIP() net.IP {
-	localIP, netMask := c.VPNLocalIPMaskUnlocked()
-	if localIP == nil {
-		return nil
+// config snapshot: broadcast-1, shifted down until an address is free to give
+// to a peer. Deterministic; the zero Addr when the subnet has no free address.
+// Called from setDefaults, where netstackDNSIP is not set yet, so the check
+// does not reject the address being chosen. The result is cached in
+// netstackDNSIP and read everywhere else via NetstackDNSIP.
+func (c *Config) computeNetstackDNSIP() netip.Addr {
+	prefix := c.vpnPrefixUnlocked()
+	if !prefix.IsValid() {
+		return netip.Addr{}
 	}
-	ipNet := &net.IPNet{
-		IP:   localIP.Mask(netMask),
-		Mask: netMask,
-	}
-	network, broadcast := subnetBounds(ipNet)
 
-	for candidate := broadcast - 1; candidate > network; candidate-- {
-		ip := uint32ToIPAddr(candidate)
-		if c.CheckIPUnique(ip.String(), "") == nil {
-			return ip
+	network := prefix.Masked().Addr()
+	for candidate := broadcastAddr(prefix).Prev(); candidate != network; candidate = candidate.Prev() {
+		if c.checkPeerAddrUnlocked(candidate, prefix, "") == nil {
+			return candidate
 		}
 	}
 
-	return nil
-}
-
-// GenerateNextIpAddr is not thread safe.
-func (c *Config) GenerateNextIpAddr() string {
-	return c.GenerateNextIpAddrExcept(nil)
-}
-
-// GenerateNextIpAddrExcept is not thread safe.
-func (c *Config) GenerateNextIpAddrExcept(except []string) string {
-	localIP, netMask := c.VPNLocalIPMaskUnlocked()
-	ipNet := &net.IPNet{
-		IP:   localIP.Mask(netMask),
-		Mask: netMask,
-	}
-
-	maxIp := localIP
-	for _, known := range c.KnownPeers {
-		ip := net.ParseIP(known.IPAddr)
-		if ip == nil {
-			continue
-		}
-		// TODO: support ipv6
-		ip = ip.To4()
-
-		if ipNet.Contains(ip) && binary.BigEndian.Uint32(ip) > binary.BigEndian.Uint32(maxIp) {
-			maxIp = ip
-		}
-	}
-
-	exceptMap := make(map[string]struct{}, len(except))
-	for _, ip := range except {
-		exceptMap[ip] = struct{}{}
-	}
-
-	// Reserved addresses that must never be handed out to a peer.
-	_, broadcast := subnetBounds(ipNet)
-
-	// Find next available IP that is not in exceptMap and not reserved
-	for {
-		newIp := incrementIPAddr(maxIp)
-		newIpStr := newIp.String()
-
-		_, excluded := exceptMap[newIpStr]
-		reserved := binary.BigEndian.Uint32(newIp) == broadcast || newIp.Equal(c.netstackDNSIP)
-		if !excluded && !reserved {
-			return newIpStr
-		}
-
-		maxIp = newIp
-	}
-}
-
-// CheckIPUnique is not thread safe.
-// Checks IP for: valid ip, unique across peers, in vpn net mask
-func (c *Config) CheckIPUnique(checkIP string, exceptPeerID string) error {
-	localIP, netMask := c.VPNLocalIPMaskUnlocked()
-	ipNet := &net.IPNet{
-		IP:   localIP.Mask(netMask),
-		Mask: netMask,
-	}
-
-	ipv6, err := netip.ParseAddr(checkIP)
-	if err != nil {
-		return fmt.Errorf("invalid IP %s: %w", checkIP, err)
-	}
-	// TODO: support ipv6
-	ipv4 := ipv6.As4()
-	ip := net.IP(ipv4[:])
-
-	contains := ipNet.Contains(ip)
-	if !contains {
-		return fmt.Errorf("IP %s does not belong to subnet %s", checkIP, ipNet)
-	}
-
-	if _, broadcast := subnetBounds(ipNet); binary.BigEndian.Uint32(ip) == broadcast {
-		return fmt.Errorf("IP %s is the broadcast address of subnet %s", checkIP, ipNet)
-	}
-	if ip.Equal(localIP) {
-		return fmt.Errorf("IP %s is the local node's own address", checkIP)
-	}
-	if ip.Equal(c.netstackDNSIP) {
-		return fmt.Errorf("IP %s is reserved for the awl DNS server", checkIP)
-	}
-
-	for _, peer := range c.KnownPeers {
-		if peer.IPAddr != checkIP {
-			continue
-		}
-		if exceptPeerID != "" && peer.PeerID == exceptPeerID {
-			continue
-		}
-
-		return fmt.Errorf("ip %s is already used by peer %s", checkIP, peer.Alias)
-	}
-
-	return nil
-}
-
-func incrementIPAddr(ip net.IP) net.IP {
-	return uint32ToIPAddr(binary.BigEndian.Uint32(ip) + 1)
-}
-
-func uint32ToIPAddr(i uint32) net.IP {
-	bs := make([]byte, 4)
-	binary.BigEndian.PutUint32(bs, i)
-
-	return bs
-}
-
-// subnetBounds returns the IPv4 network and broadcast addresses of ipNet.
-func subnetBounds(ipNet *net.IPNet) (network, broadcast uint32) {
-	network = binary.BigEndian.Uint32(ipNet.IP.Mask(ipNet.Mask))
-	broadcast = network | ^binary.BigEndian.Uint32(ipNet.Mask)
-	return network, broadcast
+	return netip.Addr{}
 }

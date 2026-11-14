@@ -172,6 +172,13 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	a.Conf.SetIdentity(privKey, p2pHost.ID())
 	a.logger.Infof("P2P host initialized. My peer_id: %s", p2pHost.ID().String())
 	a.logger.Infof("P2P listening on addresses: %v", p2pHost.Addrs())
+	if prefix := a.Conf.VPNPrefix(); prefix.IsValid() {
+		derived, ok := a.Conf.DerivedVPNAddr()
+		if ok && derived != prefix.Addr() {
+			a.logger.Infof("VPN address is %s, the address derived from the peer ID is %s. To switch to it, stop awl and set vpn.ipNet in the config to %s",
+				prefix.Addr(), derived, prefix.Masked())
+		}
+	}
 
 	if a.Conf.VPNConfig.DisableVPNInterface {
 		a.logger.Info("VPN interface is disabled from config")

@@ -408,6 +408,14 @@ func (ts *TestSuite) sendAndAcceptFriendRequest(peer1, peer2 TestPeer, alias1, a
 	knownPeer, exists := peer2.app.Conf.GetPeer(peer1.PeerID())
 	ts.True(exists)
 	ts.True(knownPeer.Confirmed)
+
+	// Each side gets the address of the other with the status exchange, which
+	// may finish on peer2 a bit later.
+	ts.Eventually(func() bool {
+		p2, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+		p1, _ := peer2.app.Conf.GetPeer(peer1.PeerID())
+		return p2.IPAddr != "" && p1.IPAddr != ""
+	}, 5*time.Second, 20*time.Millisecond)
 }
 
 type TestTUN struct {
@@ -562,8 +570,19 @@ func (ts *TestSuite) socks5Addr(tp TestPeer) string {
 	return info.SOCKS5.ListenAddress
 }
 
-func testPacket(length int) []byte {
-	return testPacketWithDest(length, "10.66.0.2")
+// ownIP returns the awl IPv4 address of p.
+func ownIP(p TestPeer) string {
+	return p.app.Conf.VPNPrefix().Addr().String()
+}
+
+// testPacketToPeer returns a packet from the address of from to its view of
+// the address of to.
+func testPacketToPeer(length int, from, to TestPeer) []byte {
+	knownPeer, ok := from.app.Conf.GetPeer(to.PeerID())
+	if !ok || knownPeer.IPAddr == "" {
+		panic(fmt.Sprintf("peer %s has no address for %s", from.PeerID(), to.PeerID()))
+	}
+	return testPacketWithSrcDest(length, ownIP(from), knownPeer.IPAddr)
 }
 
 func buildPacketFromHex(length int, srcIP, destIP net.IP, hexStr string) []byte {
