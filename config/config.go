@@ -98,6 +98,13 @@ type (
 		// up to 10 minutes
 		ReconnectionIntervalSec time.Duration `json:"reconnectionIntervalSec" swaggertype:"primitive,integer"` //nolint:staticcheck
 		AutoAcceptAuthRequests  bool          `json:"autoAcceptAuthRequests"`
+		// RelayForKnownPeers lets known peers use this device as a relay to reach
+		// each other when they can't connect directly, for example two devices
+		// behind NAT. Only peers known to this device can reserve a slot or
+		// connect through it, and the traffic stays end-to-end encrypted. The
+		// relay works only while this device is reachable from the internet: it
+		// has a public IP or a forwarded port. Off by default.
+		RelayForKnownPeers bool `json:"relayForKnownPeers"`
 
 		UseDedicatedConnForEachStream bool `json:"useDedicatedConnForEachStream"`
 		ParallelSendingStreamsCount   int  `json:"parallelSendingStreamsCount"`

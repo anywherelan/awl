@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"net/url"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/control"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -26,6 +28,7 @@ import (
 	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"github.com/miekg/dns"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go/integrationtests/tools/israce"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,6 +50,86 @@ func TestMakeFriends(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 
 	ts.makeFriends(peer2, peer1)
+}
+
+// TestRelayThroughKnownPeer: peer1 and peer2 can't connect directly, as if
+// both were behind NAT, and reach each other through a known peer that relays
+// for its known peers.
+func TestRelayThroughKnownPeer(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	relay := ts.NewTestPeerWithAppConfig(func(c *config.Config) {
+		c.P2pNode.RelayForKnownPeers = true
+	}, func(a *Application) {
+		// libp2p runs the relay only while the host is reachable from the internet
+		a.ExtraLibp2pOpts = []libp2p.Option{libp2p.ForceReachabilityPublic()}
+	})
+	// rounds of the reconnection make the reservations at the relay
+	fastRounds := func(c *config.Config) {
+		c.P2pNode.ReconnectionIntervalSec = 1
+	}
+	peer2 := ts.NewTestPeerWithConfig(fastRounds)
+	peer1 := ts.NewTestPeerWithAppConfig(fastRounds, func(a *Application) {
+		gater := relayOnlyGater{peerID: peer2.app.P2p.PeerID()}
+		a.ExtraLibp2pOpts = []libp2p.Option{libp2p.ConnectionGater(gater)}
+	})
+
+	ts.makeFriendsWithAliases(peer1, relay, "peer_1", "relay")
+	ts.makeFriendsWithAliases(peer2, relay, "peer_2", "relay")
+	// not through the DHT: a lookup tells only about a peer it can dial
+	ts.sendAndAcceptFriendRequest(peer1, peer2, "peer_1", "peer_2")
+
+	conns := peer1.app.P2p.PeerConnectionsInfo(peer2.app.P2p.PeerID())
+	ts.NotEmpty(conns)
+	for _, conn := range conns {
+		ts.True(conn.ThroughRelay, conn.Multiaddr)
+		ts.Equal(relay.PeerID(), conn.RelayPeerID)
+		ts.False(conn.Transient, "the relay of known peers does not limit connections")
+	}
+
+	// more than a public relay lets through, 128 KiB
+	const packetSize = 2500
+	const packetsCount = 200
+	peer2.tun.SetInboundCapture(packetSize, nil)
+	peer2OnPeer1, _ := peer1.app.Conf.GetPeer(peer2.PeerID())
+	packet := testPacketWithDest(packetSize, peer2OnPeer1.IPAddr)
+	for range packetsCount / 10 {
+		peer1.tun.Outbound <- slices.Repeat([][]byte{packet}, 10)
+		time.Sleep(10 * time.Millisecond)
+	}
+	ts.Eventually(func() bool {
+		return peer2.tun.InboundCount() == packetsCount
+	}, 10*time.Second, 50*time.Millisecond)
+}
+
+// relayOnlyGater lets a host connect to peerID only through a relay.
+type relayOnlyGater struct {
+	peerID peer.ID
+}
+
+func (g relayOnlyGater) InterceptPeerDial(peer.ID) bool {
+	return true
+}
+
+func (g relayOnlyGater) InterceptAddrDial(id peer.ID, addr multiaddr.Multiaddr) bool {
+	return id != g.peerID || isCircuitAddr(addr)
+}
+
+func (g relayOnlyGater) InterceptAccept(network.ConnMultiaddrs) bool {
+	return true
+}
+
+func (g relayOnlyGater) InterceptSecured(_ network.Direction, id peer.ID, addrs network.ConnMultiaddrs) bool {
+	return id != g.peerID || isCircuitAddr(addrs.RemoteMultiaddr())
+}
+
+func (g relayOnlyGater) InterceptUpgraded(network.Conn) (bool, control.DisconnectReason) {
+	return true, 0
+}
+
+func isCircuitAddr(addr multiaddr.Multiaddr) bool {
+	_, err := addr.ValueForProtocol(multiaddr.P_CIRCUIT)
+	return err == nil
 }
 
 func TestRemovePeer(t *testing.T) {

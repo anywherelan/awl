@@ -93,7 +93,7 @@ func TestLANDialer(t *testing.T) {
 }
 
 // newSimnetP2p builds a host on simNet at ip, with an interface in a /24 LAN.
-func newSimnetP2p(t *testing.T, simNet *simnet.Simnet, link simnet.NodeBiDiLinkSettings, ip string) *P2p {
+func newSimnetP2p(t *testing.T, simNet *simnet.Simnet, link simnet.NodeBiDiLinkSettings, ip string, opts ...libp2p.Option) *P2p {
 	t.Helper()
 	peerstore, err := pstoremem.NewPeerstore()
 	require.NoError(t, err)
@@ -107,10 +107,10 @@ func newSimnetP2p(t *testing.T, simNet *simnet.Simnet, link simnet.NodeBiDiLinkS
 		Peerstore:                peerstore,
 		DHTDatastore:             dssync.MutexWrap(ds.NewMapDatastore()),
 		DHTOpts:                  []dht.Option{dht.DisableAutoRefresh()},
-		Libp2pOpts: []libp2p.Option{
+		Libp2pOpts: append([]libp2p.Option{
 			libp2p.EnableRelay(),
 			simlibp2p.QUICSimnet(simNet, link),
-		},
+		}, opts...),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = p.Close() })
