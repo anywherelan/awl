@@ -72,7 +72,9 @@ func main() {
 	finishedCh := make(chan struct{})
 	go func() {
 		select {
-		case <-time.After(3 * time.Second):
+		// Close removes the VPN gateway rules before it stops the rest.
+		// Cutting it short can leave the rules behind.
+		case <-time.After(15 * time.Second):
 			logger.Fatal("exit timeout reached: terminating")
 		case <-finishedCh:
 			// ok

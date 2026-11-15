@@ -53,6 +53,9 @@ func onReady() {
 		sig := <-quitCh
 		logger.Infof("received exit signal '%s'", sig)
 		systray.Quit()
+
+		sig = <-quitCh
+		logger.Fatalf("duplicate exit signal %s: terminating", sig)
 	}()
 
 	initTray()
@@ -87,7 +90,13 @@ func onReady() {
 }
 
 func onExit() {
+	// Close can hang, for example on the iptables lock. Don't keep the app
+	// running forever because of it.
+	timer := time.AfterFunc(15*time.Second, func() {
+		logger.Fatal("exit timeout reached: terminating")
+	})
 	StopServer()
+	timer.Stop()
 	_ = embeds.RemoveIconIfNeeded()
 }
 

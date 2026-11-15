@@ -61,8 +61,8 @@ func NewSOCKS5(p2pService P2p, conf *config.Config, sockMarker SocketMarker) *SO
 
 	// Mark the exit-node's outbound sockets so they bypass our own VPN gateway
 	// default route (if any), mirroring libp2p socket marking. sockMarker is
-	// always set by Application.Init; ControlFunc may still be nil on platforms
-	// without socket marking, which NewServer handles.
+	// nil when the VPN interface is disabled, and ControlFunc is nil on
+	// platforms without socket marking. NewServer handles a nil dialControl.
 	var dialControl func(network, address string, c syscall.RawConn) error
 	if sockMarker != nil {
 		dialControl = sockMarker.ControlFunc()

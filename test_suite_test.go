@@ -703,11 +703,11 @@ func parsePacketIPs(rawPacket []byte) (src, dst net.IP) {
 // testNetManager is a NetManager test double: it tracks the enabled/disabled
 // state and counts OS-level installs, but never touches the OS. Two reasons
 // tests can't use the real netstate.Manager: production wiring sets
-// SocketControlFunc unconditionally, and tests run as a non-root user where
-// SO_MARK fails with EPERM, which would break libp2p dials and leave QUIC
-// reuse goroutines hanging past the goleak window; the routes/NAT setup
-// likewise needs root and a real TUN. The enable counters let tests assert
-// idempotence (re-enable must not reinstall OS state).
+// SocketControlFunc whenever the VPN interface is on, and tests run as a
+// non-root user where SO_MARK fails with EPERM, which would break libp2p
+// dials and leave QUIC reuse goroutines hanging past the goleak window; the
+// routes/NAT setup likewise needs root and a real TUN. The enable counters
+// let tests assert idempotence (re-enable must not reinstall OS state).
 type testNetManager struct {
 	mu                sync.Mutex
 	clientActive      bool
