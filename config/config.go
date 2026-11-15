@@ -689,6 +689,16 @@ func (c *Config) writer() {
 	}
 }
 
+// saveRetryDelays are the pauses between attempts to write the config. On
+// Windows the rename can fail with "Access is denied" for a moment, for
+// example while an antivirus scans the new file.
+var saveRetryDelays = []time.Duration{
+	50 * time.Millisecond,
+	100 * time.Millisecond,
+	200 * time.Millisecond,
+	400 * time.Millisecond,
+}
+
 // writeNow is only ever called from the writer goroutine.
 func (c *Config) writeNow() {
 	c.RLock()
@@ -701,8 +711,24 @@ func (c *Config) writeNow() {
 		return
 	}
 
-	if err = writeFileAtomic(c.path(), data); err != nil {
-		logger.DPanicf("Save config: %v", err)
+	path := c.path()
+	var firstErr error
+	for attempt := 0; ; attempt++ {
+		err = writeFileAtomic(path, data)
+		if err == nil {
+			if firstErr != nil {
+				logger.Warnf("Saved config on attempt %d, the first attempt failed: %v", attempt+1, firstErr)
+			}
+			return
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+		if attempt == len(saveRetryDelays) {
+			logger.DPanicf("Save config, failed %d attempts: %v", attempt+1, err)
+			return
+		}
+		time.Sleep(saveRetryDelays[attempt])
 	}
 }
 
