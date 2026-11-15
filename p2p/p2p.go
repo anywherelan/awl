@@ -74,8 +74,8 @@ type HostConfig struct {
 	AllowEmptyBootstrapPeers bool
 	EnableAutoRelay          bool
 
-	// SocketControlFunc is set when gateway mode is enabled to mark sockets
-	// (e.g., SO_MARK on Linux) so they bypass the VPN TUN interface.
+	// SocketControlFunc marks sockets (e.g., SO_MARK on Linux) so they bypass
+	// the VPN gateway routes into the TUN. Nil leaves sockets unmarked.
 	SocketControlFunc func(network, address string, c syscall.RawConn) error
 
 	// VPNPrefixes are our addresses on the awl interface, IPv4 and IPv6, with

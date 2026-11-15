@@ -206,7 +206,7 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 
 	a.Dns = NewDNSService(a.Conf, a.Eventbus, a.ctx, a.logger)
 	a.AuthStatus = service.NewAuthStatus(a.P2p, a.Conf, a.Eventbus)
-	a.SOCKS5 = service.NewSOCKS5(a.P2p, a.Conf, a.NetManager)
+	a.SOCKS5 = service.NewSOCKS5(a.P2p, a.Conf, a.socketMarker())
 
 	p2pHost.SetStreamHandler(protocol.GetStatusMethod, a.AuthStatus.StatusStreamHandler)
 	p2pHost.SetStreamHandler(protocol.AuthMethod, a.AuthStatus.AuthStreamHandler)
@@ -413,6 +413,19 @@ func resourceLimits() rcmgr.ConcreteLimitConfig {
 	}.Build(rcmgr.InfiniteLimits)
 }
 
+// socketMarker returns what marks awl's own sockets, libp2p and exit node
+// dials, so their traffic bypasses the VPN gateway client routes. Marking
+// happens on every new socket, so connections opened before the gateway client
+// is turned on at runtime are already exempt. It is nil when the VPN interface
+// is disabled: there is no gateway client then, and on Linux SO_MARK needs
+// CAP_NET_ADMIN or CAP_NET_RAW, which awl without root doesn't have.
+func (a *Application) socketMarker() service.SocketMarker {
+	if a.Conf.VPNConfig.DisableVPNInterface {
+		return nil
+	}
+	return a.NetManager
+}
+
 func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 	// TODO: use persistent datastore. Check out badger2. Old badger datastore constantly use disk io
 	peerstore, err := pstoremem.NewPeerstore()
@@ -425,6 +438,11 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		panic(err)
 	}
 
+	var socketControl func(network, address string, c syscall.RawConn) error
+	if marker := a.socketMarker(); marker != nil {
+		socketControl = marker.ControlFunc()
+	}
+
 	return p2p.HostConfig{
 		PrivKeyBytes:             a.Conf.PrivKey(),
 		ListenAddrs:              a.Conf.GetListenAddresses(),
@@ -432,11 +450,8 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		BootstrapPeers:           a.Conf.GetBootstrapPeers(),
 		AllowEmptyBootstrapPeers: a.AllowEmptyBootstrapPeers,
 		EnableAutoRelay:          true,
-		// SocketControlFunc is always used: marking happens at dial
-		// time on every socket, so libp2p connections opened *before* gateway
-		// mode is toggled on at runtime are already exempt from the VPN route.
-		SocketControlFunc: a.NetManager.ControlFunc(),
-		VPNPrefixes:       a.vpnPrefixes(),
+		SocketControlFunc:        socketControl,
+		VPNPrefixes:              a.vpnPrefixes(),
 		Libp2pOpts: append([]libp2p.Option{
 			libp2p.EnableRelay(),
 			libp2p.EnableAutoNATv2(),
