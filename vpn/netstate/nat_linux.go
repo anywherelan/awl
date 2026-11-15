@@ -26,9 +26,8 @@ const (
 // backend by other software are invisible to it (and vice versa). The library
 // used here (coreos/go-iptables) does not bridge that gap.
 type natState struct {
-	awlSubnet     string
-	tunIfName     string
-	origIPForward string
+	awlSubnet string
+	tunIfName string
 
 	// IPv6 NAT state. awlSubnet6 is empty when the IPv6 awl subnet is not
 	// configured. ip6tablesOK is set to false when the kernel lacks NAT6
@@ -69,8 +68,7 @@ func (m *Manager) setupNAT(awlSubnet, awlSubnet6, tunIfName string) (*natState, 
 		return nil, fmt.Errorf("init iptables: %w", err)
 	}
 
-	// Pre-clean any leftover scaffolding. We need staleCleaned before
-	// deciding whether to trust the captured ip_forward value — see below.
+	// Pre-clean any leftover scaffolding.
 	staleCleaned, err := cleanupStaleNAT(ipt, awlSubnet, tunIfName)
 	if err != nil {
 		return nil, fmt.Errorf("pre-clean stale NAT: %w", err)
@@ -79,19 +77,17 @@ func (m *Manager) setupNAT(awlSubnet, awlSubnet6, tunIfName string) (*natState, 
 		logger.Warnf("recovered from leftover gateway NAT state (previous run was likely killed before teardown)")
 	}
 
-	origVal, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward")
+	ipForward, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward")
 	if err != nil {
 		return nil, fmt.Errorf("read ip_forward: %w", err)
 	}
-	state.origIPForward = strings.TrimSpace(string(origVal))
 
-	// Only flip forwarding on if it was off. If it was already on we leave it
-	// alone and won't touch it on teardown either — many hosts (routers, NAS,
-	// k8s nodes, docker bridges) keep ip_forward=1 permanently via sysctl.d,
-	// and forcing it back to 0 would silently break them. This also handles
-	// stale-recovery: if the previous run died with "1" written, we'll see "1"
-	// here and avoid clobbering whatever the user actually wants.
-	if state.origIPForward == "0" {
+	// Turn forwarding on if it is off, and leave it on in teardownNAT. Once it
+	// is on, other software may rely on it. Docker turns it on only when it
+	// finds it off at its own start: if awl started first, Docker sees 1 and
+	// does nothing, and writing 0 back would cut its containers off the network
+	// and break their published ports.
+	if strings.TrimSpace(string(ipForward)) == "0" {
 		if err := os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0600); err != nil {
 			return nil, fmt.Errorf("enable ip_forward: %w", err)
 		}
@@ -238,8 +234,8 @@ func setupIptables6(ipt6 *iptables.IPTables, state *natState) error {
 	return nil
 }
 
-// teardownNAT reverses the changes made by setupNAT. Safe to call on partially
-// set up state.
+// teardownNAT reverses the changes made by setupNAT, except IPv4 forwarding,
+// which stays on (see setupNAT). Safe to call on partially set up state.
 func (m *Manager) teardownNAT(state *natState) error {
 	if state == nil {
 		return nil
@@ -251,14 +247,9 @@ func (m *Manager) teardownNAT(state *natState) error {
 		errs = append(errs, teardownIptablesRules6(state)...)
 	}
 
-	// Restore IPv4 forwarding if we changed it.
-	if state.origIPForward == "0" {
-		if err := os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("0"), 0600); err != nil {
-			errs = append(errs, fmt.Errorf("restore ip_forward: %w", err))
-		}
-	}
-
-	// Restore IPv6 forwarding if we changed it.
+	// Restore IPv6 forwarding if we changed it. Unlike IPv4, leaving it on has
+	// a cost: with forwarding on, the kernel ignores router advertisements on
+	// interfaces with accept_ra=1, and the host can lose its IPv6 addresses.
 	if state.ip6tablesOK && state.origIPv6Forward == "0" {
 		if err := os.WriteFile("/proc/sys/net/ipv6/conf/all/forwarding", []byte("0"), 0600); err != nil {
 			errs = append(errs, fmt.Errorf("restore ipv6 forwarding: %w", err))

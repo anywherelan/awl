@@ -66,7 +66,9 @@ func TestGatewayHostNetNATLifecycle(t *testing.T) {
 	verifyNoLeaks(t)
 	requireRoot(t)
 	setupDummyTun(t)
-	origForward := captureForward(t)
+	captureForward(t)
+	// Start with forwarding off, as on a host where awl starts before Docker.
+	require.NoError(t, os.WriteFile(ipForwardPath, []byte("0"), 0o600))
 
 	before := snapshotNet(t)
 
@@ -81,8 +83,8 @@ func TestGatewayHostNetNATLifecycle(t *testing.T) {
 	require.False(t, mgr.ServerNATActive())
 
 	require.Equal(t, before, snapshotNet(t), "teardown must restore the exact pre-setup netfilter state")
-	require.Equal(t, origForward, readForward(t),
-		"a single setup/teardown must restore ip_forward to its original value")
+	require.Equal(t, "1", readForward(t),
+		"teardown must leave ip_forward on: other software may rely on it by then")
 }
 
 // ---- N2: NAT re-setup is idempotent (kill -9 recovery) ----
@@ -496,8 +498,8 @@ func assertRoutesApplied(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // snapshotNet captures every piece of host network state setupNAT/setupGatewayRoutes
-// can touch, EXCEPT ip_forward (which has its own preserve-if-on semantics and is
-// asserted separately). Lines within each section are sorted so the comparison is
+// can touch, EXCEPT ip_forward (which stays on after teardown and is asserted
+// separately). Lines within each section are sorted so the comparison is
 // about set membership, not iptables/ip print order.
 func snapshotNet(t *testing.T) string {
 	t.Helper()
@@ -650,12 +652,11 @@ func readForward(t *testing.T) string {
 }
 
 // captureForward records the current ip_forward value and restores it after the
-// test, so tests stay order-independent regardless of the leave-if-on rule.
-func captureForward(t *testing.T) string {
+// test, so tests stay order-independent although teardown leaves it on.
+func captureForward(t *testing.T) {
 	t.Helper()
 	orig := readForward(t)
 	t.Cleanup(func() { _ = os.WriteFile(ipForwardPath, []byte(orig), 0o600) })
-	return orig
 }
 
 func mustCmd(t *testing.T, name string, args ...string) {
