@@ -649,6 +649,7 @@ func (a *DNSService) applyOSDNSConfigLocked() {
 	supportsSplitDNS := a.dnsOsConfigurator.SupportsSplitDNS()
 
 	var baseNameservers []netip.Addr
+	var baseSearchDomains []dnsname.FQDN
 	if !supportsSplitDNS {
 		baseOSConfig, err := a.dnsOsConfigurator.GetBaseConfig()
 		if err != nil {
@@ -657,6 +658,9 @@ func (a *DNSService) applyOSDNSConfigLocked() {
 		}
 		a.logger.Infof("os does not support split dns. base config: %v", baseOSConfig)
 		baseNameservers = baseOSConfig.Nameservers
+		// Our config replaces the system one here, so keep its search domains:
+		// short LAN names like "nas" must still expand to "nas.lan".
+		baseSearchDomains = baseOSConfig.SearchDomains
 	}
 
 	matchDomains, upstream := chooseDNSPolicy(a.forceUpstream, supportsSplitDNS, baseNameservers, a.conf.DNS.UpstreamDNSAddress)
@@ -676,8 +680,9 @@ func (a *DNSService) applyOSDNSConfigLocked() {
 	// Config.DNSNamesMapping — that would make the admin UI name resolvable even
 	// when the awl :53 resolver itself is not reachable.
 	newOSConfig := dns.OSConfig{
-		Nameservers:  []netip.Addr{netip.MustParseAddr(a.dnsHost)},
-		MatchDomains: matchDomains,
+		Nameservers:   []netip.Addr{netip.MustParseAddr(a.dnsHost)},
+		SearchDomains: baseSearchDomains,
+		MatchDomains:  matchDomains,
 	}
 	if err := a.dnsOsConfigurator.SetDNS(newOSConfig); err != nil {
 		a.logger.Errorf("set dns config to os configurator: %v", err)

@@ -140,17 +140,42 @@ jobs:
           # steps below call it right before stopping awl and also from an
           # EXIT trap, so a failed run has a snapshot too; a call after awl is
           # gone keeps the files already written.
+          #
+          # The checks below use the default API and SOCKS5 addresses and no
+          # passwords, like the CI configs. They don't read config_awl.json:
+          # awl under sudo rewrites it as root with mode 0600.
           cat > save_debug.sh <<'EOF'
           save_debug() {
-            local awl=./awl addr user pass
+            local awl=./awl
             [ "$RUNNER_OS" == "Windows" ] && awl=./awl.exe
             $awl cli p2p_info > p2p_info.json.tmp 2>/dev/null && mv p2p_info.json.tmp p2p_info.json
-            addr=$(jq -r '.httpListenAddress // empty' config_awl.json 2>/dev/null || true)
-            user=$(jq -r '.httpBasicAuth.username // empty' config_awl.json 2>/dev/null || true)
-            pass=$(jq -r '.httpBasicAuth.password // empty' config_awl.json 2>/dev/null || true)
-            curl -sf --max-time 5 ${user:+-u "$user:$pass"} "http://${addr:-127.0.0.1:8639}/metrics" -o metrics.txt.tmp \
+            curl -sf --max-time 5 http://127.0.0.1:8639/metrics -o metrics.txt.tmp \
               && mv metrics.txt.tmp metrics.txt
             return 0
+          }
+          EOF
+
+          cat > e2e_checks.sh <<'EOF'
+          # check_admin_awl: the web UI answers at http://admin.awl/, so the
+          # admin.awl name resolves and the admin host listens.
+          check_admin_awl() {
+            curl -sf --max-time 10 --retry 3 --retry-delay 2 -o /dev/null http://admin.awl/
+          }
+
+          # check_socks5 DIRECT_IP: with awl-tester as the proxy peer, a request
+          # through the local SOCKS5 proxy leaves from the exit node, not from
+          # DIRECT_IP. Without a proxy peer the request fails.
+          check_socks5() {
+            local awl=./awl addr=127.0.0.1:1066 via none
+            [ "$RUNNER_OS" == "Windows" ] && awl=./awl.exe
+            $awl cli me set_proxy --name awl-tester
+            via=$(curl -s --max-time 20 --retry 3 --retry-delay 2 --socks5-hostname "$addr" https://ifconfig.me/ || true)
+            $awl cli me set_proxy
+            none=$(curl -s --max-time 20 --socks5-hostname "$addr" https://ifconfig.me/ || true)
+            echo "egress IP via SOCKS5: '$via', without a proxy peer (must be empty): '$none'"
+            test -n "$via"
+            test "$via" != "$1"
+            test -z "$none"
           }
           EOF
 
@@ -158,11 +183,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           chmod +x awl
-          # The IPv6 overlay is opt-in: turn it on for the ping6 check below.
-          jq '.vpn.ipNetV6 = "fd00:66::/48"' config_awl.json > config_awl.json.tmp
+          # Settings the CLI can't change. The IPv6 overlay is opt-in: turn it
+          # on for the ping6 check below. The admin host serves the web UI at
+          # http://admin.awl.
+          jq '.vpn.ipNetV6 = "fd00:66::/48" | .httpListenOnAdminHost = true' config_awl.json > config_awl.json.tmp
           mv config_awl.json.tmp config_awl.json
           sudo ./awl &
           source ./save_debug.sh; trap save_debug EXIT
+          source ./e2e_checks.sh
 
           ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
 
@@ -175,6 +203,12 @@ jobs:
           ping 10.66.0.2 -w 20 -c 10
           # By name: also checks that awl-tester.awl resolves to its IPv6 address.
           ping6 awl-tester.awl -w 20 -c 10
+          # By name over IPv4: the A record of awl-tester.awl.
+          ping -4 awl-tester.awl -w 20 -c 5
+          # 4000 bytes is more than the TUN MTU: the packets cross the tunnel
+          # as IP fragments in both directions.
+          ping 10.66.0.2 -s 4000 -w 20 -c 3
+          check_admin_awl
 
           # ---- VPN gateway server (exit-node) mode: runtime enable/disable round-trips OS state ----
           # awl runs as root here, so enabling the server installs real NAT
@@ -215,13 +249,21 @@ jobs:
           # (a broken tunnel must not leave the runner black-holed); the
           # `test -n "$IP_GW"` assertion after teardown turns it into a clean failure.
           IP_GW=$(curl4 || true); echo "egress IP (via gateway): $IP_GW"
+          # Routing domains of awl0 in systemd-resolved: "~." sends all DNS to
+          # awl, and awl forwards it through the tunnel.
+          DNS_ON=$(resolvectl domain awl0 || true)
 
           ./awl cli gateway client stop
           RULE_OFF=$(ip rule show); ROUTE_OFF=$(ip route show)
           IP_REVERTED=$(curl4); echo "egress IP (reverted): $IP_REVERTED"
+          DNS_OFF=$(resolvectl domain awl0 || true)
 
           # Assertions run with the gateway already disabled, so a failure here
           # can't leave the runner's egress black-holed.
+          echo "DNS_ON='$DNS_ON' DNS_OFF='$DNS_OFF'"
+          echo "$DNS_ON"  | grep -qF '~.'                    # all DNS goes to awl while the gateway is on
+          ! echo "$DNS_OFF" | grep -qF '~.'                  # not after disable
+          echo "$DNS_OFF" | grep -qF '~awl'                  # only .awl after disable
           echo "$RULE_ON"  | grep -q fwmark                  # client policy route installed
           echo "$ROUTE_ON" | grep -q 'default dev awl0'      # full-tunnel default via TUN
           test -n "$IP_GW"                                    # traffic really flowed through the exit node
@@ -250,6 +292,9 @@ jobs:
           test -z "$LEAK"                                     # NIC-bound egress did NOT bypass the tunnel
           test "$IP_REVERTED2" = "$IP_DIRECT"                # 2nd disable reverted egress
 
+          # ---- SOCKS5 proxy through awl-tester ----
+          check_socks5 "$IP_DIRECT"
+
           # Re-enable so the SIGINT shutdown path (teardownGatewayAtShutdown) is exercised.
           ./awl cli gateway client use --name awl-tester
 
@@ -265,8 +310,14 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           chmod +x awl
+          # Settings the CLI can't change. The IPv6 overlay is opt-in: turn it
+          # on for the ping6 check below. The admin host serves the web UI at
+          # http://admin.awl.
+          jq '.vpn.ipNetV6 = "fd00:66::/48" | .httpListenOnAdminHost = true' config_awl.json > config_awl.json.tmp
+          mv config_awl.json.tmp config_awl.json
           sudo ./awl &
           source ./save_debug.sh; trap save_debug EXIT
+          source ./e2e_checks.sh
 
           ./librespeed-cli --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
 
@@ -278,18 +329,39 @@ jobs:
 
           ping 10.66.0.2 -c 10
           ping awl-tester.awl -c 10
-          echo "IPv6 VPN gateway is currently supported on Linux only, skipping IPv6 ping test on macOS."
+          # By name: also checks that awl-tester.awl resolves to its IPv6 address.
+          ping6 -c 10 awl-tester.awl
+          # 4000 bytes is more than the TUN MTU: the packets cross the tunnel
+          # as IP fragments in both directions.
+          ping -s 4000 -c 3 10.66.0.2
+          check_admin_awl
+
+          # awl sends .awl queries to itself through /etc/resolver/awl.
+          cat /etc/resolver/awl
+
+          # ---- SOCKS5 proxy through awl-tester ----
+          IP_DIRECT=$(curl -4 -s --max-time 20 --retry 3 --retry-delay 2 https://ifconfig.me/); echo "egress IP (direct): $IP_DIRECT"
+          check_socks5 "$IP_DIRECT"
 
           sleep 1
           save_debug
-          sudo kill -SIGINT $awl_pid
-          sleep 1
+          # $awl_pid is sudo, and sudo on macOS doesn't pass this signal on to
+          # awl. Signal awl itself.
+          sudo pkill -INT -x awl
+          wait $awl_pid || true
+          # awl removes its DNS settings on stop.
+          test ! -e /etc/resolver/awl
       - name: Run librespeed-cli, awl, librespeed-cli through awl
         if: matrix.os == 'windows-latest'
         run: |
           chmod +x awl.exe
+          # A setting the CLI can't change: the admin host serves the web UI at
+          # http://admin.awl.
+          jq '.httpListenOnAdminHost = true' config_awl.json > config_awl.json.tmp
+          mv config_awl.json.tmp config_awl.json
           ./awl.exe &
           source ./save_debug.sh; trap save_debug EXIT
+          source ./e2e_checks.sh
 
           ./librespeed-cli.exe --local-json config_librespeed.json --server 1 --json --share --telemetry-level disabled | python3 -m json.tool
 
@@ -301,7 +373,11 @@ jobs:
 
           ping -w 20000 -n 10 10.66.0.2
           ping -w 20000 -n 10 -a awl-tester.awl
-          echo "IPv6 VPN gateway is currently supported on Linux only, skipping IPv6 ping test on Windows."
+          echo "awl has no IPv6 inside the tunnel on Windows, skipping the IPv6 ping."
+          # 4000 bytes is more than the TUN MTU: the packets cross the tunnel
+          # as IP fragments in both directions.
+          ping -w 20000 -n 3 -l 4000 10.66.0.2
+          check_admin_awl
 
           # ---- VPN gateway server (exit-node) mode: runtime enable/disable round-trips OS state ----
           # Diagnostic first: what the runner already holds in WinNAT (a
@@ -383,6 +459,9 @@ jobs:
           test -n "$IP_GW2"                                  # re-enable tunnelled again
           test "$IP_GW2" != "$IP_DIRECT"                     # egress changed on 2nd enable too
           test "$IP_REVERTED2" = "$IP_DIRECT"                # 2nd disable reverted egress
+
+          # ---- SOCKS5 proxy through awl-tester ----
+          check_socks5 "$IP_DIRECT"
 
           # Re-enable the gateway and hard-kill awl. A graceful-shutdown test is
           # not possible here: Git-Bash `kill -SIGINT` cannot deliver a console
