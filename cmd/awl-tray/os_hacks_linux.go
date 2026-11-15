@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -22,6 +23,10 @@ var requiredEnvVars = [...]string{
 	config.AppDataDirEnvKey,
 	"DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
 	"XDG_CONFIG_HOME", "HOME", "XDG_RUNTIME_DIR", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE",
+	// pkexec resets PATH to a fixed list of FHS directories. On NixOS and Guix
+	// that list has no iptables, resolvconf and other system tools, so we pass
+	// the user's PATH and append it after the pkexec one, see setEnvFromArgs.
+	"PATH",
 }
 
 const logHacks = false
@@ -128,10 +133,35 @@ func setEnvFromArgs() {
 	envs := os.Args[2:]
 	for _, env := range envs {
 		key, val, exists := strings.Cut(env, "=")
-		if exists {
-			_ = os.Setenv(key, val)
+		if !exists {
+			continue
 		}
+		if key == "PATH" {
+			// Keep the pkexec PATH first: on Debian the user's PATH has no sbin
+			// directories, and replacing it would hide iptables and resolvconf.
+			val = appendPathDirs(os.Getenv("PATH"), val)
+		}
+		_ = os.Setenv(key, val)
 	}
+}
+
+// appendPathDirs appends the directories of extra to base, skipping duplicates
+// and relative entries. A relative entry would make the root process look up
+// programs in its current directory.
+func appendPathDirs(base, extra string) string {
+	dirs := filepath.SplitList(base)
+	seen := make(map[string]bool, len(dirs))
+	for _, dir := range dirs {
+		seen[dir] = true
+	}
+	for _, dir := range filepath.SplitList(extra) {
+		if !filepath.IsAbs(dir) || seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		dirs = append(dirs, dir)
+	}
+	return strings.Join(dirs, string(filepath.ListSeparator))
 }
 
 // to access another user's dbus session under root we need DBUS_SESSION_BUS_ADDRESS env var to be set and connect under user's uid
