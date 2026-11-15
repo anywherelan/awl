@@ -229,6 +229,21 @@ func TestDNSNamesMapping(t *testing.T) {
 	}, conf.DNSNamesMapping(), "a peer without a valid IPv4 address is left out")
 }
 
+func TestDNSNamesMappingV6(t *testing.T) {
+	conf := &Config{
+		VPNConfig: VPNConfig{IPNetV6: "fd00:66::1/48"},
+		KnownPeers: map[string]KnownPeer{
+			testPeerID:  {PeerID: testPeerID, DomainName: "one", RemoteIPv6Enabled: true, IPAddrV6: "FD00:66::5"},
+			testPeerID2: {PeerID: testPeerID2, DomainName: "two", RemoteIPv6Enabled: false, IPAddrV6: "fd00:66::6"},
+		},
+	}
+
+	assert.Equal(t, map[string]netip.Addr{
+		testPeerID: netip.MustParseAddr("fd00:66::5"),
+		"one":      netip.MustParseAddr("fd00:66::5"),
+	}, conf.DNSNamesMappingV6())
+}
+
 // TestSetDefaultsFixesDomainNames: loading a config gives every peer a
 // normalized domain name that no other peer has as a domain name or a peer ID,
 // and that is not reserved. Of two peers with one name, the one added first

@@ -88,7 +88,7 @@ func (m *Manager) ControlFunc() func(network, address string, c syscall.RawConn)
 // EnableClientRoutes only records the enabled state: routes are configured
 // via VpnService.Builder in the Android app:
 //   - Gateway mode: builder.addRoute("0.0.0.0", 0) + builder.addRoute("::", 0)
-//   - Normal mode: builder.addRoute("10.66.0.0", 24) (awl subnet only)
+//   - Normal mode: no extra route, builder.addAddress routes the awl subnet
 func (m *Manager) EnableClientRoutes(_ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

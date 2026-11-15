@@ -1,137 +1,217 @@
 package config
 
 import (
-	"net"
+	"encoding/json"
+	"net/netip"
+	"os"
+	"path/filepath"
 	"testing"
-	"time"
 
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestGenerateNextIpAddrExcept(t *testing.T) {
-	// Setup base config with a VPN network
-	conf := &Config{
-		VPNConfig: VPNConfig{
-			IPNet: DefaultVPNNetworkSubnet,
-		},
-		KnownPeers: map[string]KnownPeer{},
+func TestSetDefaultsIPNet(t *testing.T) {
+	cases := []struct {
+		name  string
+		ipNet string
+		// identity gives the config a peer ID, so a zero host part is derived
+		identity bool
+		want     string
+		validErr bool
+	}{
+		{name: "NewConfigGetsDefault", ipNet: "", want: DefaultVPNNetworkSubnet},
+		{name: "DefaultIsDerived", ipNet: "", identity: true, want: testPeerIDDerivedV4 + "/11"},
+		{name: "ZeroHostInCustomSubnetIsDerived", ipNet: "192.168.50.0/24", identity: true, want: testPeerIDDerivedV4Custom + "/24"},
+		{name: "Legacy16IsWidened", ipNet: "10.66.0.1/16", identity: true, want: migratedIPNet},
+		{name: "Legacy24IsWidened", ipNet: "10.66.0.1/24", identity: true, want: migratedIPNet},
+		{name: "AddressSetByHandIsKept", ipNet: "10.66.3.7/16", identity: true, want: "10.66.3.7/16"},
+		{name: "OtherSubnetIn10_66IsKept", ipNet: "10.66.5.1/24", want: "10.66.5.1/24"},
+		{name: "CustomSubnetIsKept", ipNet: "192.168.50.1/24", want: "192.168.50.1/24"},
+		{name: "MigratedIsKept", ipNet: migratedIPNet, identity: true, want: migratedIPNet},
+		{name: "GarbageFailsValidation", ipNet: "garbage", want: "garbage", validErr: true},
+		{name: "NoPrefixLengthFailsValidation", ipNet: "10.66.0.1", want: "10.66.0.1", validErr: true},
+		{name: "IPv6FailsValidation", ipNet: "fd00:66::1/48", want: "fd00:66::1/48", validErr: true},
+		{name: "IPv4MappedFailsValidation", ipNet: "::ffff:10.66.0.1/107", want: "::ffff:10.66.0.1/107", validErr: true},
+		{name: "Slash31FailsValidation", ipNet: "10.66.0.1/31", want: "10.66.0.1/31", validErr: true},
 	}
-	// Helper to add a known peer
-	addPeer := func(ip string) {
-		conf.KnownPeers[ip] = KnownPeer{
-			PeerID:    "peer-" + ip,
-			IPAddr:    ip,
-			CreatedAt: time.Now(),
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conf := &Config{dataDir: t.TempDir()}
+			conf.VPNConfig.IPNet = tc.ipNet
+			if tc.identity {
+				conf.P2pNode.PeerID = testPeerID
+			}
+			conf.KnownPeers = map[string]KnownPeer{testPeerID2: {PeerID: testPeerID2}}
+			setDefaults(conf, nil)
+
+			assert.Equal(t, tc.want, conf.VPNConfig.IPNet)
+			// A peer gets its address on the first status exchange, not on load.
+			assert.Empty(t, conf.KnownPeers[testPeerID2].IPAddr)
+			if tc.validErr {
+				assert.ErrorContains(t, conf.ValidateForStartup(), "vpn.ipNet")
+			} else {
+				assert.NoError(t, conf.ValidateForStartup())
+			}
+		})
+	}
+}
+
+func TestSetDefaultsIPv6(t *testing.T) {
+	cases := []struct {
+		name string
+		// newConfig: no config file yet (empty Version) and no identity
+		newConfig bool
+		ipNetV6   string
+		want      string
+		validErr  bool
+	}{
+		{name: "NewConfigHasNoIPv6", newConfig: true, want: ""},
+		{name: "PrefixWithoutIdentityIsKept", newConfig: true, ipNetV6: DefaultVPNNetworkSubnet6, want: DefaultVPNNetworkSubnet6},
+		{name: "ExistingConfigStaysWithoutIPv6", want: ""},
+		{name: "DefaultPrefixIsDerived", ipNetV6: DefaultVPNNetworkSubnet6, want: testPeerIDDerived + "/48"},
+		{name: "CustomPrefixIsDerived", ipNetV6: "fd00:66::/64", want: "fd00:66::10ba:fb1c:ef80:180c/64"},
+		{name: "ExplicitAddressIsKept", ipNetV6: "fd00:66::5/48", want: "fd00:66::5/48"},
+		{name: "InvalidIsKeptAndFailsValidation", ipNetV6: "10.66.0.0/16", want: "10.66.0.0/16", validErr: true},
+		{name: "GarbageIsKeptAndFailsValidation", ipNetV6: "garbage", want: "garbage", validErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conf := &Config{dataDir: t.TempDir()}
+			conf.VPNConfig.IPNetV6 = tc.ipNetV6
+			if !tc.newConfig {
+				conf.Version = Version
+				conf.P2pNode.PeerID = testPeerID
+			}
+			setDefaults(conf, nil)
+
+			assert.Equal(t, tc.want, conf.VPNConfig.IPNetV6)
+			if tc.validErr {
+				assert.ErrorContains(t, conf.ValidateForStartup(), "vpn.ipNetV6")
+			} else {
+				assert.NoError(t, conf.ValidateForStartup())
+			}
+		})
+	}
+}
+
+func TestParseIPNetV6(t *testing.T) {
+	valid := []string{
+		DefaultVPNNetworkSubnet6,
+		"fd00:66::/48",
+		"fd00:66::/64",
+		"fd00:66::5/48",
+		testPeerIDDerived + "/48",
+	}
+	for _, s := range valid {
+		_, err := parseIPNetV6(s)
+		assert.NoError(t, err, s)
 	}
 
-	t.Run("NoPeers_NoExceptions", func(t *testing.T) {
-		conf.KnownPeers = map[string]KnownPeer{}
-		ip := conf.GenerateNextIpAddrExcept(nil)
-		assert.Equal(t, "10.66.0.2", ip) // First IP after network address
-	})
+	invalid := []string{
+		"",
+		"garbage",
+		"fd00:66::",
+		"10.66.0.1/16",
+		"::ffff:10.66.0.1/112",
+		"fd00:66::/96",
+		"fd00:66::/128",
+	}
+	for _, s := range invalid {
+		_, err := parseIPNetV6(s)
+		assert.Error(t, err, s)
+	}
+}
 
-	t.Run("WithPeers_NoExceptions", func(t *testing.T) {
-		conf.KnownPeers = map[string]KnownPeer{}
-		addPeer("10.66.0.2")
-		addPeer("10.66.0.5")
+// TestLoadConfigInvalidIPNetV6 pins why an invalid vpnConfig.ipNetV6 is
+// reported by ValidateForStartup and not by LoadConfig: callers replace a
+// config that fails to load with a fresh one and overwrite the file, which
+// would cost the node its identity. So the config must load with the value
+// untouched, and saving it must not change the file's meaning either.
+func TestLoadConfigInvalidIPNetV6(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(AppDataDirEnvKey, dir)
+	configPath := filepath.Join(dir, AppConfigFilename)
 
-		ip := conf.GenerateNextIpAddrExcept(nil)
-		assert.Equal(t, "10.66.0.6", ip) // Next after max known (5) -> 6
-	})
+	const identity = "test-identity"
+	const invalidIPNetV6 = "10.66.0.0/16"
+	stored := &Config{Version: Version}
+	stored.P2pNode.PeerID = testPeerID
+	stored.P2pNode.Identity = identity
+	stored.VPNConfig.IPNetV6 = invalidIPNetV6
+	data, err := json.Marshal(stored)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(configPath, data, filesPerm))
 
-	t.Run("ExceptionScanningNextIP", func(t *testing.T) {
-		conf.KnownPeers = map[string]KnownPeer{}
-		addPeer("10.66.0.10")
+	conf, err := LoadConfig(AppTypeAwl, eventbus.NewBus())
+	require.NoError(t, err)
+	assert.ErrorContains(t, conf.ValidateForStartup(), "vpn.ipNetV6")
 
-		// Next should be .11, but we exclude it
-		exceptions := []string{"10.66.0.11"}
-		ip := conf.GenerateNextIpAddrExcept(exceptions)
-		assert.Equal(t, "10.66.0.12", ip)
-	})
+	// Application.Close saves the config even when Init has failed.
+	conf.Save()
+	conf.Close()
 
-	t.Run("MultipleExceptionsSequential", func(t *testing.T) {
-		conf.KnownPeers = map[string]KnownPeer{}
-		addPeer("10.66.0.10")
+	data, err = os.ReadFile(configPath)
+	require.NoError(t, err)
+	saved := &Config{}
+	require.NoError(t, json.Unmarshal(data, saved))
+	assert.Equal(t, invalidIPNetV6, saved.VPNConfig.IPNetV6)
+	assert.Equal(t, testPeerID, saved.P2pNode.PeerID)
+	assert.Equal(t, identity, saved.P2pNode.Identity)
 
-		// Next .11, .12, .13 are excluded
-		exceptions := []string{"10.66.0.11", "10.66.0.12", "10.66.0.13"}
-		ip := conf.GenerateNextIpAddrExcept(exceptions)
-		assert.Equal(t, "10.66.0.14", ip)
-	})
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "the config must not be backed up as corrupted")
+}
 
-	t.Run("ExceptionsOutOfOrder", func(t *testing.T) {
-		conf.KnownPeers = map[string]KnownPeer{}
-		addPeer("10.66.0.10")
+func TestDerivedOwnPrefixSkipsReserved(t *testing.T) {
+	// In 10.66.0.0/30 testPeerID and testPeerID2 derive the network address
+	// .0, testPeerID3 the broadcast address .3: all of them take .1.
+	for _, id := range []string{testPeerID, testPeerID2, testPeerID3} {
+		got, ok := derivedOwnPrefix(id, netip.MustParsePrefix("10.66.0.0/30"))
+		require.True(t, ok)
+		assert.Equal(t, "10.66.0.1/30", got.String(), id)
+	}
 
-		// .12 and .11 are excluded (order shouldn't matter)
-		exceptions := []string{"10.66.0.12", "10.66.0.11"}
-		ip := conf.GenerateNextIpAddrExcept(exceptions)
-		assert.Equal(t, "10.66.0.13", ip)
-	})
+	_, ok := derivedOwnPrefix("", netip.MustParsePrefix(DefaultVPNNetworkSubnet))
+	assert.False(t, ok, "no identity yet")
+}
 
-	t.Run("NonConflictingExceptions", func(t *testing.T) {
-		conf.KnownPeers = map[string]KnownPeer{}
-		addPeer("10.66.0.10")
+func TestSetIdentityDerivesAddrs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(AppDataDirEnvKey, dir)
 
-		// Exception is lower than current max, should be ignored
-		exceptions := []string{"10.66.0.5"}
-		ip := conf.GenerateNextIpAddrExcept(exceptions)
-		assert.Equal(t, "10.66.0.11", ip)
-	})
+	conf := &Config{dataDir: dir, VPNConfig: VPNConfig{IPNetV6: DefaultVPNNetworkSubnet6}}
+	setDefaults(conf, eventbus.NewBus())
+	conf.startWriter()
+	t.Cleanup(conf.Close)
+	require.Equal(t, DefaultVPNNetworkSubnet, conf.VPNConfig.IPNet)
+	require.Equal(t, DefaultVPNNetworkSubnet6, conf.VPNConfig.IPNetV6)
 
-	t.Run("ExceptionIsCurrentMax", func(t *testing.T) {
-		conf.KnownPeers = map[string]KnownPeer{}
-		addPeer("10.66.0.10")
+	key, _, err := crypto.GenerateEd25519Key(nil)
+	require.NoError(t, err)
+	id, err := peer.IDFromPrivateKey(key)
+	require.NoError(t, err)
+	conf.SetIdentity(key, id)
 
-		exceptions := []string{"10.66.0.10"}
-		ip := conf.GenerateNextIpAddrExcept(exceptions)
-		assert.Equal(t, "10.66.0.11", ip)
-	})
+	want, ok := derivedOwnPrefix(id.String(), netip.MustParsePrefix(DefaultVPNNetworkSubnet))
+	require.True(t, ok)
+	assert.Equal(t, want.String(), conf.VPNConfig.IPNet)
+	derived, ok := conf.DerivedVPNAddr()
+	assert.True(t, ok)
+	assert.Equal(t, want.Addr(), derived)
 
-	t.Run("ComplexScenario", func(t *testing.T) {
-		conf.KnownPeers = map[string]KnownPeer{}
-		addPeer("10.66.0.10")
-		addPeer("10.66.0.20")
+	prefix := netip.MustParsePrefix(DefaultVPNNetworkSubnet6)
+	wantV6 := netip.PrefixFrom(deriveAddr(id, prefix), prefix.Bits()).String()
+	assert.Equal(t, wantV6, conf.VPNConfig.IPNetV6)
 
-		// Max is 20. Next candidate is 21.
-		// Exclude 21, 23.
-		// 21 -> excluded -> try 22.
-		// 22 -> ok.
-		exceptions := []string{"10.66.0.21", "10.66.0.23"}
-		ip := conf.GenerateNextIpAddrExcept(exceptions)
-		assert.Equal(t, "10.66.0.22", ip)
-	})
-
-	t.Run("SkipsNetstackDNSIP", func(t *testing.T) {
-		conf := &Config{
-			VPNConfig: VPNConfig{IPNet: DefaultVPNNetworkSubnet},
-			KnownPeers: map[string]KnownPeer{
-				"p": {PeerID: "p", IPAddr: "10.66.0.10"},
-			},
-		}
-		conf.netstackDNSIP = net.ParseIP("10.66.0.11").To4()
-
-		ip := conf.GenerateNextIpAddrExcept(nil)
-		assert.Equal(t, "10.66.0.12", ip)
-	})
-
-	t.Run("SkipsNetstackDNSIPAndBroadcast", func(t *testing.T) {
-		// 10.66.0.1/29: hosts .1 (local) — .6, broadcast .7, DNS IP .6.
-		conf := &Config{
-			VPNConfig: VPNConfig{IPNet: "10.66.0.1/29"},
-			KnownPeers: map[string]KnownPeer{
-				"p": {PeerID: "p", IPAddr: "10.66.0.5"},
-			},
-		}
-		conf.netstackDNSIP = conf.computeNetstackDNSIP()
-
-		// Next after max (.5) would be .6 (DNS IP, skipped) and .7 (broadcast,
-		// skipped). Walking past the end of an exhausted subnet is pre-existing
-		// behavior of this function, not introduced by the reserved addresses.
-		ip := conf.GenerateNextIpAddrExcept(nil)
-		assert.Equal(t, "10.66.0.8", ip)
-	})
+	// Idempotent: our addresses are not re-derived once chosen.
+	conf.SetIdentity(key, id)
+	assert.Equal(t, want.String(), conf.VPNConfig.IPNet)
+	assert.Equal(t, wantV6, conf.VPNConfig.IPNetV6)
 }
 
 func TestDNSServerIP(t *testing.T) {
@@ -148,17 +228,17 @@ func TestDNSServerIP(t *testing.T) {
 
 	t.Run("DefaultSubnet", func(t *testing.T) {
 		conf := makeConf(DefaultVPNNetworkSubnet)
-		assert.Equal(t, "10.66.255.254", conf.computeNetstackDNSIP().String())
+		assert.Equal(t, "10.95.255.254", conf.computeNetstackDNSIP().String())
 	})
 
 	t.Run("CandidateTakenByPeer", func(t *testing.T) {
-		conf := makeConf(DefaultVPNNetworkSubnet, "10.66.255.254")
-		assert.Equal(t, "10.66.255.253", conf.computeNetstackDNSIP().String())
+		conf := makeConf(DefaultVPNNetworkSubnet, "10.95.255.254")
+		assert.Equal(t, "10.95.255.253", conf.computeNetstackDNSIP().String())
 	})
 
 	t.Run("SeveralCandidatesTakenByPeers", func(t *testing.T) {
-		conf := makeConf(DefaultVPNNetworkSubnet, "10.66.255.254", "10.66.255.253")
-		assert.Equal(t, "10.66.255.252", conf.computeNetstackDNSIP().String())
+		conf := makeConf(DefaultVPNNetworkSubnet, "10.95.255.254", "10.95.255.253")
+		assert.Equal(t, "10.95.255.252", conf.computeNetstackDNSIP().String())
 	})
 
 	t.Run("CandidateTakenByOwnIP", func(t *testing.T) {
@@ -169,102 +249,11 @@ func TestDNSServerIP(t *testing.T) {
 	t.Run("ExhaustedSubnet", func(t *testing.T) {
 		// 10.66.0.1/30: only hosts are .1 (local) and .2 (peer).
 		conf := makeConf("10.66.0.1/30", "10.66.0.2")
-		assert.Nil(t, conf.computeNetstackDNSIP())
-	})
-
-	t.Run("PointToPointSubnet", func(t *testing.T) {
-		conf := makeConf("10.66.0.1/31")
-		assert.Nil(t, conf.computeNetstackDNSIP())
+		assert.False(t, conf.computeNetstackDNSIP().IsValid())
 	})
 
 	t.Run("InvalidSubnet", func(t *testing.T) {
 		conf := makeConf("not-a-cidr")
-		assert.Nil(t, conf.computeNetstackDNSIP())
-	})
-}
-
-func TestCheckIPUnique(t *testing.T) {
-	conf := &Config{
-		VPNConfig: VPNConfig{
-			IPNet: "10.66.0.0/16",
-		},
-		KnownPeers: map[string]KnownPeer{
-			"p1": {PeerID: "p1", IPAddr: "10.66.0.1", Alias: "peer1"},
-			"p2": {PeerID: "p2", IPAddr: "10.66.0.2", Alias: "peer2"},
-		},
-	}
-	conf.netstackDNSIP = conf.computeNetstackDNSIP()
-
-	tests := []struct {
-		name         string
-		checkIP      string
-		exceptPeerID string
-		wantErr      string
-	}{
-		{"ValidNewIP", "10.66.0.3", "", ""},
-		{"ExistingIP", "10.66.0.1", "", "ip 10.66.0.1 is already used by peer peer1"},
-		{"SamePeerIP", "10.66.0.1", "p1", ""},
-		{"InvalidIPFormat", "invalid", "", "invalid IP invalid"},
-		{"OutsideSubnet", "192.168.1.1", "", "IP 192.168.1.1 does not belong to subnet 10.66.0.0/16"},
-		{"BroadcastAddress", "10.66.255.255", "", "IP 10.66.255.255 is the broadcast address of subnet 10.66.0.0/16"},
-		{"DNSServerIP", "10.66.255.254", "", "IP 10.66.255.254 is reserved for the awl DNS server"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := conf.CheckIPUnique(tt.checkIP, tt.exceptPeerID)
-			if tt.wantErr == "" {
-				assert.NoError(t, err)
-			} else {
-				assert.Error(t, err)
-				assert.ErrorContains(t, err, tt.wantErr)
-			}
-		})
-	}
-
-	t.Run("LocalNodeIPRejected", func(t *testing.T) {
-		conf := &Config{
-			VPNConfig:  VPNConfig{IPNet: "10.66.0.1/16"},
-			KnownPeers: map[string]KnownPeer{},
-		}
-		conf.netstackDNSIP = conf.computeNetstackDNSIP()
-
-		assert.ErrorContains(t, conf.CheckIPUnique("10.66.0.1", ""), "own address")
-		assert.NoError(t, conf.CheckIPUnique("10.66.0.2", ""))
-	})
-
-	t.Run("NetstackDNSIPReserved", func(t *testing.T) {
-		// Only the fixed netstackDNSIP is reserved: here the interceptor serves
-		// on broadcast−2 (e.g. broadcast−1 was taken at startup, then freed), so
-		// broadcast−2 is rejected while broadcast−1 is a normal free address.
-		conf := &Config{
-			VPNConfig:  VPNConfig{IPNet: "10.66.0.0/16"},
-			KnownPeers: map[string]KnownPeer{},
-		}
-		conf.netstackDNSIP = net.ParseIP("10.66.255.253").To4()
-
-		assert.ErrorContains(t, conf.CheckIPUnique("10.66.255.253", ""), "reserved for the awl DNS server")
-		assert.NoError(t, conf.CheckIPUnique("10.66.255.254", ""))
-		assert.NoError(t, conf.CheckIPUnique("10.66.255.252", ""))
-
-		conf.netstackDNSIP = nil
-		assert.NoError(t, conf.CheckIPUnique("10.66.255.253", ""))
-	})
-
-	t.Run("ShiftedDNSServerIP", func(t *testing.T) {
-		// A peer already holds broadcast−1 (e.g. from an old config), so the
-		// DNS IP shifts to broadcast−2: the peer keeps its IP, the shifted
-		// reserved address is rejected.
-		conf := &Config{
-			VPNConfig: VPNConfig{IPNet: "10.66.0.0/16"},
-			KnownPeers: map[string]KnownPeer{
-				"p1": {PeerID: "p1", IPAddr: "10.66.255.254", Alias: "peer1"},
-			},
-		}
-		conf.netstackDNSIP = conf.computeNetstackDNSIP()
-
-		assert.NoError(t, conf.CheckIPUnique("10.66.255.254", "p1"))
-		assert.ErrorContains(t, conf.CheckIPUnique("10.66.255.254", ""), "already used by peer peer1")
-		assert.ErrorContains(t, conf.CheckIPUnique("10.66.255.253", ""), "reserved for the awl DNS server")
+		assert.False(t, conf.computeNetstackDNSIP().IsValid())
 	})
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	"github.com/moby/sys/atomicwriter"
 	"github.com/multiformats/go-multiaddr"
@@ -234,14 +232,17 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	if conf.VPNConfig.IPNet == "" {
 		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
 	}
+	// An invalid vpn.ipNet is kept as is for ValidateForStartup to report.
+	conf.migrateLegacyIPNetUnlocked()
 
 	// The IPv6 overlay is opt-in: it stays off until vpn.ipNetV6 is set by hand, see DefaultVPNNetworkSubnet6.
 	// TODO: enable IPv6 for isEmptyConfig once Windows, macOS, Android support is landed
-	conf.deriveOwnIPv6Unlocked()
-	if !conf.vpnPrefixUnlocked().IsValid() {
-		logger.Errorf("invalid vpn.ipNet %q, using the default %s", conf.VPNConfig.IPNet, DefaultVPNNetworkSubnet)
-		conf.VPNConfig.IPNet = DefaultVPNNetworkSubnet
-	}
+	// Without an identity yet, our addresses are derived in SetIdentity.
+	conf.deriveOwnAddrsUnlocked()
+	// Reserved, so that a peer cannot be given it. Computed once here, fixed
+	// for the session, recomputed on every load.
+	conf.netstackDNSIP = conf.computeNetstackDNSIP()
+
 	if conf.VPNConfig.MTU == 0 {
 		conf.VPNConfig.MTU = vpn.InterfaceMTU
 	} else if conf.VPNConfig.MTU < vpn.MinInterfaceMTU || conf.VPNConfig.MTU > vpn.InterfaceMTU {
@@ -279,19 +280,14 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		conf.KnownPeers = make(map[string]KnownPeer)
 	}
 
-	// Reserve the netstack DNS IP before assigning peer IPs below, so a peer cannot be handed it.
-	// Computed once here, fixed for the session, recomputed on every load.
-	conf.netstackDNSIP = conf.computeNetstackDNSIP()
-
+	// A peer without an address gets one on the next status exchange, see
+	// KnownPeer.IPAddr.
 	for peerID := range conf.KnownPeers {
 		peer := conf.KnownPeers[peerID]
 		newAlias := conf.genUniqPeerAlias(peer.Name, peer.Alias, uniqAliases)
 		if newAlias != peer.Alias {
 			logger.Warnf("incorrect config: peer (id: %s) alias %s is not unique, updated automaticaly to %s", peerID, peer.Alias, newAlias)
 			peer.Alias = newAlias
-		}
-		if peer.IPAddr == "" {
-			peer.IPAddr = conf.GenerateNextIpAddr()
 		}
 		conf.KnownPeers[peerID] = peer
 	}
@@ -401,6 +397,9 @@ func (c *Config) ValidateForStartup() error {
 	c.RLock()
 	defer c.RUnlock()
 
+	if _, err := parseIPNet(c.VPNConfig.IPNet); err != nil {
+		return fmt.Errorf("vpn.ipNet %q: %w", c.VPNConfig.IPNet, err)
+	}
 	if s := c.VPNConfig.IPNetV6; s != "" {
 		if _, err := parseIPNetV6(s); err != nil {
 			return fmt.Errorf("vpn.ipNetV6 %q: %w", s, err)
@@ -408,29 +407,4 @@ func (c *Config) ValidateForStartup() error {
 	}
 
 	return nil
-}
-
-// deriveOwnIPv6Unlocked replaces a zero host part of vpnConfig.ipNetV6 (as in
-// DefaultVPNNetworkSubnet6, meaning "not chosen yet") with an address derived
-// from our peer ID. The result is stored, so it does not change afterwards; an
-// address set by hand is kept. An invalid value is left for ValidateForStartup
-// to report.
-func (c *Config) deriveOwnIPv6Unlocked() {
-	if c.P2pNode.PeerID == "" {
-		return
-	}
-	prefix, ok := c.vpnPrefixV6Unlocked()
-	if !ok || prefix.Addr() != prefix.Masked().Addr() {
-		return
-	}
-	id, err := peer.Decode(c.P2pNode.PeerID)
-	if err != nil {
-		return
-	}
-
-	addr := deriveAddr(id, prefix)
-	if addr == prefix.Masked().Addr() {
-		addr = nextAddr(addr, prefix)
-	}
-	c.VPNConfig.IPNetV6 = netip.PrefixFrom(addr, prefix.Bits()).String()
 }

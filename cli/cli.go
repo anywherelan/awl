@@ -223,7 +223,7 @@ func (a *Application) init() {
 							},
 							&cli.StringFlag{
 								Name:     "ip",
-								Usage:    "override peer IP address",
+								Usage:    "peer IP address. By default the device gets the address it announces, once it accepts the friend request",
 								Required: false,
 							},
 							&cli.BoolFlag{

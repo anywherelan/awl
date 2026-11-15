@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -151,14 +152,16 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	if !h.conf.IsUniqDomainNameUnlocked(req.PeerID, req.DomainName) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(ErrorPeerDomainNameIsNotUniq))
 	}
-	if checkIPErr := h.conf.CheckIPUnique(req.IPAddr, knownPeer.PeerID); checkIPErr != nil {
-		return c.JSON(http.StatusBadRequest, ErrorMessage(checkIPErr.Error()))
+	if req.IPAddr != "" {
+		if checkIPErr := h.conf.CheckPeerIPUnlocked(req.IPAddr, knownPeer.PeerID); checkIPErr != nil {
+			return c.JSON(http.StatusBadRequest, ErrorMessage(checkIPErr.Error()))
+		}
+		knownPeer.IPAddr = req.IPAddr
 	}
 
 	knownPeer.Alias = req.Alias
 	knownPeer.DomainName = req.DomainName
 	knownPeer.WeAllowUsingAsExitNode = req.AllowUsingAsExitNode
-	knownPeer.IPAddr = req.IPAddr
 
 	h.conf.UpsertPeerUnlocked(knownPeer)
 
@@ -284,15 +287,23 @@ func (h *Handler) GetAuthRequests(c echo.Context) (err error) {
 		peerIDs = append(peerIDs, peerID)
 	}
 	sort.Strings(peerIDs)
-	generatedIPs := make([]string, 0, len(authRequestsMap))
+	suggestedIPs := make([]netip.Addr, 0, len(authRequestsMap))
 
 	h.conf.RLock()
 	defer h.conf.RUnlock()
 
 	for _, peerID := range peerIDs {
 		req := authRequestsMap[peerID]
-		suggestedIP := h.conf.GenerateNextIpAddrExcept(generatedIPs)
-		generatedIPs = append(generatedIPs, suggestedIP)
+		// The address the peer would get on the first status exchange. Two
+		// requests are not offered the same one.
+		var suggestedIP string
+		addr, _, err := h.conf.AllocPeerIPUnlocked(peerID, req.IPv4Addr, suggestedIPs)
+		if err != nil {
+			h.logger.Warnf("suggest IP for auth request from %s: %v", peerID, err)
+		} else {
+			suggestedIPs = append(suggestedIPs, addr)
+			suggestedIP = addr.String()
+		}
 
 		authRequests = append(authRequests, entity.AuthRequest{
 			AuthPeer:    req,

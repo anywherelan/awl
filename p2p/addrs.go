@@ -143,8 +143,10 @@ func (l *localAddrs) announced(hostAddrs []multiaddr.Multiaddr) []multiaddr.Mult
 // lanCandidates picks the addresses to dial a peer at over the LAN, out of the
 // ones it announced: private addresses in the subnet of one of our interfaces.
 // The subnets are of the interfaces we announce addresses of, see announced,
-// without loopback and the awl interface. Link-local addresses and addresses in
-// the awl subnets are left out.
+// without loopback and the awl interface. Link-local addresses are left out.
+// An address in an awl subnet is left out unless the most specific of our
+// subnets it is in is more specific than the awl one: then the kernel dials it
+// through that interface, not through the awl one.
 func (l *localAddrs) lanCandidates(peerAddrs []multiaddr.Multiaddr) []multiaddr.Multiaddr {
 	var subnets []netip.Prefix
 	for _, iface := range l.interfaces() {
@@ -164,13 +166,19 @@ func (l *localAddrs) lanCandidates(peerAddrs []multiaddr.Multiaddr) []multiaddr.
 		if !ok || !manet.IsPrivateAddr(addr) || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
 			continue
 		}
+		bits := -1
+		for _, subnet := range subnets {
+			if subnet.Contains(ip) {
+				bits = max(bits, subnet.Bits())
+			}
+		}
+		if bits < 0 {
+			continue
+		}
 		inVPNSubnet := slices.ContainsFunc(l.vpnPrefixes, func(prefix netip.Prefix) bool {
-			return prefix.Masked().Contains(ip)
+			return prefix.Bits() >= bits && prefix.Masked().Contains(ip)
 		})
-		inOurSubnet := slices.ContainsFunc(subnets, func(subnet netip.Prefix) bool {
-			return subnet.Contains(ip)
-		})
-		if !inVPNSubnet && inOurSubnet {
+		if !inVPNSubnet {
 			candidates = append(candidates, addr)
 		}
 	}

@@ -45,8 +45,9 @@ type (
 		PeerID     string `validate:"required"`
 		Alias      string `validate:"required,trimmed_str_not_empty,max=100,no_control_chars"`
 		DomainName string `validate:"required,trimmed_str_not_empty"`
+		// optional: empty keeps the current address
 		// TODO: support ipv6
-		IPAddr               string `validate:"required,ipv4"`
+		IPAddr               string `validate:"omitempty,ipv4"`
 		AllowUsingAsExitNode bool
 	}
 	UpdateMySettingsRequest struct {
@@ -83,7 +84,7 @@ type (
 		DisplayName                   string // Deprecated: useless, equal to Alias all the time
 		Alias                         string
 		Version                       string
-		IpAddr                        string
+		IpAddr                        string // empty until the first status exchange with the peer
 		IpAddrV6                      string
 		DomainName                    string
 		Connected                     bool
@@ -161,7 +162,9 @@ type (
 	AuthRequest struct {
 		PeerID string
 		protocol.AuthPeer
-		// SuggestedIP is a free IP address generated for this peer
+		// SuggestedIP is the address the peer would get: the one it announced
+		// (IPv4Addr) if it is free, otherwise one derived from its peer ID.
+		// Empty if the subnet has no free address.
 		SuggestedIP string
 	}
 

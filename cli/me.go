@@ -105,7 +105,7 @@ func formatServiceStatus(enabled bool, addr string) string {
 
 // formatVPNStatus renders the local VPN interface state, including the
 // interface name and assigned address when it is up, e.g.
-// "working (awl0, 10.66.0.1/24)".
+// "working (awl0, 10.89.181.34/11)".
 func formatVPNStatus(vpn entity.VPNInfo) string {
 	if !vpn.VPNInterfaceEnabled {
 		return statusNotWorking

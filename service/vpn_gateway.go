@@ -306,28 +306,45 @@ func (g *VPNGateway) SetupAtStartup() error {
 	}
 
 	if gw.ClientEnabled && gw.GatewayPeerID != "" {
-		if err := VPNGatewayClientSupported(); err != nil {
-			g.logger.Errorf("VPN gateway client not enabled at startup: %v", err)
-			return nil
-		}
-		gatewayPeerID, err := peer.Decode(gw.GatewayPeerID)
-		if err != nil {
-			g.logger.Errorf("failed to decode gateway peer id, disabling VPN gateway client and continue startup: %v", err)
-			// removing invalid setting from config
-			g.DisableClient()
-			return nil
-		}
+		return g.setupClientAtStartup(gw.GatewayPeerID)
+	}
 
-		// Unlike EnableClient, keep the gateway even if the peer no longer
-		// allows it, as we do when it revokes the permission while we run:
-		// traffic waits for the gateway instead of going around it.
-		if err := g.checkGatewayAllowed(gatewayPeerID); err != nil {
-			g.logger.Warnf("%v: internet traffic will not go until the peer allows it again", err)
-		}
-		err = g.bindClient(gatewayPeerID)
-		if err != nil {
-			return fmt.Errorf("couldn't enable VPN gateway client at startup: %v", err)
-		}
+	return nil
+}
+
+// setupClientAtStartup binds the gateway peer saved in the config. A saved
+// peer that can't be bound turns client mode off instead of failing startup.
+func (g *VPNGateway) setupClientAtStartup(gatewayPeerIDStr string) error {
+	if err := VPNGatewayClientSupported(); err != nil {
+		g.logger.Errorf("VPN gateway client not enabled at startup: %v", err)
+		return nil
+	}
+	gatewayPeerID, err := peer.Decode(gatewayPeerIDStr)
+	if err != nil {
+		g.logger.Errorf("failed to decode gateway peer id, disabling VPN gateway client and continue startup: %v", err)
+		// removing invalid setting from config
+		g.DisableClient()
+		return nil
+	}
+	// A peer without an address is not in the tunnel. Happens only after
+	// the address or the peer is removed from the config by hand: the
+	// address comes with the same status exchange that lets us pick the
+	// peer as the gateway.
+	if kp, ok := g.conf.GetPeer(gatewayPeerIDStr); !ok || kp.IPAddr == "" {
+		g.logger.Errorf("VPN gateway peer %s is not in known peers or has no VPN address, disabling VPN gateway client and continue startup",
+			g.peerLabel(gatewayPeerIDStr))
+		g.DisableClient()
+		return nil
+	}
+
+	// Unlike EnableClient, keep the gateway even if the peer no longer
+	// allows it, as we do when it revokes the permission while we run:
+	// traffic waits for the gateway instead of going around it.
+	if err := g.checkGatewayAllowed(gatewayPeerID); err != nil {
+		g.logger.Warnf("%v: internet traffic will not go until the peer allows it again", err)
+	}
+	if err := g.bindClient(gatewayPeerID); err != nil {
+		return fmt.Errorf("couldn't enable VPN gateway client at startup: %v", err)
 	}
 
 	return nil

@@ -253,8 +253,17 @@ func (s *AuthStatus) createPeerInfo(peer config.KnownPeer, myPeerName string, de
 		Name:                    myPeerName,
 		AllowUsingAsExitNode:    peer.WeAllowUsingAsExitNode,
 		VPNGatewayServerEnabled: vpnGatewayServerEnabled,
+		IPv4Addr:                s.ownIPv4(),
 		IPv6Addr:                ipv6Addr,
 	}
+}
+
+// ownIPv4 returns our awl IPv4 address as we announce it to peers.
+func (s *AuthStatus) ownIPv4() string {
+	if prefix := s.conf.VPNPrefix(); prefix.IsValid() {
+		return prefix.Addr().String()
+	}
+	return ""
 }
 
 // processPeerStatusInfo merges the status info received from peerID into the
@@ -281,6 +290,7 @@ func (s *AuthStatus) processPeerStatusInfo(remotePeer peer.ID, peerInfo protocol
 		if peer.Alias == "" {
 			peer.Alias = s.conf.GenUniqPeerAliasUnlocked(peer.Name, peer.Alias)
 		}
+		s.updatePeerIPv4Unlocked(peer, peerInfo.IPv4Addr)
 		s.updatePeerIPv6Unlocked(peer, peerInfo.IPv6Addr)
 		peer.AllowedUsingAsExitNode = peerInfo.AllowUsingAsExitNode
 		peer.RemoteVPNGatewayServerEnabled = peerInfo.VPNGatewayServerEnabled
@@ -337,6 +347,29 @@ func (s *AuthStatus) dropOutgoingAuth(peerID peer.ID) {
 	s.authsLock.Unlock()
 }
 
+// updatePeerIPv4Unlocked gives peer an IPv4 address on the first status
+// exchange: the one it announced (empty if none) if it is free in our subnet,
+// otherwise one derived from its peer ID. An address already set, by the user
+// or by an earlier status, is kept. Called under the config write lock, which
+// makes the uniqueness check and the assignment atomic.
+func (s *AuthStatus) updatePeerIPv4Unlocked(peer *config.KnownPeer, announced string) {
+	if peer.IPAddr != "" {
+		if announced != "" && peer.IPAddr != announced {
+			s.logger.Debugf("peer %s announced IP %s, keeping previously assigned %s", peer.PeerID, announced, peer.IPAddr)
+		}
+		return
+	}
+
+	addr, rejectErr, err := s.conf.AllocPeerIPUnlocked(peer.PeerID, announced, nil)
+	if err != nil {
+		s.logger.Errorf("assign IP to peer %s (announced %s): %v", peer.PeerID, announced, err)
+		return
+	} else if rejectErr != nil {
+		s.logger.Warnf("peer %s announced IP %q, rejected: %v; assigned %s instead", peer.PeerID, announced, rejectErr, addr)
+	}
+	peer.IPAddr = addr.String()
+}
+
 // updatePeerIPv6Unlocked applies the IPv6 address the peer announced (empty if
 // none) to peer. The address is assigned once, later announcements only toggle
 // RemoteIPv6Enabled. Called under the config write lock, which makes the
@@ -362,7 +395,7 @@ func (s *AuthStatus) updatePeerIPv6Unlocked(peer *config.KnownPeer, announced st
 	} else if rejectErr != nil {
 		s.logger.Warnf("peer %s announced IPv6 %q, rejected: %v; assigned %s instead", peer.PeerID, announced, rejectErr, addr)
 	}
-	peer.IPAddrV6 = addr
+	peer.IPAddrV6 = addr.String()
 }
 
 // clearSelectedExitNode drops peerID as our SOCKS5 exit node if it is the one
@@ -608,7 +641,8 @@ type AddPeerParams struct {
 	// accepting its request rather than sending our own. A peer whose request is
 	// pending is added as confirmed regardless, see AddPeer.
 	Confirmed bool
-	// IPAddr is the VPN address for the peer. Generated when empty.
+	// IPAddr is the VPN address for the peer, set by the user. When empty, the
+	// peer gets one on the first status exchange, see updatePeerIPv4Unlocked.
 	IPAddr string
 	// AllowUsingAsExitNode lets the peer use us as a SOCKS5 / VPN Gateway exit node.
 	// Announced to it by the status exchange, see createPeerInfo.
@@ -663,21 +697,18 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 		s.conf.Unlock()
 		return fmt.Errorf("peer name is not unique")
 	}
-	ipAddr := params.IPAddr
-	if ipAddr != "" {
-		if err := s.conf.CheckIPUnique(ipAddr, peerIDStr); err != nil {
+	if params.IPAddr != "" {
+		if err := s.conf.CheckPeerIPUnlocked(params.IPAddr, peerIDStr); err != nil {
 			s.conf.Unlock()
 			return err
 		}
-	} else {
-		ipAddr = s.conf.GenerateNextIpAddr()
 	}
 
 	newPeerConfig := config.KnownPeer{
 		PeerID:                 peerIDStr,
 		Name:                   name,
 		Alias:                  alias,
-		IPAddr:                 ipAddr,
+		IPAddr:                 params.IPAddr,
 		Confirmed:              confirmed,
 		CreatedAt:              time.Now(),
 		WeAllowUsingAsExitNode: params.AllowUsingAsExitNode,
@@ -692,8 +723,9 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 	// retrying it until the peer answers.
 	sendAuth := !params.Confirmed
 	authPeer := protocol.AuthPeer{
-		Name:  s.conf.NodeName(),
-		Token: params.PendingInviteToken,
+		Name:     s.conf.NodeName(),
+		Token:    params.PendingInviteToken,
+		IPv4Addr: s.ownIPv4(),
 	}
 
 	// Drop any pending incoming auth request synchronously, so the caller
@@ -839,6 +871,7 @@ func (s *AuthStatus) GetIngoingAuthRequests() map[string]protocol.AuthPeer {
 }
 
 func (s *AuthStatus) restoreOutgoingAuths() {
+	ownIPv4 := s.ownIPv4()
 	s.conf.RLock()
 	defer s.conf.RUnlock()
 
@@ -847,8 +880,9 @@ func (s *AuthStatus) restoreOutgoingAuths() {
 	for _, knownPeer := range s.conf.KnownPeers {
 		if !knownPeer.Confirmed && !knownPeer.Declined {
 			outgoingAuths[knownPeer.PeerId()] = protocol.AuthPeer{
-				Name:  peerName,
-				Token: knownPeer.PendingInviteToken,
+				Name:     peerName,
+				Token:    knownPeer.PendingInviteToken,
+				IPv4Addr: ownIPv4,
 			}
 		}
 	}

@@ -178,6 +178,10 @@ func (t *Tunnel) RefreshPeersList() {
 	defer t.conf.RUnlock()
 	for _, knownPeer := range t.conf.KnownPeers {
 		peerID := knownPeer.PeerId()
+		if knownPeer.IPAddr == "" {
+			// The peer gets an address on the first status exchange.
+			continue
+		}
 		newLocalIP, err := netip.ParseAddr(knownPeer.IPAddr)
 		if err != nil || !newLocalIP.Is4() {
 			t.logger.Errorf("Known peer %q has invalid IP %s in conf", knownPeer.DisplayName(), knownPeer.IPAddr)
