@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/coreos/go-iptables/iptables"
@@ -38,6 +39,16 @@ type natState struct {
 	ip6tablesOK     bool
 }
 
+// newIPTables adds PATH to the error when the iptables binary is not found, so
+// a bug report shows where the daemon looked for it.
+func newIPTables(proto iptables.Protocol) (*iptables.IPTables, error) {
+	ipt, err := iptables.NewWithProtocol(proto)
+	if errors.Is(err, exec.ErrNotFound) {
+		return nil, fmt.Errorf("%w (PATH=%q)", err, os.Getenv("PATH"))
+	}
+	return ipt, err
+}
+
 // setupNAT enables IP forwarding and configures iptables MASQUERADE for the exit node.
 // It uses a dedicated AWL-FORWARD chain so our rules' evaluation order is
 // independent of whatever already lives in FORWARD.
@@ -53,7 +64,7 @@ func (m *Manager) setupNAT(awlSubnet, awlSubnet6, tunIfName string) (*natState, 
 		tunIfName:  tunIfName,
 	}
 
-	ipt, err := iptables.New()
+	ipt, err := newIPTables(iptables.ProtocolIPv4)
 	if err != nil {
 		return nil, fmt.Errorf("init iptables: %w", err)
 	}
@@ -124,7 +135,7 @@ func (m *Manager) setupNATv6(state *natState) error {
 	}
 
 	// ip6tables with nat table — will fail if the kernel module is absent.
-	ipt6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
+	ipt6, err := newIPTables(iptables.ProtocolIPv6)
 	if err != nil {
 		return fmt.Errorf("init ip6tables: %w", err)
 	}
