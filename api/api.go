@@ -227,18 +227,33 @@ func (h *Handler) SetupFrontend(fsys fs.FS) {
 	}
 }
 
+// Shutdown stops the web servers. It can be called after SetupAPI failed.
 func (h *Handler) Shutdown(ctx context.Context) error {
 	if h.ctxCancel != nil {
 		h.ctxCancel()
 	}
 	if h.echoAdmin != nil {
-		err := h.echoAdmin.Server.Shutdown(ctx)
+		err := shutdownServer(ctx, h.echoAdmin)
 		if err != nil {
 			h.logger.Errorf("error shutting down web server on admin host %s: %v", config.AdminHttpServerListenAddress, err)
 		}
 	}
+	if h.echo == nil {
+		return nil
+	}
 
-	return h.echo.Server.Shutdown(ctx)
+	return shutdownServer(ctx, h.echo)
+}
+
+// shutdownServer waits for running requests until ctx is done, then closes
+// the connections that are left. http.Server.Shutdown keeps a connection that
+// has not sent a request yet open for 5 seconds.
+func shutdownServer(ctx context.Context, e *echo.Echo) error {
+	err := e.Server.Shutdown(ctx)
+	if err != nil {
+		_ = e.Server.Close()
+	}
+	return err
 }
 
 func (h *Handler) Address() string {
