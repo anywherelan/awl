@@ -145,6 +145,7 @@ type P2p struct {
 	redials sync.Map
 	// not constants for the tests to shorten them
 	maxRedialDelay  time.Duration
+	relayRedialWait time.Duration
 	firstRetryDelay time.Duration
 
 	dhtBootstrapFinishedChan chan struct{}
@@ -162,6 +163,7 @@ func NewP2p(ctx context.Context) *P2p {
 		retries:         newRetrySchedule(),
 		networkChanged:  make(chan string, 1),
 		maxRedialDelay:  defaultMaxRedialDelay,
+		relayRedialWait: defaultRelayRedialWait,
 		firstRetryDelay: defaultFirstRetryDelay,
 
 		dhtBootstrapFinishedChan: make(chan struct{}),
@@ -907,6 +909,9 @@ func (p *P2p) getDialRanker() network.DialRanker {
 		var closestLatency time.Duration
 
 		// finds the closest relay and adds 500 ms delay to all other relay addresses
+		// TODO: when peers have relays other than the default bootstrap nodes
+		// (known peers as relays, #103, or third-party bootstrap nodes), dial
+		// through those first.
 		for _, addrDelay := range defaultDelays {
 			if !isRelayAddr(addrDelay.Addr) {
 				continue
