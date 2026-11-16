@@ -551,6 +551,7 @@ func assertNATApplied(t *testing.T) {
 	want := []string{
 		"-N " + awlForwardChain,
 		"-A " + awlForwardChain + " -m conntrack --ctorigdst " + testAwlPrefix.Addr().String() + " -j RETURN",
+		"-A " + awlForwardChain + " -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu",
 		"-A " + awlForwardChain + " -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
 	}
 	for _, p := range privatenet.PrefixesV4() {
