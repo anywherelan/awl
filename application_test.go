@@ -55,6 +55,8 @@ func TestRemovePeer(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 
 	ts.makeFriends(peer2, peer1)
+	grantExitNodePermission(ts, peer2, peer1)
+	peer1.app.SOCKS5.SetProxyPeerID(peer2.PeerID())
 
 	// Remove peer2 from peer1
 	err := peer1.api.RemovePeer(peer2.PeerID())
@@ -65,6 +67,7 @@ func TestRemovePeer(t *testing.T) {
 	ts.Nil(peer2From1)
 	_, blockedPeerExists := peer1.app.Conf.GetBlockedPeer(peer2.PeerID())
 	ts.True(blockedPeerExists)
+	ts.Empty(peer1.app.SOCKS5.GetProxyPeerID(), "a removed peer is no longer the exit node")
 
 	time.Sleep(500 * time.Millisecond)
 	peer1From2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
