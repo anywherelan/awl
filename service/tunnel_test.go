@@ -2,15 +2,22 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net/netip"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/tun"
 
@@ -132,6 +139,67 @@ func TestTunnelCountsIPv6Disabled(t *testing.T) {
 	}
 }
 
+// TestTunnelOutboundStream checks when the sender of a peer replaces its stream.
+func TestTunnelOutboundStream(t *testing.T) {
+	tt := newTestTunnel(t)
+	p2p := &streamP2p{}
+	tt.p2p = p2p
+
+	synctest.Test(t, func(t *testing.T) {
+		vp := NewVpnPeer(tt.peer.peerID, netip.MustParseAddr("10.66.0.2"), netip.Addr{})
+		go vp.backgroundOutboundHandler(tt.Tunnel)
+		send := func(times int) {
+			for range times {
+				vp.outboundCh <- udpPacket(t, "10.66.0.1", "10.66.0.2")
+				time.Sleep(10 * time.Second)
+			}
+			synctest.Wait()
+		}
+		// the sender checks its stream every 30 s, keep the packets off that moment
+		time.Sleep(5 * time.Second)
+
+		// traffic keeps the stream
+		p2p.setDirect(true)
+		send(12)
+		streams := p2p.opened()
+		require.Len(t, streams, 1)
+		require.False(t, streams[0].closed.Load())
+		require.EqualValues(t, 12, streams[0].writes.Load())
+
+		// no traffic closes it
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		require.True(t, streams[0].closed.Load())
+
+		// a stream on a relay stays while there is no direct connection
+		p2p.setDirect(false)
+		send(6)
+		streams = p2p.opened()
+		require.Len(t, streams, 2)
+		require.False(t, streams[1].closed.Load())
+
+		// and moves once there is one
+		p2p.setDirect(true)
+		send(4)
+		streams = p2p.opened()
+		require.Len(t, streams, 3)
+		require.True(t, streams[1].closed.Load())
+		require.False(t, isRelayConn(streams[2].Conn()))
+
+		// the peer reconnected: the batch goes to a new stream and is not lost
+		dropped := droppedPackets(t)
+		streams[2].conn.closed.Store(true)
+		send(1)
+		streams = p2p.opened()
+		require.Len(t, streams, 4)
+		require.EqualValues(t, 1, streams[3].writes.Load())
+		require.Equal(t, dropped, droppedPackets(t))
+
+		close(vp.outboundCh)
+		synctest.Wait()
+	})
+}
+
 // droppedPackets returns awl_vpn_packets_dropped_total by reason. The registry
 // is shared by all the tests of the package, so compare it before and after.
 func droppedPackets(t *testing.T) map[string]float64 {
@@ -228,6 +296,80 @@ func (tt *testTunnel) routeToPeer(packets []*vpn.Packet) bool {
 type fakeP2p struct{ P2p }
 
 func (fakeP2p) SubscribeConnectionEvents(_, _ func(network.Network, network.Conn)) {}
+
+// streamP2p is a P2p with a connected peer that hands out fake tunnel streams.
+// A new stream is on a direct connection if there is one, else on a relay.
+type streamP2p struct {
+	P2p
+	mu      sync.Mutex
+	direct  bool
+	streams []*fakeStream
+}
+
+func (p *streamP2p) SubscribeConnectionEvents(_, _ func(network.Network, network.Conn)) {}
+func (p *streamP2p) IsConnected(peer.ID) bool                                           { return true }
+func (p *streamP2p) ConnectPeer(context.Context, peer.ID) error                         { return nil }
+
+func (p *streamP2p) HasDirectConnection(peer.ID) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.direct
+}
+
+func (p *streamP2p) NewStream(_ context.Context, id peer.ID, _ libp2pProtocol.ID) (network.Stream, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	addr := "/ip4/192.0.2.1/udp/6150/quic-v1"
+	if !p.direct {
+		addr += "/p2p/" + id.String() + "/p2p-circuit"
+	}
+	stream := &fakeStream{conn: &fakeConn{addr: multiaddr.StringCast(addr)}}
+	p.streams = append(p.streams, stream)
+	return stream, nil
+}
+
+func (p *streamP2p) setDirect(direct bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.direct = direct
+}
+
+func (p *streamP2p) opened() []*fakeStream {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]*fakeStream(nil), p.streams...)
+}
+
+type fakeStream struct {
+	network.Stream
+	conn   *fakeConn
+	writes atomic.Int32
+	closed atomic.Bool
+}
+
+func (s *fakeStream) Conn() network.Conn { return s.conn }
+
+func (s *fakeStream) Write(b []byte) (int, error) {
+	if s.conn.closed.Load() {
+		return 0, network.ErrReset
+	}
+	s.writes.Add(1)
+	return len(b), nil
+}
+
+func (s *fakeStream) Close() error {
+	s.closed.Store(true)
+	return nil
+}
+
+type fakeConn struct {
+	network.Conn
+	addr   multiaddr.Multiaddr
+	closed atomic.Bool
+}
+
+func (c *fakeConn) IsClosed() bool                       { return c.closed.Load() }
+func (c *fakeConn) RemoteMultiaddr() multiaddr.Multiaddr { return c.addr }
 
 // fakeTUN is a tun.Device that keeps the last batch written to it. It
 // implements only what vpn.Device calls; anything else panics on the nil

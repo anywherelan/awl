@@ -13,6 +13,7 @@ import (
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 
 	"github.com/anywherelan/awl/awlevent"
 	"github.com/anywherelan/awl/config"
@@ -469,20 +470,18 @@ func (vp *VpnPeer) Close(t *Tunnel) {
 
 func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 	const (
-		// 5 GiB. Idk why, just in case
-		maxPacketsPerUnlimitedStream = 5 << 30 / vpn.InterfaceMTU
-		// 20 MiB. The same limit is set in awl-bootstrap-node
-		maxPacketsPerLimitedStream = 20 << 20 / vpn.InterfaceMTU
-		idleStreamTimeout          = 30 * time.Second
+		idleStreamTimeout = 30 * time.Second
 		// approx 340 KiB
 		packetsBatchSize = 100
 	)
 	var (
-		stream                  network.Stream
-		maxPacketsPerStream     int
-		currentPacketsForStream int
-		bytesBuf                []byte
-		packetsBuf              = make([]*vpn.Packet, packetsBatchSize)
+		stream network.Stream
+		// streamOnRelay is whether the stream was opened on a relay connection
+		streamOnRelay bool
+		// batchesSinceTick counts the batches sent since the last idleTicker tick
+		batchesSinceTick int
+		bytesBuf         []byte
+		packetsBuf       = make([]*vpn.Packet, packetsBatchSize)
 	)
 
 	sendPacket := func(packets []*vpn.Packet) (err error) {
@@ -494,11 +493,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 				metrics.VPNStreamOpenErrorsTotal.Inc()
 				return fmt.Errorf("make tunnel stream: %v", err)
 			}
-			if stream.Stat().Limited {
-				maxPacketsPerStream = maxPacketsPerLimitedStream
-			} else {
-				maxPacketsPerStream = maxPacketsPerUnlimitedStream
-			}
+			streamOnRelay = isRelayConn(stream.Conn())
 
 			bytesBuf = make([]byte, 0, packetsBatchSize*(vpn.InterfaceMTU+8))
 		}
@@ -524,7 +519,6 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			_ = stream.Close()
 			stream = nil
 		}
-		currentPacketsForStream = 0
 		// free buffer when idle
 		bytesBuf = nil
 	}
@@ -556,11 +550,13 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 				continue
 			}
 
-			if currentPacketsForStream+len(packetsBatch) >= maxPacketsPerStream {
+			if stream != nil && stream.Conn().IsClosed() {
+				// The peer has reconnected and the stream is left from the old
+				// connection. A write to it fails and the batch is lost.
 				closeStream()
 			}
 
-			currentPacketsForStream += len(packetsBatch)
+			batchesSinceTick++
 			err := sendPacket(packetsBatch)
 			if err != nil {
 				metrics.VPNPacketsDroppedTotal.WithLabelValues("stream_error").Add(float64(len(packetsBatch)))
@@ -571,11 +567,27 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 
 			clearTempPackets(packetsBatch)
 		case <-idleTicker.C:
-			if len(vp.outboundCh) == 0 {
+			switch {
+			case stream == nil:
+			case batchesSinceTick == 0:
+				closeStream()
+			case streamOnRelay && t.p2p.HasDirectConnection(vp.peerID):
+				// A stream stays on its connection for life. The next batch
+				// opens a new one, and a new stream goes to the direct connection.
+				localIP := *vp.localIP.Load()
+				t.logger.Infof("moving the tunnel stream to peerID (%s) local ip (%s) from the relay to the direct connection", vp.peerID, localIP)
 				closeStream()
 			}
+			batchesSinceTick = 0
 		}
 	}
+}
+
+// isRelayConn reports whether conn goes through a relay. A connection through
+// a relay without limits does not have Stat().Limited set, so look at the address.
+func isRelayConn(conn network.Conn) bool {
+	_, err := conn.RemoteMultiaddr().ValueForProtocol(multiaddr.P_CIRCUIT)
+	return err == nil
 }
 
 func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
