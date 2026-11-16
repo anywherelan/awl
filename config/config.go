@@ -128,6 +128,12 @@ type (
 		// Propagated via the status protocol so peers know whether to offer
 		// this node as an option in their UI.
 		ServerEnabled bool `json:"serverEnabled"`
+		// RouteLan — route private network addresses (RFC 1918 and friends)
+		// through the gateway instead of bypassing it (client side).
+		RouteLan bool `json:"routeLan"`
+		// AllowLan — allow clients to send and receive packets with private
+		// network addresses through this gateway (server side).
+		AllowLan bool `json:"allowLan"`
 	}
 	SOCKS5Config struct {
 		ListenerEnabled bool `json:"listenerEnabled"`
