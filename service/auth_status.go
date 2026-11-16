@@ -741,9 +741,10 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 	}
 	s.authsLock.Unlock()
 
+	// No deadline here, as for the other callers: the connect, the new stream
+	// and the exchange each have their own, see ConnectPeer and
+	// exchangeStreamTimeout
 	go func() {
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
 		if sendAuth {
 			_ = s.SendAuthRequest(ctx, peerID, authPeer)
 		}
