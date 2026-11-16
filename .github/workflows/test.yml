@@ -185,8 +185,10 @@ jobs:
           chmod +x awl
           # Settings the CLI can't change. The IPv6 overlay is opt-in: turn it
           # on for the ping6 check below. The admin host serves the web UI at
-          # http://admin.awl.
-          jq '.vpn.ipNetV6 = "fd00:66::/48" | .httpListenOnAdminHost = true' config_awl.json > config_awl.json.tmp
+          # http://admin.awl. The MTU is the one of a new config, the config
+          # here is an old one. awl-tester keeps the old MTU of 3500, so the
+          # large ping below also checks a pair of peers with different MTUs.
+          jq '.vpn.ipNetV6 = "fd00:66::/48" | .httpListenOnAdminHost = true | .vpn.mtu = 1400' config_awl.json > config_awl.json.tmp
           mv config_awl.json.tmp config_awl.json
           sudo ./awl &
           source ./save_debug.sh; trap save_debug EXIT
@@ -312,8 +314,10 @@ jobs:
           chmod +x awl
           # Settings the CLI can't change. The IPv6 overlay is opt-in: turn it
           # on for the ping6 check below. The admin host serves the web UI at
-          # http://admin.awl.
-          jq '.vpn.ipNetV6 = "fd00:66::/48" | .httpListenOnAdminHost = true' config_awl.json > config_awl.json.tmp
+          # http://admin.awl. The MTU is the one of a new config, the config
+          # here is an old one. awl-tester keeps the old MTU of 3500, so the
+          # large ping below also checks a pair of peers with different MTUs.
+          jq '.vpn.ipNetV6 = "fd00:66::/48" | .httpListenOnAdminHost = true | .vpn.mtu = 1400' config_awl.json > config_awl.json.tmp
           mv config_awl.json.tmp config_awl.json
           sudo ./awl &
           source ./save_debug.sh; trap save_debug EXIT
@@ -355,9 +359,11 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           chmod +x awl.exe
-          # A setting the CLI can't change: the admin host serves the web UI at
-          # http://admin.awl.
-          jq '.httpListenOnAdminHost = true' config_awl.json > config_awl.json.tmp
+          # Settings the CLI can't change. The admin host serves the web UI at
+          # http://admin.awl. The MTU is the one of a new config, the config
+          # here is an old one. awl-tester keeps the old MTU of 3500, so the
+          # large ping below also checks a pair of peers with different MTUs.
+          jq '.httpListenOnAdminHost = true | .vpn.mtu = 1400' config_awl.json > config_awl.json.tmp
           mv config_awl.json.tmp config_awl.json
           ./awl.exe &
           source ./save_debug.sh; trap save_debug EXIT

@@ -16,15 +16,17 @@ import (
 )
 
 const (
-	// InterfaceMTU is the default MTU of the TUN interface. It is also the
-	// largest MTU that can be configured: packet buffers and stream limits are
-	// sized for it.
-	InterfaceMTU = 3500
+	// DefaultInterfaceMTU is the MTU of the TUN interface in a new config.
+	DefaultInterfaceMTU = 1400
+	// MaxInterfaceMTU is the largest MTU that can be configured: packet
+	// buffers are sized for it. It is also the MTU of every config made before
+	// v0.21.0, so a peer may send packets of this size whatever our own MTU is.
+	MaxInterfaceMTU = 3500
 	// MinInterfaceMTU is the smallest MTU that can be configured. It is the
 	// minimum MTU required by IPv6 (RFC 8200).
 	MinInterfaceMTU = 1280
 
-	maxContentSize = InterfaceMTU + 100
+	maxContentSize = MaxInterfaceMTU + 100
 	// internal tun header. see offset in tun_darwin (4) and tun_linux (virtioNetHdrLen, currently 10)
 	tunPacketOffset = 14
 	// MaxPacketBodySize is the largest tunnel packet body (an IP packet, without
