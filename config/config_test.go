@@ -354,23 +354,32 @@ func requireSaved(t *testing.T, path string, check func(*Config) bool) {
 
 func TestSetDefaultsVPNMTU(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		saved int
-		want  int
+		name string
+		// version of the loaded config, empty for a new one
+		version  string
+		saved    int
+		want     int
+		validErr bool
 	}{
-		{name: "unset uses default", saved: 0, want: vpn.InterfaceMTU},
-		{name: "min", saved: vpn.MinInterfaceMTU, want: vpn.MinInterfaceMTU},
-		{name: "typical ethernet", saved: 1500, want: 1500},
-		{name: "max", saved: vpn.InterfaceMTU, want: vpn.InterfaceMTU},
-		{name: "below min", saved: vpn.MinInterfaceMTU - 1, want: vpn.InterfaceMTU},
-		{name: "negative", saved: -1, want: vpn.InterfaceMTU},
-		{name: "above max", saved: vpn.InterfaceMTU + 1, want: vpn.InterfaceMTU},
+		{name: "new config uses default", saved: 0, want: vpn.DefaultInterfaceMTU},
+		{name: "loaded config without the field keeps the old MTU", version: "v0.20.0", saved: 0, want: vpn.MaxInterfaceMTU},
+		{name: "min", version: "v0.20.0", saved: vpn.MinInterfaceMTU, want: vpn.MinInterfaceMTU},
+		{name: "typical ethernet", version: "v0.20.0", saved: 1500, want: 1500},
+		{name: "max", version: "v0.20.0", saved: vpn.MaxInterfaceMTU, want: vpn.MaxInterfaceMTU},
+		{name: "below min", version: "v0.20.0", saved: vpn.MinInterfaceMTU - 1, want: vpn.MinInterfaceMTU - 1, validErr: true},
+		{name: "negative", version: "v0.20.0", saved: -1, want: -1, validErr: true},
+		{name: "above max", version: "v0.20.0", saved: vpn.MaxInterfaceMTU + 1, want: vpn.MaxInterfaceMTU + 1, validErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			conf := &Config{dataDir: t.TempDir()}
+			conf := &Config{dataDir: t.TempDir(), Version: tc.version}
 			conf.VPNConfig.MTU = tc.saved
 			setDefaults(conf, nil)
 			assert.Equal(t, tc.want, conf.VPNConfig.MTU)
+			if tc.validErr {
+				assert.ErrorContains(t, conf.ValidateForStartup(), "vpn.mtu")
+			} else {
+				assert.NoError(t, conf.ValidateForStartup())
+			}
 		})
 	}
 }

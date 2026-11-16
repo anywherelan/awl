@@ -109,7 +109,8 @@ func TestConnectToKnownPeers_Bootstrap(t *testing.T) {
 	})
 	// With a pause this long nobody gets a second turn by the schedule
 	round := func() (bootstrapBefore, bootstrapAfter int) {
-		return a.connectToKnownPeers(t.Context(), 5*time.Second, time.Hour, nil, false)
+		result := a.connectToKnownPeers(t.Context(), 5*time.Second, time.Hour, nil, false)
+		return result.bootstrapBefore, result.bootstrapAfter
 	}
 
 	_, connected := round()

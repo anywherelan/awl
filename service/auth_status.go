@@ -47,6 +47,7 @@ var ErrUnknownPeer = errors.New("peer is unknown")
 type P2p interface {
 	ConnectPeer(ctx context.Context, peerID peer.ID) error
 	IsConnected(peerID peer.ID) bool
+	HasDirectConnection(peerID peer.ID) bool
 	NewStream(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
 	NewStreamMulti(ctx context.Context, id peer.ID, protos ...libp2pProtocol.ID) (network.Stream, error)
 	NewStreamWithDedicatedConn(ctx context.Context, id peer.ID, proto libp2pProtocol.ID) (network.Stream, error)
@@ -218,6 +219,7 @@ func (s *AuthStatus) ExchangeNewStatusInfo(ctx context.Context, remotePeerID pee
 
 func (s *AuthStatus) BlockPeer(peerID peer.ID, name string) {
 	s.conf.UpsertBlockedPeer(peerID.String(), name)
+	s.clearSelectedExitNode(peerID.String())
 
 	// Drop the pending incoming request synchronously, as AddPeer does, so the
 	// caller (AcceptFriend declining) observes it gone on return. Done after
@@ -400,8 +402,9 @@ func (s *AuthStatus) updatePeerIPv6Unlocked(peer *config.KnownPeer, announced st
 
 // clearSelectedExitNode drops peerID as our SOCKS5 exit node if it is the one
 // currently selected. Called when the peer declines us or revokes the
-// permission: we never select an exit node on the peer's behalf, but we do stop
-// using one that no longer allows it.
+// permission, and when we block or remove the peer: we never select an exit
+// node on the peer's behalf, but we do stop using one that no longer allows it
+// or that we no longer keep.
 func (s *AuthStatus) clearSelectedExitNode(peerID string) {
 	s.conf.Lock()
 	defer s.conf.Unlock()
@@ -741,9 +744,10 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 	}
 	s.authsLock.Unlock()
 
+	// No deadline here, as for the other callers: the connect, the new stream
+	// and the exchange each have their own, see ConnectPeer and
+	// exchangeStreamTimeout
 	go func() {
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
 		if sendAuth {
 			_ = s.SendAuthRequest(ctx, peerID, authPeer)
 		}

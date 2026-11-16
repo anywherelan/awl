@@ -32,9 +32,11 @@
 package netstate
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"regexp"
@@ -60,18 +62,26 @@ const (
 	ipForwardPath  = "/proc/sys/net/ipv4/ip_forward"
 )
 
+// Our address with the awl subnet length, as EnableServerNAT takes it.
+var (
+	testAwlPrefix  = netip.MustParsePrefix("10.66.0.1/16")
+	testAwlPrefix6 = netip.MustParsePrefix("fd00:66::1/48")
+)
+
 // ---- N1: NAT apply/teardown lifecycle ----
 
 func TestGatewayHostNetNATLifecycle(t *testing.T) {
 	verifyNoLeaks(t)
 	requireRoot(t)
 	setupDummyTun(t)
-	origForward := captureForward(t)
+	captureForward(t)
+	// Start with forwarding off, as on a host where awl starts before Docker.
+	require.NoError(t, os.WriteFile(ipForwardPath, []byte("0"), 0o600))
 
 	before := snapshotNet(t)
 
 	mgr := NewManager()
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, testAwlSubnet6, testTunIf))
+	require.NoError(t, mgr.EnableServerNAT(testAwlPrefix, testAwlPrefix6, testTunIf))
 	require.True(t, mgr.ServerNATActive())
 
 	assertNATApplied(t)
@@ -81,8 +91,8 @@ func TestGatewayHostNetNATLifecycle(t *testing.T) {
 	require.False(t, mgr.ServerNATActive())
 
 	require.Equal(t, before, snapshotNet(t), "teardown must restore the exact pre-setup netfilter state")
-	require.Equal(t, origForward, readForward(t),
-		"a single setup/teardown must restore ip_forward to its original value")
+	require.Equal(t, "1", readForward(t),
+		"teardown must leave ip_forward on: other software may rely on it by then")
 }
 
 // ---- N2: NAT re-setup is idempotent (kill -9 recovery) ----
@@ -103,13 +113,17 @@ func TestGatewayHostNetNATIdempotentResetup(t *testing.T) {
 	before := snapshotNet(t)
 
 	mgr1 := NewManager()
-	require.NoError(t, mgr1.EnableServerNAT(testAwlSubnet, testAwlSubnet6, testTunIf))
+	require.NoError(t, mgr1.EnableServerNAT(testAwlPrefix, testAwlPrefix6, testTunIf))
 	applied1 := snapshotNet(t)
+
+	// awl before v0.21.0 added MASQUERADE without the conntrack condition.
+	// cleanupStaleNAT must remove such a leftover too.
+	mustCmd(t, "iptables", "-t", "nat", "-A", "POSTROUTING", "-s", testAwlSubnet, "!", "-o", testTunIf, "-j", "MASQUERADE")
 
 	// Second manager over the live state of the first — simulates a leftover
 	// from a process that was killed before teardown ran.
 	mgr2 := NewManager()
-	require.NoError(t, mgr2.EnableServerNAT(testAwlSubnet, testAwlSubnet6, testTunIf),
+	require.NoError(t, mgr2.EnableServerNAT(testAwlPrefix, testAwlPrefix6, testTunIf),
 		"re-setup over leftover state must succeed (cleanupStaleNAT)")
 	applied2 := snapshotNet(t)
 
@@ -132,12 +146,112 @@ func TestGatewayHostNetNATPreservesExistingIPForward(t *testing.T) {
 	}
 
 	mgr := NewManager()
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, testAwlSubnet6, testTunIf))
+	require.NoError(t, mgr.EnableServerNAT(testAwlPrefix, testAwlPrefix6, testTunIf))
 	require.Equal(t, "1", readForward(t))
 
 	require.NoError(t, mgr.DisableServerNAT())
 	require.Equal(t, "1", readForward(t),
 		"ip_forward was already on before setup; teardown must NOT reset it to 0")
+}
+
+// ---- N4: a port the host publishes on our awl address ----
+//
+// Docker publishes a port through DNAT: a connection to our awl address goes on
+// to a container, through FORWARD. AWL-FORWARD must return it to the host's
+// rules instead of dropping it as a private destination, also when our jumps
+// are on top of FORWARD (awl started after Docker). The container must see the
+// peer's address, not ours. A connection straight to the container address is
+// gateway transit to a private network and must still be dropped.
+//
+// The peer and the container are network namespaces held by processes, so the
+// test runs both under sudo and inside `unshare -rn`.
+
+const testBridgeIf = "awltestbr0"
+
+func TestGatewayHostNetNATLocalDNAT(t *testing.T) {
+	verifyNoLeaks(t)
+	requireRoot(t)
+	captureForward(t)
+
+	peer, ctr := startNetns(t), startNetns(t)
+	_ = exec.Command("ip", "link", "del", testTunIf).Run() // best-effort pre-clean
+	mustCmd(t, "ip", "link", "add", testTunIf, "type", "veth", "peer", "name", "eth0", "netns", peer)
+	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", testTunIf).Run() })
+	mustCmd(t, "ip", "link", "add", testBridgeIf, "type", "veth", "peer", "name", "eth0", "netns", ctr)
+	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", testBridgeIf).Run() })
+
+	// No DAD: IPv6 on a fresh link is otherwise not usable for about a second.
+	for _, step := range []struct{ netns, cmd string }{
+		{"", "sysctl -qw net.ipv6.conf." + testTunIf + ".accept_dad=0"},
+		{"", "ip addr add " + testAwlPrefix.String() + " dev " + testTunIf},
+		{"", "ip addr add " + testAwlPrefix6.String() + " dev " + testTunIf},
+		{"", "ip link set " + testTunIf + " up"},
+		{"", "sysctl -qw net.ipv6.conf." + testBridgeIf + ".accept_dad=0"},
+		{"", "ip addr add 172.31.254.1/24 dev " + testBridgeIf},
+		{"", "ip addr add fd31:254::1/64 dev " + testBridgeIf},
+		{"", "ip link set " + testBridgeIf + " up"},
+		{peer, "sysctl -qw net.ipv6.conf.eth0.accept_dad=0"},
+		{peer, "ip addr add 10.66.0.2/16 dev eth0"},
+		{peer, "ip addr add fd00:66::2/48 dev eth0"},
+		{peer, "ip link set eth0 up"},
+		{peer, "ip route add default via 10.66.0.1"},
+		{peer, "ip -6 route add default via fd00:66::1"},
+		{ctr, "sysctl -qw net.ipv6.conf.eth0.accept_dad=0"},
+		{ctr, "ip addr add 172.31.254.2/24 dev eth0"},
+		{ctr, "ip addr add fd31:254::2/64 dev eth0"},
+		{ctr, "ip link set eth0 up"},
+		{ctr, "ip route add default via 172.31.254.1"},
+		{ctr, "ip -6 route add default via fd31:254::1"},
+		// The container answers port 80 only to the peer's address: with our
+		// MASQUERADE it would see the address of the host on its network.
+		{ctr, "iptables -A INPUT -p tcp --dport 80 ! -s 10.66.0.2 -j DROP"},
+		{ctr, "ip6tables -A INPUT -p tcp --dport 80 ! -s fd00:66::2 -j DROP"},
+	} {
+		args := strings.Fields(step.cmd)
+		if step.netns != "" {
+			args = append([]string{"nsenter", "-t", step.netns, "-n"}, args...)
+		}
+		mustCmd(t, args[0], args[1:]...)
+	}
+
+	// The host's rules, like Docker's: DNAT of the published port 3080 and
+	// ACCEPT for the container network. They go in before EnableServerNAT, so
+	// our jumps end up above them.
+	for _, rule := range []string{
+		"iptables -t nat -I PREROUTING -d 10.66.0.1 -p tcp --dport 3080 -j DNAT --to-destination 172.31.254.2:80",
+		"ip6tables -t nat -I PREROUTING -d fd00:66::1 -p tcp --dport 3080 -j DNAT --to-destination [fd31:254::2]:80",
+		"iptables -I FORWARD -o " + testBridgeIf + " -j ACCEPT",
+		"iptables -I FORWARD -i " + testBridgeIf + " -j ACCEPT",
+		"ip6tables -I FORWARD -o " + testBridgeIf + " -j ACCEPT",
+		"ip6tables -I FORWARD -i " + testBridgeIf + " -j ACCEPT",
+	} {
+		args := strings.Fields(rule)
+		mustCmd(t, args[0], args[1:]...)
+		del := strings.Fields(strings.Replace(rule, " -I ", " -D ", 1))
+		t.Cleanup(func() { _ = exec.Command(del[0], del[1:]...).Run() })
+	}
+
+	before := snapshotNet(t)
+
+	mgr := NewManager()
+	require.NoError(t, mgr.EnableServerNAT(testAwlPrefix, testAwlPrefix6, testTunIf))
+
+	// Straight to the container we use port 81: the container's own DROP
+	// covers only port 80, so a packet that passes our rules gets an answer.
+	for _, c := range []struct {
+		name, addr, port string
+		reaches          bool
+	}{
+		{"IPv4, published port on our address", "10.66.0.1", "3080", true},
+		{"IPv6, published port on our address", "fd00:66::1", "3080", true},
+		{"IPv4, straight to the container", "172.31.254.2", "81", false},
+		{"IPv6, straight to the container", "fd31:254::2", "81", false},
+	} {
+		require.Equal(t, c.reaches, tcpReaches(t, peer, c.addr, c.port), c.name)
+	}
+
+	require.NoError(t, mgr.DisableServerNAT())
+	require.Equal(t, before, snapshotNet(t), "teardown must restore the exact pre-setup netfilter state")
 }
 
 // ---- R1: route apply/teardown lifecycle ----
@@ -436,6 +550,8 @@ func assertNATApplied(t *testing.T) {
 
 	want := []string{
 		"-N " + awlForwardChain,
+		"-A " + awlForwardChain + " -m conntrack --ctorigdst " + testAwlPrefix.Addr().String() + " -j RETURN",
+		"-A " + awlForwardChain + " -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu",
 		"-A " + awlForwardChain + " -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
 	}
 	for _, p := range privatenet.PrefixesV4() {
@@ -455,7 +571,7 @@ func assertNATApplied(t *testing.T) {
 	require.Contains(t, filter, "-d "+testAwlSubnet+" -o "+testTunIf+" -j "+awlForwardChain, "return jump")
 
 	nat := cmdOut(t, "iptables", "-t", "nat", "-S", "POSTROUTING")
-	require.Contains(t, nat, "-s "+testAwlSubnet+" ! -o "+testTunIf+" -j MASQUERADE", "MASQUERADE")
+	require.Contains(t, nat, "-s "+testAwlSubnet+" ! -o "+testTunIf+" -m conntrack ! --ctorigdst "+testAwlPrefix.Addr().String()+" -j MASQUERADE", "MASQUERADE")
 }
 
 func assertRoutesApplied(t *testing.T) {
@@ -496,8 +612,8 @@ func assertRoutesApplied(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // snapshotNet captures every piece of host network state setupNAT/setupGatewayRoutes
-// can touch, EXCEPT ip_forward (which has its own preserve-if-on semantics and is
-// asserted separately). Lines within each section are sorted so the comparison is
+// can touch, EXCEPT ip_forward (which stays on after teardown and is asserted
+// separately). Lines within each section are sorted so the comparison is
 // about set membership, not iptables/ip print order.
 func snapshotNet(t *testing.T) string {
 	t.Helper()
@@ -635,6 +751,44 @@ func setupDummyTun(t *testing.T) {
 	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", testTunIf).Run() })
 }
 
+// startNetns starts a process in a new network namespace and returns its PID
+// for `ip link ... netns` and `nsenter -t`. The namespace, and the links in it,
+// go away with the process at cleanup.
+func startNetns(t *testing.T) string {
+	t.Helper()
+	cmd := exec.Command("unshare", "-n", "sh", "-c", "echo ready; exec sleep 60")
+	out, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	// The line comes after unshare, so the PID is already in the new namespace.
+	line, err := bufio.NewReader(out).ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "ready\n", line)
+	return strconv.Itoa(cmd.Process.Pid)
+}
+
+// tcpReaches opens a TCP connection from the network namespace of pid. Nothing
+// listens on the far side: "connection refused" means the SYN got there and
+// the RST came back, a timeout means a packet was dropped on the way.
+func tcpReaches(t *testing.T, pid, addr, port string) bool {
+	t.Helper()
+	cmd := exec.Command("nsenter", "-t", pid, "-n", "timeout", "1", "bash", "-c", "exec 3<>/dev/tcp/"+addr+"/"+port)
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.CombinedOutput()
+	if strings.Contains(string(out), "Connection refused") {
+		return true
+	}
+	if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 124 { // timeout
+		return false
+	}
+	t.Fatalf("connect to %s port %s: %v: %s", addr, port, err, out)
+	return false
+}
+
 func recreateDummyTun(t *testing.T) {
 	t.Helper()
 	mustCmd(t, "ip", "link", "del", testTunIf)
@@ -650,12 +804,11 @@ func readForward(t *testing.T) string {
 }
 
 // captureForward records the current ip_forward value and restores it after the
-// test, so tests stay order-independent regardless of the leave-if-on rule.
-func captureForward(t *testing.T) string {
+// test, so tests stay order-independent although teardown leaves it on.
+func captureForward(t *testing.T) {
 	t.Helper()
 	orig := readForward(t)
 	t.Cleanup(func() { _ = os.WriteFile(ipForwardPath, []byte(orig), 0o600) })
-	return orig
 }
 
 func mustCmd(t *testing.T, name string, args ...string) {

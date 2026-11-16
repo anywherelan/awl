@@ -14,7 +14,11 @@ import (
 const (
 	// defaultMaxRedialDelay bounds the random pause before a redial.
 	defaultMaxRedialDelay = 3 * time.Second
-	redialTimeout         = 5 * time.Second
+	// defaultRelayRedialWait is how long the side that dialed a relayed
+	// connection leaves the redial to the other side. A dial through a relay
+	// takes 1-3 s.
+	defaultRelayRedialWait = 5 * time.Second
+	redialTimeout          = 5 * time.Second
 	// defaultFirstRetryDelay is the pause between the two rounds made at the
 	// start and whenever the network comes back.
 	defaultFirstRetryDelay = 5 * time.Second
@@ -27,9 +31,9 @@ const (
 
 // redialOnDisconnect reconnects to a known peer as soon as its last connection
 // is gone, instead of leaving it to the next round of
-// MaintainBackgroundConnections. A relay cuts a relayed connection every two
-// minutes, so for a peer behind one this is a gap of a few seconds instead of a
-// whole round, several hundred times a day.
+// MaintainBackgroundConnections. A relay cuts a relayed connection by its time
+// and data limits, so for a peer behind one this is a gap of a few seconds
+// instead of a whole round, many times a day.
 //
 // The returned func removes the subscription.
 func (p *P2p) redialOnDisconnect(ctx context.Context, isKnownPeer func(peer.ID) bool) (stop func()) {
@@ -37,7 +41,7 @@ func (p *P2p) redialOnDisconnect(ctx context.Context, isKnownPeer func(peer.ID) 
 		DisconnectedF: func(_ network.Network, conn network.Conn) {
 			// Fires for every connection of every peer, DHT servers included,
 			// and the swarm waits for it to return.
-			go p.redial(ctx, conn.RemotePeer(), isKnownPeer)
+			go p.redial(ctx, conn.RemotePeer(), p.redialDelay(conn), isKnownPeer)
 		},
 	}
 	p.host.Network().Notify(notifee)
@@ -45,7 +49,28 @@ func (p *P2p) redialOnDisconnect(ctx context.Context, isKnownPeer func(peer.ID) 
 	return func() { p.host.Network().StopNotify(notifee) }
 }
 
-func (p *P2p) redial(ctx context.Context, peerID peer.ID, isKnownPeer func(peer.ID) bool) {
+// redialDelay is the pause before redialing the peer of the closed connection.
+//
+// A relay cuts a connection for both sides at the same moment. If both dialed,
+// each would get a connection of its own. So the side that accepted the
+// connection dials at once, and the side that dialed it waits and dials only if
+// the peer has not come. The direction changes with every cut: each side gets
+// to try the direct addresses of the other, and the peers use the relays of
+// both in turn.
+//
+// A direct connection rarely goes for both sides at once, and nothing tells who
+// is able to dial: a random pause.
+func (p *P2p) redialDelay(conn network.Conn) time.Duration {
+	if !isRelayAddr(conn.RemoteMultiaddr()) {
+		return rand.N(p.maxRedialDelay)
+	}
+	if conn.Stat().Direction == network.DirInbound {
+		return 0
+	}
+	return p.relayRedialWait
+}
+
+func (p *P2p) redial(ctx context.Context, peerID peer.ID, delay time.Duration, isKnownPeer func(peer.ID) bool) {
 	if p.IsConnected(peerID) || !isKnownPeer(peerID) {
 		return
 	}
@@ -59,9 +84,7 @@ func (p *P2p) redial(ctx context.Context, peerID peer.ID, isKnownPeer func(peer.
 	// a regular attempt instead of waiting out a pause.
 	p.retries.forget(peerID)
 
-	// Both sides see the connection go at the same moment and would dial each
-	// other head-on every time.
-	timer := time.NewTimer(rand.N(p.maxRedialDelay))
+	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():

@@ -5,6 +5,7 @@ package netstate
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"syscall"
 )
 
@@ -38,7 +39,7 @@ func (m *Manager) DisableClientRoutes() error { return nil }
 func (m *Manager) ClientRoutesActive() bool { return false }
 
 // EnableServerNAT is not supported on this platform.
-func (m *Manager) EnableServerNAT(_, _, _ string) error {
+func (m *Manager) EnableServerNAT(_, _ netip.Prefix, _ string) error {
 	return errors.New("setup NAT: NAT setup not supported on this platform")
 }
 

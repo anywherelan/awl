@@ -68,6 +68,9 @@ type (
 		closeCh     chan struct{}
 		writerDone  chan struct{}
 		closeOnce   sync.Once
+		// saveAfterLoad is set by setDefaults when it filled in a value that
+		// the file of a loaded config must get right away.
+		saveAfterLoad bool
 
 		Version               string                 `json:"version"`
 		LoggerLevel           string                 `json:"loggerLevel"`

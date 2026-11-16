@@ -118,7 +118,7 @@ type NetManager interface {
 	EnableClientRoutes(tunIfName string) error
 	DisableClientRoutes() error
 	ClientRoutesActive() bool
-	EnableServerNAT(awlSubnet, awlSubnet6, tunIfName string) error
+	EnableServerNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName string) error
 	DisableServerNAT() error
 	ServerNATActive() bool
 }

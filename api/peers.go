@@ -63,6 +63,7 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 			WeAllowUsingAsExitNode:        knownPeer.WeAllowUsingAsExitNode,
 			AllowedUsingAsExitNode:        knownPeer.AllowedUsingAsExitNode,
 			RemoteVPNGatewayServerEnabled: knownPeer.RemoteVPNGatewayServerEnabled,
+			DisableVPNTunneling:           knownPeer.DisableVPNTunneling,
 			InviteID:                      knownPeer.InviteID,
 			LastSeen:                      knownPeer.LastSeen,
 			Connections:                   h.p2p.PeerConnectionsInfo(id),

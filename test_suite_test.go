@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -548,7 +549,7 @@ func (t *testTun) BatchSize() int {
 }
 
 func (t *testTun) Flush() error             { return nil }
-func (t *testTun) MTU() (int, error)        { return vpn.InterfaceMTU, nil }
+func (t *testTun) MTU() (int, error)        { return vpn.MaxInterfaceMTU, nil }
 func (t *testTun) Name() (string, error)    { return "testTun", nil }
 func (t *testTun) Events() <-chan tun.Event { return t.t.events }
 func (t *testTun) Close() error {
@@ -744,7 +745,7 @@ func (m *testNetManager) ClientRoutesActive() bool {
 	return m.clientActive
 }
 
-func (m *testNetManager) EnableServerNAT(_, _, _ string) error {
+func (m *testNetManager) EnableServerNAT(_, _ netip.Prefix, _ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.serverActive {

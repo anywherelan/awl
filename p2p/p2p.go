@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/netip"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -60,6 +62,12 @@ const (
 	// unreachable rest not worth trying every round: both the DHT and autorelay
 	// want two.
 	enoughBootstrapPeers = 2
+
+	// bootstrapTimeout bounds the dial of each bootstrap peer at the start.
+	bootstrapTimeout = 5 * time.Second
+	// routingTableTimeout bounds the wait for the first peer in the DHT routing
+	// table, see waitRoutingTable.
+	routingTableTimeout = 5 * time.Second
 
 	// Port is unassigned by IANA and seems quite unused.
 	// https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.txt
@@ -137,6 +145,7 @@ type P2p struct {
 	redials sync.Map
 	// not constants for the tests to shorten them
 	maxRedialDelay  time.Duration
+	relayRedialWait time.Duration
 	firstRetryDelay time.Duration
 
 	dhtBootstrapFinishedChan chan struct{}
@@ -154,6 +163,7 @@ func NewP2p(ctx context.Context) *P2p {
 		retries:         newRetrySchedule(),
 		networkChanged:  make(chan string, 1),
 		maxRedialDelay:  defaultMaxRedialDelay,
+		relayRedialWait: defaultRelayRedialWait,
 		firstRetryDelay: defaultFirstRetryDelay,
 
 		dhtBootstrapFinishedChan: make(chan struct{}),
@@ -432,8 +442,11 @@ func (p *P2p) SubscribeConnectionEvents(onConnected, onDisconnected func(network
 	p.host.Network().Notify(notifyBundle)
 }
 
+// Bootstrap connects to the bootstrap peers. It does not block: the rounds of
+// MaintainBackgroundConnections start once one bootstrap peer is connected and
+// the DHT routing table has a peer, or the waits run out.
 func (p *P2p) Bootstrap() {
-	ctx, cancel := context.WithTimeout(p.ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(p.ctx, bootstrapTimeout)
 	var wg sync.WaitGroup
 	successfulConnectionsCh := make(chan struct{}, len(p.bootstrapPeers))
 
@@ -451,17 +464,26 @@ func (p *P2p) Bootstrap() {
 		}()
 	}
 
+	allDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(allDone)
+	}()
+
 	go func() {
 		defer cancel()
 
-		// wait for at least 2 bootstrap nodes
-		for range min(2, len(p.bootstrapPeers)) {
-			select {
-			case <-ctx.Done():
-			case <-successfulConnectionsCh:
-			}
+		// One bootstrap peer is enough: the routing table fills from it
+		select {
+		case <-successfulConnectionsCh:
+		case <-allDone:
+		case <-ctx.Done():
 		}
+		p.waitRoutingTable()
 
+		// Only now: the refresh it asks for fails at once on an empty routing
+		// table, and with the table empty it makes the DHT dial the bootstrap
+		// peers once more
 		p.logger.Info("Bootstrapping the DHT")
 		if err := p.dht.Bootstrap(p.ctx); err != nil {
 			// from the code err is always nil for now
@@ -469,9 +491,48 @@ func (p *P2p) Bootstrap() {
 		}
 		close(p.dhtBootstrapFinishedChan)
 
-		wg.Wait()
+		<-allDone
 		p.logger.Info("Finished connecting to all bootstrap nodes")
 	}()
+}
+
+// waitRoutingTable waits for the first peer in the DHT routing table. Until
+// then a DHT lookup fails at once, and so would every known peer in a round. A
+// connected bootstrap peer gets into the table after identify and one DHT
+// request, so with none of them connected there is nothing to wait for.
+func (p *P2p) waitRoutingTable() {
+	total, connected := p.BootstrapPeersStats()
+	if total == 0 {
+		return
+	}
+	if connected == 0 {
+		p.logger.Infof("No bootstrap peers connected, not waiting for the DHT routing table")
+		return
+	}
+
+	start := time.Now()
+	timeout := time.NewTimer(routingTableTimeout)
+	defer timeout.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if size := p.dht.RoutingTable().Size(); size > 0 {
+			_, connected = p.BootstrapPeersStats()
+			p.logger.Infof("DHT routing table ready: %d peers, %d/%d bootstrap peers connected, waited %s",
+				size, connected, total, time.Since(start).Round(time.Millisecond))
+			return
+		}
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-timeout.C:
+			_, connected = p.BootstrapPeersStats()
+			p.logger.Infof("DHT routing table still empty after %s, %d/%d bootstrap peers connected",
+				routingTableTimeout, connected, total)
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // KnownPeer is a peer MaintainBackgroundConnections keeps a connection to.
@@ -507,17 +568,17 @@ func (p *P2p) MaintainBackgroundConnections(
 	case <-p.dhtBootstrapFinishedChan:
 	}
 
-	round := func(force bool) (bootstrapBefore, bootstrapAfter int) {
+	round := func(force bool) roundResult {
 		return p.connectToKnownPeers(ctx, timeout, interval, knownPeersFunc(), force)
 	}
 	// startOver is for the start and for every time the network comes back,
 	// which is no different from a start: whatever the schedule remembers about
 	// the peers is stale, so everyone is tried again.
-	startOver := func() (bootstrapConnected int) {
+	startOver := func(reason string) (bootstrapConnected int) {
 		p.retries.reset()
 		lan.forgetFailures()
 		p.localAddrs.forgetInterfaces()
-		round(true)
+		p.logger.Infof("reconnect round 1/2 (%s): %s", reason, round(true))
 
 		// retry once after a short delay in case of network instability
 		select {
@@ -525,12 +586,14 @@ func (p *P2p) MaintainBackgroundConnections(
 			return 0
 		case <-time.After(p.firstRetryDelay):
 		}
-		_, bootstrapConnected = round(true)
+		result := round(true)
+		p.logger.Infof("reconnect round 2/2 (%s): %s", reason, result)
 
-		return bootstrapConnected
+		return result.bootstrapAfter
 	}
 
-	bootstrapConnected := startOver()
+	p.logger.Info("connecting to known peers")
+	bootstrapConnected := startOver("start")
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -541,15 +604,15 @@ func (p *P2p) MaintainBackgroundConnections(
 		case reason := <-p.networkChanged:
 			awlmetrics.P2PReconnectResetsTotal.WithLabelValues(reason).Inc()
 			p.logger.Infof("reconnect schedule reset, retrying all known and bootstrap peers, reason: %s", reason)
-			bootstrapConnected = startOver()
+			bootstrapConnected = startOver(reason)
 		case <-ticker.C:
-			before, after := round(false)
+			result := round(false)
 			// Having no bootstrap peer at all and then getting one back is how
 			// the return of the network looks from here
-			if after > 0 && (before == 0 || bootstrapConnected == 0) {
+			if result.bootstrapAfter > 0 && (result.bootstrapBefore == 0 || bootstrapConnected == 0) {
 				p.signalNetworkChanged(networkBootstrapReturned)
 			}
-			bootstrapConnected = after
+			bootstrapConnected = result.bootstrapAfter
 		}
 		ticker.Reset(interval)
 	}
@@ -570,18 +633,69 @@ func (p *P2p) signalNetworkChanged(reason string) {
 	}
 }
 
+// roundResult is what one round of connectToKnownPeers did.
+type roundResult struct {
+	knownPeers, knownConnected int
+	bootstrapPeers             int
+	// connected bootstrap peers before and after the round
+	bootstrapBefore, bootstrapAfter int
+	// the size of the DHT routing table when the round began
+	routingTable int
+	took         time.Duration
+	// failures counts the errors of the known peers by errorKind
+	failures map[string]int
+}
+
+func (r roundResult) String() string {
+	s := fmt.Sprintf("known peers %d/%d, bootstrap peers %d/%d, routing table %d, took %s",
+		r.knownConnected, r.knownPeers, r.bootstrapAfter, r.bootstrapPeers, r.routingTable,
+		r.took.Round(time.Millisecond))
+	if len(r.failures) == 0 {
+		return s
+	}
+
+	// An error with something of its own peer in the first line makes a kind
+	// for every peer, so the line shows only some of them
+	const maxKinds = 10
+	kinds := slices.Sorted(maps.Keys(r.failures))
+	more := len(kinds) - maxKinds
+	kinds = kinds[:min(len(kinds), maxKinds)]
+	for i, kind := range kinds {
+		kinds[i] = fmt.Sprintf("%s (%d)", kind, r.failures[kind])
+	}
+	s += ", failed: " + strings.Join(kinds, "; ")
+	if more > 0 {
+		s += fmt.Sprintf("; %d more", more)
+	}
+	return s
+}
+
+// errorKind is the start of the first line of the error of a peer, without the
+// peer ID, so that the same errors of different peers make one kind.
+func errorKind(err error, id peer.ID) string {
+	const maxLen = 80
+	line, _, _ := strings.Cut(err.Error(), "\n")
+	line = strings.ReplaceAll(line, " "+id.String(), "")
+	if runes := []rune(line); len(runes) > maxLen {
+		line = string(runes[:maxLen]) + "..."
+	}
+	return line
+}
+
 // connectToKnownPeers makes one round over the known and the bootstrap peers:
 // tries the ones whose turn has come, or all of them with force, and pings the
-// connected ones. It returns the number of connected bootstrap peers before and
-// after the round.
+// connected ones.
 func (p *P2p) connectToKnownPeers(
 	ctx context.Context, timeout, retryBase time.Duration, knownPeers []KnownPeer, force bool,
-) (bootstrapBefore, bootstrapAfter int) {
+) roundResult {
+	now := time.Now()
+	routingTable := p.dht.RoutingTable().Size()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	now := time.Now()
 	var wg sync.WaitGroup
+	var failuresMu sync.Mutex
+	failures := make(map[string]int)
 	for _, knownPeer := range knownPeers {
 		wg.Add(1)
 		p.ProtectPeer(knownPeer.ID)
@@ -593,6 +707,11 @@ func (p *P2p) connectToKnownPeers(
 			attempted, err := p.tryConnect(knownPeer.ID, now, force || knownPeer.Eager, retryBase, func() error {
 				return p.ConnectPeer(ctx, knownPeer.ID)
 			})
+			if err != nil {
+				failuresMu.Lock()
+				failures[errorKind(err, knownPeer.ID)]++
+				failuresMu.Unlock()
+			}
 			if !attempted || err != nil {
 				return
 			}
@@ -601,7 +720,7 @@ func (p *P2p) connectToKnownPeers(
 		}()
 	}
 
-	_, bootstrapBefore = p.BootstrapPeersStats()
+	_, bootstrapBefore := p.BootstrapPeersStats()
 	lastBootstrapsInfo := p.bootstrapsInfo.Load()
 	bootstrapsInfo := make(map[string]BootstrapPeerDebugInfo)
 	var mu sync.Mutex
@@ -656,9 +775,24 @@ func (p *P2p) connectToKnownPeers(
 	wg.Wait()
 
 	p.bootstrapsInfo.Store(&bootstrapsInfo)
-	_, bootstrapAfter = p.BootstrapPeersStats()
+	bootstrapPeers, bootstrapAfter := p.BootstrapPeersStats()
+	knownConnected := 0
+	for _, knownPeer := range knownPeers {
+		if p.IsConnected(knownPeer.ID) {
+			knownConnected++
+		}
+	}
 
-	return bootstrapBefore, bootstrapAfter
+	return roundResult{
+		knownPeers:      len(knownPeers),
+		knownConnected:  knownConnected,
+		bootstrapPeers:  bootstrapPeers,
+		bootstrapBefore: bootstrapBefore,
+		bootstrapAfter:  bootstrapAfter,
+		routingTable:    routingTable,
+		took:            time.Since(now),
+		failures:        failures,
+	}
 }
 
 // tryConnect runs connect for a peer that is not connected, provided its turn
@@ -775,6 +909,9 @@ func (p *P2p) getDialRanker() network.DialRanker {
 		var closestLatency time.Duration
 
 		// finds the closest relay and adds 500 ms delay to all other relay addresses
+		// TODO: when peers have relays other than the default bootstrap nodes
+		// (known peers as relays, #103, or third-party bootstrap nodes), dial
+		// through those first.
 		for _, addrDelay := range defaultDelays {
 			if !isRelayAddr(addrDelay.Addr) {
 				continue

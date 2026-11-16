@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 
 	awlmetrics "github.com/anywherelan/awl/metrics"
@@ -38,7 +39,6 @@ func TestRedialOnDisconnect(t *testing.T) {
 
 func TestRedial_FailureIsNotCounted(t *testing.T) {
 	a := newTestP2p(t, nil, "/ip4/127.0.0.1/tcp/0")
-	a.maxRedialDelay = 20 * time.Millisecond
 	gone := unreachablePeer(t)
 	a.Host().Peerstore().AddAddrs(gone.ID, gone.Addrs, peerstore.TempAddrTTL)
 	// What the schedule remembers from before the peer was connected
@@ -47,7 +47,7 @@ func TestRedial_FailureIsNotCounted(t *testing.T) {
 	dialsBefore := metricValue(t, "awl_p2p_redial_duration_seconds", redialFailure)
 
 	calls := 0
-	a.redial(t.Context(), gone.ID, func(id peer.ID) bool {
+	a.redial(t.Context(), gone.ID, 0, func(id peer.ID) bool {
 		calls++
 		return id == gone.ID
 	})
@@ -59,6 +59,31 @@ func TestRedial_FailureIsNotCounted(t *testing.T) {
 
 	require.Equal(t, failuresBefore+1, metricValue(t, "awl_p2p_redials_total", redialFailure))
 	require.Equal(t, dialsBefore+1, metricValue(t, "awl_p2p_redial_duration_seconds", redialFailure))
+}
+
+func TestRedialDelay(t *testing.T) {
+	p := &P2p{maxRedialDelay: 3 * time.Second, relayRedialWait: 5 * time.Second}
+	relay := multiaddr.StringCast("/ip4/192.0.2.1/udp/6150/quic-v1/p2p-circuit")
+	direct := multiaddr.StringCast("/ip4/192.0.2.1/udp/6150/quic-v1")
+
+	// through a relay the side that accepted the connection dials first
+	require.Zero(t, p.redialDelay(fakeConn{addr: relay, dir: network.DirInbound}))
+	require.Equal(t, p.relayRedialWait, p.redialDelay(fakeConn{addr: relay, dir: network.DirOutbound}))
+	// a direct connection: a random pause for both sides
+	require.Less(t, p.redialDelay(fakeConn{addr: direct, dir: network.DirInbound}), p.maxRedialDelay)
+	require.Less(t, p.redialDelay(fakeConn{addr: direct, dir: network.DirOutbound}), p.maxRedialDelay)
+}
+
+type fakeConn struct {
+	network.Conn
+	addr multiaddr.Multiaddr
+	dir  network.Direction
+}
+
+func (c fakeConn) RemoteMultiaddr() multiaddr.Multiaddr { return c.addr }
+
+func (c fakeConn) Stat() network.ConnStats {
+	return network.ConnStats{Stats: network.Stats{Direction: c.dir}}
 }
 
 // metricValue reads a metric of this process by the value of its only label: the

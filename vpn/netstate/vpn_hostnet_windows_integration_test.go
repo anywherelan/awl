@@ -77,6 +77,10 @@ const (
 // never collides with a real awl instance on the same host.
 var testTunGUID = mustGUID("{a1e0f9db-46cd-4b31-8e94-2f0e9a55c001}")
 
+// testAwlPrefix is our address with the awl subnet length, as EnableServerNAT
+// takes it.
+var testAwlPrefix = netip.MustParsePrefix("10.66.0.1/16")
+
 func mustGUID(s string) *windows.GUID {
 	guid, err := windows.GUIDFromString(s)
 	if err != nil {
@@ -347,7 +351,7 @@ func TestGatewayHostNetNATLifecycle(t *testing.T) {
 	require.False(t, awlNATInstalled(t), "pre-existing awl-gateway NetNat; clean the host before running")
 
 	mgr := NewManager()
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, "", nicGUID))
+	require.NoError(t, mgr.EnableServerNAT(testAwlPrefix, netip.Prefix{}, nicGUID))
 	require.True(t, mgr.ServerNATActive())
 
 	require.True(t, awlNATInstalled(t), "NetNat must exist while NAT is up")
@@ -383,7 +387,7 @@ func TestGatewayHostNetNATPreservesExistingForwarding(t *testing.T) {
 	}
 
 	mgr := NewManager()
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, "", nicGUID))
+	require.NoError(t, mgr.EnableServerNAT(testAwlPrefix, netip.Prefix{}, nicGUID))
 	require.True(t, forwardingEnabled(t, nicLUID))
 
 	require.NoError(t, mgr.DisableServerNAT())
@@ -404,7 +408,7 @@ func TestGatewayHostNetNATStaleRecovery(t *testing.T) {
 	require.True(t, awlNATInstalled(t))
 
 	mgr := NewManager()
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, "", nicGUID),
+	require.NoError(t, mgr.EnableServerNAT(testAwlPrefix, netip.Prefix{}, nicGUID),
 		"EnableServerNAT must recover from a stale awl-gateway NetNat")
 	require.True(t, awlNATInstalled(t))
 
@@ -436,7 +440,7 @@ func TestGatewayHostNetNATRollback(t *testing.T) {
 	})
 
 	mgr := NewManager()
-	err = mgr.EnableServerNAT(testAwlSubnet, "", nicGUID)
+	err = mgr.EnableServerNAT(testAwlPrefix, netip.Prefix{}, nicGUID)
 	if err == nil {
 		// If even overlapping-prefix instances are tolerated, there is no
 		// failure to roll back from. Clean up and skip rather than fail.
@@ -669,7 +673,7 @@ func TestGatewayHostNetClientFenceAllowsClientServerCoexist(t *testing.T) {
 	_, nicGUID := pickServerTestNIC(t)
 
 	require.NoError(t, mgr.EnableClientRoutes(tunGUID))
-	require.NoError(t, mgr.EnableServerNAT(testAwlSubnet, "", nicGUID))
+	require.NoError(t, mgr.EnableServerNAT(testAwlPrefix, netip.Prefix{}, nicGUID))
 	t.Cleanup(func() { _ = mgr.DisableServerNAT() })
 
 	require.Equal(t, 8, clientFenceRuleCount(t), "client fence rules present with both roles on")

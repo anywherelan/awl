@@ -55,6 +55,8 @@ func TestRemovePeer(t *testing.T) {
 	peer2 := ts.NewTestPeer(false)
 
 	ts.makeFriends(peer2, peer1)
+	grantExitNodePermission(ts, peer2, peer1)
+	peer1.app.SOCKS5.SetProxyPeerID(peer2.PeerID())
 
 	// Remove peer2 from peer1
 	err := peer1.api.RemovePeer(peer2.PeerID())
@@ -65,6 +67,7 @@ func TestRemovePeer(t *testing.T) {
 	ts.Nil(peer2From1)
 	_, blockedPeerExists := peer1.app.Conf.GetBlockedPeer(peer2.PeerID())
 	ts.True(blockedPeerExists)
+	ts.Empty(peer1.app.SOCKS5.GetProxyPeerID(), "a removed peer is no longer the exit node")
 
 	time.Sleep(500 * time.Millisecond)
 	peer1From2, err := peer2.api.KnownPeerConfig(peer1.PeerID())
@@ -1952,6 +1955,14 @@ func TestSOCKS5ClientHandlesLocalTargets(t *testing.T) {
 
 	checkLocalTargets()
 	ts.ErrorContains(dial(net.JoinHostPort("0.0.0.0", apiPort)), "not allowed by ruleset")
+
+	// The exit node is gone: no connect is tried, the request fails at once.
+	exitNode.Close()
+	ts.Eventually(func() bool {
+		return !client.app.P2p.IsConnected(exitNode.app.P2p.PeerID())
+	}, 15*time.Second, 50*time.Millisecond)
+	ts.ErrorContains(dial("192.0.2.1:80"), "general SOCKS server failure")
+	ts.Contains(ts.fetchMetrics(client), `awl_socks5_errors_total{direction="client",reason="peer_offline"}`)
 }
 
 func TestUpdatePeerSettingsIPAddr(t *testing.T) {
@@ -2440,8 +2451,8 @@ func TestDisableVPNTunneling(t *testing.T) {
 		peer1.tun.ClearInboundCount()
 		peer2.tun.ClearInboundCount()
 		for i := 0; i < packetsCount; i++ {
-			peer1.tun.Outbound <- [][]byte{testPacket(100)}
-			peer2.tun.Outbound <- [][]byte{testPacket(100)}
+			peer1.tun.Outbound <- [][]byte{testPacketToPeer(100, peer1, peer2)}
+			peer2.tun.Outbound <- [][]byte{testPacketToPeer(100, peer2, peer1)}
 			time.Sleep(10 * time.Millisecond)
 		}
 		time.Sleep(500 * time.Millisecond)
