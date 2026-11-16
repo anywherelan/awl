@@ -34,7 +34,9 @@ func gatewayStatus(api *apiclient.Client, w io.Writer) error {
 		if gw.GatewayPing > 0 {
 			line("Ping", gw.GatewayPing.Round(time.Millisecond).String())
 		}
-		line("Connection", formatRelay(gw.GatewayThroughRelay))
+		if gw.Connected {
+			line("Connection", formatRelay(gw.GatewayThroughRelay))
+		}
 	}
 
 	return nil
