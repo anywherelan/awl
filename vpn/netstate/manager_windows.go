@@ -5,6 +5,7 @@ package netstate
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -241,16 +242,18 @@ func (m *Manager) ClientRoutesActive() bool {
 }
 
 // EnableServerNAT configures the exit-node data path for the awl subnet
-// (WFP filter + per-interface forwarding + WinNAT). Idempotent: a second
-// call while NAT is configured is a no-op.
-func (m *Manager) EnableServerNAT(awlSubnet, awlSubnet6, tunIfName string) error {
+// (WFP filter + per-interface forwarding + WinNAT). awlPrefix and awlPrefix6
+// are our own address with the prefix length of the awl subnet, like
+// 10.66.0.1/11. Only the IPv4 subnet is used here, awlPrefix6 is ignored.
+// Idempotent: a second call while NAT is configured is a no-op.
+func (m *Manager) EnableServerNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.natState != nil {
 		return nil
 	}
-	state, err := m.setupNAT(awlSubnet, awlSubnet6, tunIfName)
+	state, err := m.setupNAT(awlPrefix, awlPrefix6, tunIfName)
 	if err != nil {
 		return fmt.Errorf("setup NAT: %w", err)
 	}

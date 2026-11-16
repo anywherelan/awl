@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -744,7 +745,7 @@ func (m *testNetManager) ClientRoutesActive() bool {
 	return m.clientActive
 }
 
-func (m *testNetManager) EnableServerNAT(_, _, _ string) error {
+func (m *testNetManager) EnableServerNAT(_, _ netip.Prefix, _ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.serverActive {

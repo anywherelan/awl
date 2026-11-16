@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"net/netip"
 	"runtime"
 	"slices"
 	"strings"
@@ -33,7 +34,7 @@ type NetManager interface {
 	EnableClientRoutes(tunIfName string) error
 	DisableClientRoutes() error
 	ClientRoutesActive() bool
-	EnableServerNAT(awlSubnet, awlSubnet6, tunIfName string) error
+	EnableServerNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName string) error
 	DisableServerNAT() error
 	ServerNATActive() bool
 }
@@ -394,18 +395,20 @@ func (g *VPNGateway) applyServer() error {
 	if err != nil {
 		return fmt.Errorf("get TUN name for NAT: %w", err)
 	}
-	awlSubnet := g.conf.VPNPrefix().Masked().String()
+	// Our address with the awl subnet length: the NAT rules need both.
+	awlPrefix := g.conf.VPNPrefix()
 
-	// Derive the IPv6 awl subnet for NAT6 (may be empty if IPv6 is unconfigured).
-	awlSubnet6 := ""
+	// Not valid if IPv6 is unconfigured.
+	var awlPrefix6 netip.Prefix
+	ipv6 := "off"
 	if prefix, ok := g.conf.VPNPrefixV6(); ok {
-		awlSubnet6 = prefix.Masked().String()
+		awlPrefix6, ipv6 = prefix, prefix.String()
 	}
 
-	if err := g.netManager.EnableServerNAT(awlSubnet, awlSubnet6, tunName); err != nil {
+	if err := g.netManager.EnableServerNAT(awlPrefix, awlPrefix6, tunName); err != nil {
 		return err
 	}
-	g.logger.Infof("VPN gateway server NAT configured for subnet %s (IPv6: %q) on %s", awlSubnet, awlSubnet6, tunName)
+	g.logger.Infof("VPN gateway server NAT configured for %s (IPv6: %s) on %s", awlPrefix, ipv6, tunName)
 	return nil
 }
 
@@ -414,8 +417,13 @@ func (g *VPNGateway) teardownServer() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	wasActive := g.netManager.ServerNATActive()
 	if err := g.netManager.DisableServerNAT(); err != nil {
 		g.logger.Errorf("teardown NAT: %v", err)
+		return
+	}
+	if wasActive {
+		g.logger.Infof("VPN gateway server NAT removed")
 	}
 }
 

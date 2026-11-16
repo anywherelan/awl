@@ -5,6 +5,7 @@ package netstate
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"strings"
@@ -27,13 +28,15 @@ const (
 // used here (coreos/go-iptables) does not bridge that gap.
 type natState struct {
 	awlSubnet string
+	localIP   string // our own address in awlSubnet
 	tunIfName string
 
-	// IPv6 NAT state. awlSubnet6 is empty when the IPv6 awl subnet is not
-	// configured. ip6tablesOK is set to false when the kernel lacks NAT6
-	// support (missing nf_nat_ipv6 module), so we degrade gracefully to
-	// IPv4-only without failing the entire server-side enable.
+	// IPv6 NAT state. awlSubnet6 and localIP6 are empty when the IPv6 awl
+	// subnet is not configured. ip6tablesOK is set to false when the kernel
+	// lacks NAT6 support (missing nf_nat_ipv6 module), so we degrade gracefully
+	// to IPv4-only without failing the entire server-side enable.
 	awlSubnet6      string
+	localIP6        string
 	origIPv6Forward string
 	ip6tablesOK     bool
 }
@@ -56,11 +59,21 @@ func newIPTables(proto iptables.Protocol) (*iptables.IPTables, error) {
 // state (AWL-FORWARD chain, MASQUERADE rule, ip_forward=1) would otherwise
 // cause this function to fail at NewChain. We pre-clean any such leftovers
 // best-effort so the new setup gets a clean slate.
-func (m *Manager) setupNAT(awlSubnet, awlSubnet6, tunIfName string) (*natState, error) {
+//
+// awlPrefix and awlPrefix6 are our own address with the prefix length of the
+// awl subnet, like 10.66.0.1/11. awlPrefix6 is not valid when IPv6 is off.
+func (m *Manager) setupNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName string) (*natState, error) {
+	if !awlPrefix.IsValid() {
+		return nil, errors.New("awl prefix is not set")
+	}
 	state := &natState{
-		awlSubnet:  awlSubnet,
-		awlSubnet6: awlSubnet6,
-		tunIfName:  tunIfName,
+		awlSubnet: awlPrefix.Masked().String(),
+		localIP:   awlPrefix.Addr().String(),
+		tunIfName: tunIfName,
+	}
+	if awlPrefix6.IsValid() {
+		state.awlSubnet6 = awlPrefix6.Masked().String()
+		state.localIP6 = awlPrefix6.Addr().String()
 	}
 
 	ipt, err := newIPTables(iptables.ProtocolIPv4)
@@ -69,7 +82,7 @@ func (m *Manager) setupNAT(awlSubnet, awlSubnet6, tunIfName string) (*natState, 
 	}
 
 	// Pre-clean any leftover scaffolding.
-	staleCleaned, err := cleanupStaleNAT(ipt, awlSubnet, tunIfName)
+	staleCleaned, err := cleanupStaleNAT(ipt, state)
 	if err != nil {
 		return nil, fmt.Errorf("pre-clean stale NAT: %w", err)
 	}
@@ -104,7 +117,7 @@ func (m *Manager) setupNAT(awlSubnet, awlSubnet6, tunIfName string) (*natState, 
 
 	// IPv6 NAT — optional, degrades gracefully when the kernel has no NAT6
 	// support (nf_nat_ipv6 module missing, common on minimised kernels).
-	if awlSubnet6 != "" {
+	if state.awlSubnet6 != "" {
 		if err := m.setupNATv6(state); err != nil {
 			// Log and continue: IPv4 gateway still works.
 			logger.Warnf("IPv6 NAT setup failed (IPv4 gateway still active, IPv6 will not be tunnelled): %v", err)
@@ -137,7 +150,7 @@ func (m *Manager) setupNATv6(state *natState) error {
 	}
 
 	// Pre-clean any stale ip6tables state from a previous run.
-	if staleCleaned, err := cleanupStaleNAT6(ipt6, state.awlSubnet6, state.tunIfName); err != nil {
+	if staleCleaned, err := cleanupStaleNAT6(ipt6, state); err != nil {
 		return fmt.Errorf("pre-clean stale NAT6: %w", err)
 	} else if staleCleaned {
 		logger.Warnf("recovered from leftover gateway NAT6 state")
@@ -160,7 +173,17 @@ func setupIptables(ipt *iptables.IPTables, state *natState) error {
 		return fmt.Errorf("create chain %s: %w", awlForwardChain, err)
 	}
 
-	// conntrack first inside our chain — for two reasons:
+	// Connections first addressed to our own awl address are not transit
+	// through the gateway. The host DNATs them to its own services, like a
+	// port that Docker publishes, so they reach FORWARD with a private
+	// destination. Return them before the DROPs below and let the host's rules
+	// decide, as with the gateway server off. RETURN, not ACCEPT: the host's
+	// rules after our jump, like DOCKER-USER, still apply.
+	if err := ipt.Append("filter", awlForwardChain, localReturnArgs(state.localIP)...); err != nil {
+		return fmt.Errorf("add RETURN rule: %w", err)
+	}
+
+	// conntrack next inside our chain — for two reasons:
 	//   - return traffic (dst inside awlSubnet ⊂ 10.0.0.0/8) would otherwise
 	//     be dropped by the private-subnet rules below;
 	//   - keeps the rule scoped to awl traffic instead of polluting the global
@@ -192,8 +215,10 @@ func setupIptables(ipt *iptables.IPTables, state *natState) error {
 	}
 
 	// MASQUERADE outgoing traffic from awl subnet, but never on the TUN
-	// itself — that would NAT peer-to-peer traffic on the mesh interface.
-	if err := ipt.Append("nat", "POSTROUTING", masqueradeArgs(state.awlSubnet, state.tunIfName)...); err != nil {
+	// itself — that would NAT peer-to-peer traffic on the mesh interface. Nor
+	// the connections to our own address that the host DNATs: the service
+	// behind the DNAT sees the peer's awl address, as with the gateway off.
+	if err := ipt.Append("nat", "POSTROUTING", masqueradeArgs(state.awlSubnet, state.localIP, state.tunIfName)...); err != nil {
 		return fmt.Errorf("add MASQUERADE: %w", err)
 	}
 
@@ -204,6 +229,10 @@ func setupIptables(ipt *iptables.IPTables, state *natState) error {
 func setupIptables6(ipt6 *iptables.IPTables, state *natState) error {
 	if err := ipt6.NewChain("filter", awlForwardChain6); err != nil {
 		return fmt.Errorf("create chain %s: %w", awlForwardChain6, err)
+	}
+
+	if err := ipt6.Append("filter", awlForwardChain6, localReturnArgs(state.localIP6)...); err != nil {
+		return fmt.Errorf("add RETURN rule to %s: %w", awlForwardChain6, err)
 	}
 
 	if err := ipt6.Append("filter", awlForwardChain6, conntrackArgs()...); err != nil {
@@ -227,7 +256,7 @@ func setupIptables6(ipt6 *iptables.IPTables, state *natState) error {
 		return fmt.Errorf("insert return jump to %s: %w", awlForwardChain6, err)
 	}
 
-	if err := ipt6.Append("nat", "POSTROUTING", masqueradeArgs6(state.awlSubnet6, state.tunIfName)...); err != nil {
+	if err := ipt6.Append("nat", "POSTROUTING", masqueradeArgs(state.awlSubnet6, state.localIP6, state.tunIfName)...); err != nil {
 		return fmt.Errorf("add IPv6 MASQUERADE: %w", err)
 	}
 
@@ -266,7 +295,7 @@ func teardownIptablesRules(state *natState) []error {
 		return []error{fmt.Errorf("init iptables for teardown: %w", err)}
 	}
 
-	if err := ipt.DeleteIfExists("nat", "POSTROUTING", masqueradeArgs(state.awlSubnet, state.tunIfName)...); err != nil {
+	if err := ipt.DeleteIfExists("nat", "POSTROUTING", masqueradeArgs(state.awlSubnet, state.localIP, state.tunIfName)...); err != nil {
 		errs = append(errs, fmt.Errorf("del MASQUERADE: %w", err))
 	}
 	if err := ipt.DeleteIfExists("filter", "FORWARD", returnJumpArgs(state.tunIfName, state.awlSubnet)...); err != nil {
@@ -299,7 +328,7 @@ func teardownIptablesRules6(state *natState) []error {
 		return []error{fmt.Errorf("init ip6tables for teardown: %w", err)}
 	}
 
-	if err := ipt6.DeleteIfExists("nat", "POSTROUTING", masqueradeArgs6(state.awlSubnet6, state.tunIfName)...); err != nil {
+	if err := ipt6.DeleteIfExists("nat", "POSTROUTING", masqueradeArgs(state.awlSubnet6, state.localIP6, state.tunIfName)...); err != nil {
 		errs = append(errs, fmt.Errorf("del IPv6 MASQUERADE: %w", err))
 	}
 	if err := ipt6.DeleteIfExists("filter", "FORWARD", returnJumpArgs6(state.tunIfName, state.awlSubnet6)...); err != nil {
@@ -336,7 +365,7 @@ func teardownIptablesRules6(state *natState) []error {
 // (and thus removed). err is only returned for unexpected ChainExists failures;
 // the per-operation deletes' errors are intentionally swallowed because the
 // goal is "make NewChain succeed", not "perfectly mirror teardown".
-func cleanupStaleNAT(ipt *iptables.IPTables, awlSubnet, tunIfName string) (bool, error) {
+func cleanupStaleNAT(ipt *iptables.IPTables, state *natState) (bool, error) {
 	chainExists, err := ipt.ChainExists("filter", awlForwardChain)
 	if err != nil {
 		return false, fmt.Errorf("check %s chain: %w", awlForwardChain, err)
@@ -348,9 +377,10 @@ func cleanupStaleNAT(ipt *iptables.IPTables, awlSubnet, tunIfName string) (bool,
 		return false, nil
 	}
 
-	_ = ipt.DeleteIfExists("nat", "POSTROUTING", masqueradeArgs(awlSubnet, tunIfName)...)
-	_ = ipt.DeleteIfExists("filter", "FORWARD", returnJumpArgs(tunIfName, awlSubnet)...)
-	_ = ipt.DeleteIfExists("filter", "FORWARD", outboundJumpArgs(tunIfName, awlSubnet)...)
+	_ = ipt.DeleteIfExists("nat", "POSTROUTING", masqueradeArgs(state.awlSubnet, state.localIP, state.tunIfName)...)
+	_ = ipt.DeleteIfExists("nat", "POSTROUTING", oldMasqueradeArgs(state.awlSubnet, state.tunIfName)...)
+	_ = ipt.DeleteIfExists("filter", "FORWARD", returnJumpArgs(state.tunIfName, state.awlSubnet)...)
+	_ = ipt.DeleteIfExists("filter", "FORWARD", outboundJumpArgs(state.tunIfName, state.awlSubnet)...)
 	_ = ipt.ClearChain("filter", awlForwardChain)
 	_ = ipt.DeleteChain("filter", awlForwardChain)
 
@@ -359,7 +389,7 @@ func cleanupStaleNAT(ipt *iptables.IPTables, awlSubnet, tunIfName string) (bool,
 
 // cleanupStaleNAT6 mirrors cleanupStaleNAT for IPv6. Detection key is the
 // AWL6-FORWARD chain.
-func cleanupStaleNAT6(ipt6 *iptables.IPTables, awlSubnet6, tunIfName string) (bool, error) {
+func cleanupStaleNAT6(ipt6 *iptables.IPTables, state *natState) (bool, error) {
 	chainExists, err := ipt6.ChainExists("filter", awlForwardChain6)
 	if err != nil {
 		return false, fmt.Errorf("check %s chain: %w", awlForwardChain6, err)
@@ -368,19 +398,31 @@ func cleanupStaleNAT6(ipt6 *iptables.IPTables, awlSubnet6, tunIfName string) (bo
 		return false, nil
 	}
 
-	_ = ipt6.DeleteIfExists("nat", "POSTROUTING", masqueradeArgs6(awlSubnet6, tunIfName)...)
-	_ = ipt6.DeleteIfExists("filter", "FORWARD", returnJumpArgs6(tunIfName, awlSubnet6)...)
-	_ = ipt6.DeleteIfExists("filter", "FORWARD", outboundJumpArgs6(tunIfName, awlSubnet6)...)
+	_ = ipt6.DeleteIfExists("nat", "POSTROUTING", masqueradeArgs(state.awlSubnet6, state.localIP6, state.tunIfName)...)
+	_ = ipt6.DeleteIfExists("nat", "POSTROUTING", oldMasqueradeArgs(state.awlSubnet6, state.tunIfName)...)
+	_ = ipt6.DeleteIfExists("filter", "FORWARD", returnJumpArgs6(state.tunIfName, state.awlSubnet6)...)
+	_ = ipt6.DeleteIfExists("filter", "FORWARD", outboundJumpArgs6(state.tunIfName, state.awlSubnet6)...)
 	_ = ipt6.ClearChain("filter", awlForwardChain6)
 	_ = ipt6.DeleteChain("filter", awlForwardChain6)
 
 	return true, nil
 }
 
-// ─── iptables rule argument builders (IPv4) ─────────────────────────────────
+// ─── iptables rule argument builders (IPv4, and shared by both families) ────
+
+// conntrackMatch is the conntrack match with its options.
+func conntrackMatch(opts ...string) []string {
+	return append([]string{"-m", "conntrack"}, opts...)
+}
 
 func conntrackArgs() []string {
-	return []string{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"}
+	return append(conntrackMatch("--ctstate", "RELATED,ESTABLISHED"), "-j", "ACCEPT")
+}
+
+// localReturnArgs matches connections first addressed to localIP, also after
+// the host DNATed them. Used for both families.
+func localReturnArgs(localIP string) []string {
+	return append(conntrackMatch("--ctorigdst", localIP), "-j", "RETURN")
 }
 
 func outboundJumpArgs(tunIfName, awlSubnet string) []string {
@@ -391,7 +433,17 @@ func returnJumpArgs(tunIfName, awlSubnet string) []string {
 	return []string{"-o", tunIfName, "-d", awlSubnet, "-j", awlForwardChain}
 }
 
-func masqueradeArgs(awlSubnet, tunIfName string) []string {
+// masqueradeArgs leaves out the connections that localReturnArgs matches. Used
+// for both families.
+func masqueradeArgs(awlSubnet, localIP, tunIfName string) []string {
+	args := append([]string{"-s", awlSubnet, "!", "-o", tunIfName}, conntrackMatch("!", "--ctorigdst", localIP)...)
+	return append(args, "-j", "MASQUERADE")
+}
+
+// oldMasqueradeArgs is the MASQUERADE rule of awl before v0.21.0, without the
+// conntrack condition. cleanupStaleNAT* remove it if an old version left it
+// behind. Used for both families.
+func oldMasqueradeArgs(awlSubnet, tunIfName string) []string {
 	return []string{"-s", awlSubnet, "!", "-o", tunIfName, "-j", "MASQUERADE"}
 }
 
@@ -403,8 +455,4 @@ func outboundJumpArgs6(tunIfName, awlSubnet6 string) []string {
 
 func returnJumpArgs6(tunIfName, awlSubnet6 string) []string {
 	return []string{"-o", tunIfName, "-d", awlSubnet6, "-j", awlForwardChain6}
-}
-
-func masqueradeArgs6(awlSubnet6, tunIfName string) []string {
-	return []string{"-s", awlSubnet6, "!", "-o", tunIfName, "-j", "MASQUERADE"}
 }
