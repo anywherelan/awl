@@ -18,6 +18,12 @@ import (
 const (
 	awlForwardChain  = "AWL-FORWARD"
 	awlForwardChain6 = "AWL6-FORWARD"
+
+	// xtablesLockWaitSec is how long an iptables call waits for the xtables
+	// lock. Without a limit, iptables-legacy waits forever while another
+	// program holds the lock, and awl hangs with it. iptables-nft has no
+	// such lock and ignores the limit.
+	xtablesLockWaitSec = 10
 )
 
 // natState holds the state needed to teardown NAT rules.
@@ -41,10 +47,11 @@ type natState struct {
 	ip6tablesOK     bool
 }
 
-// newIPTables adds PATH to the error when the iptables binary is not found, so
-// a bug report shows where the daemon looked for it.
+// newIPTables waits for the xtables lock at most xtablesLockWaitSec. It adds
+// PATH to the error when the iptables binary is not found, so a bug report
+// shows where the daemon looked for it.
 func newIPTables(proto iptables.Protocol) (*iptables.IPTables, error) {
-	ipt, err := iptables.NewWithProtocol(proto)
+	ipt, err := iptables.New(iptables.IPFamily(proto), iptables.Timeout(xtablesLockWaitSec))
 	if errors.Is(err, exec.ErrNotFound) {
 		return nil, fmt.Errorf("%w (PATH=%q)", err, os.Getenv("PATH"))
 	}
@@ -288,9 +295,10 @@ func (m *Manager) teardownNAT(state *natState) error {
 	return errors.Join(errs...)
 }
 
+//nolint:dupl // teardownIptablesRules6 mirrors it for IPv6
 func teardownIptablesRules(state *natState) []error {
 	var errs []error
-	ipt, err := iptables.New()
+	ipt, err := newIPTables(iptables.ProtocolIPv4)
 	if err != nil {
 		return []error{fmt.Errorf("init iptables for teardown: %w", err)}
 	}
@@ -321,9 +329,10 @@ func teardownIptablesRules(state *natState) []error {
 	return errs
 }
 
+//nolint:dupl // the IPv6 mirror of teardownIptablesRules
 func teardownIptablesRules6(state *natState) []error {
 	var errs []error
-	ipt6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
+	ipt6, err := newIPTables(iptables.ProtocolIPv6)
 	if err != nil {
 		return []error{fmt.Errorf("init ip6tables for teardown: %w", err)}
 	}
