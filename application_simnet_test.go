@@ -131,7 +131,7 @@ func TestSimulatedTunnelPerformance(t *testing.T) {
 
 	// TODO: try with different packet sizes
 	//  we probably should aim for one packet per UDP datagram
-	const packetSize = vpn.InterfaceMTU
+	const packetSize = vpn.MaxInterfaceMTU
 	const testDuration = 30 * time.Second
 
 	table := tablewriter.NewWriter(os.Stdout)
@@ -604,7 +604,7 @@ func TestSimulatedGatewayPerformance(t *testing.T) {
 		t.Skipf("skip perf test because %s env is empty", EnvRunPerfTests)
 	}
 
-	const packetSize = vpn.InterfaceMTU
+	const packetSize = vpn.MaxInterfaceMTU
 	const testDuration = 30 * time.Second
 
 	table := tablewriter.NewWriter(os.Stdout)
@@ -653,7 +653,7 @@ func TestSimulatedGatewayRoundTripPerformance(t *testing.T) {
 		t.Skipf("skip perf test because %s env is empty", EnvRunPerfTests)
 	}
 
-	const packetSize = vpn.InterfaceMTU
+	const packetSize = vpn.MaxInterfaceMTU
 	const testDuration = 30 * time.Second
 
 	table := tablewriter.NewWriter(os.Stdout)

@@ -190,6 +190,17 @@ func setupIptables(ipt *iptables.IPTables, state *natState) error {
 		return fmt.Errorf("add RETURN rule: %w", err)
 	}
 
+	// Lower the MSS of TCP connections through the gateway to what fits the
+	// MTU of both interfaces a packet crosses. A peer with a larger TUN MTU
+	// than ours announces an MSS that our TUN can't carry back to it, and the
+	// download stalls when the ICMP error doesn't reach the server. Before
+	// the conntrack ACCEPT below, which would take the server's SYN-ACK
+	// first. The gateway works without the rule, so a kernel without the
+	// TCPMSS target is not an error.
+	if err := ipt.Append("filter", awlForwardChain, mssClampArgs()...); err != nil {
+		logger.Warnf("TCP MSS is not clamped on the gateway (connections of peers with a larger MTU may stall): %v", err)
+	}
+
 	// conntrack next inside our chain — for two reasons:
 	//   - return traffic (dst inside awlSubnet ⊂ 10.0.0.0/8) would otherwise
 	//     be dropped by the private-subnet rules below;
@@ -240,6 +251,11 @@ func setupIptables6(ipt6 *iptables.IPTables, state *natState) error {
 
 	if err := ipt6.Append("filter", awlForwardChain6, localReturnArgs(state.localIP6)...); err != nil {
 		return fmt.Errorf("add RETURN rule to %s: %w", awlForwardChain6, err)
+	}
+
+	// Optional, see setupIptables.
+	if err := ipt6.Append("filter", awlForwardChain6, mssClampArgs()...); err != nil {
+		logger.Warnf("IPv6 TCP MSS is not clamped on the gateway (connections of peers with a larger MTU may stall): %v", err)
 	}
 
 	if err := ipt6.Append("filter", awlForwardChain6, conntrackArgs()...); err != nil {
@@ -432,6 +448,12 @@ func conntrackArgs() []string {
 // the host DNATed them. Used for both families.
 func localReturnArgs(localIP string) []string {
 	return append(conntrackMatch("--ctorigdst", localIP), "-j", "RETURN")
+}
+
+// mssClampArgs matches the SYN and SYN-ACK of a TCP handshake and lowers
+// their MSS to the path MTU. Used for both families.
+func mssClampArgs() []string {
+	return []string{"-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"}
 }
 
 func outboundJumpArgs(tunIfName, awlSubnet string) []string {

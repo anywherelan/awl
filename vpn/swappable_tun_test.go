@@ -66,7 +66,7 @@ func (f *fakeTUN) Write(bufs [][]byte, offset int) (int, error) {
 	return len(bufs), nil
 }
 
-func (f *fakeTUN) MTU() (int, error)        { return InterfaceMTU, nil }
+func (f *fakeTUN) MTU() (int, error)        { return MaxInterfaceMTU, nil }
 func (f *fakeTUN) Name() (string, error)    { return f.name, nil }
 func (f *fakeTUN) File() *os.File           { return nil }
 func (f *fakeTUN) Events() <-chan tun.Event { return f.events }
@@ -105,7 +105,7 @@ func TestSwappableTUN_ReadContinuesAcrossSwap(t *testing.T) {
 
 	fake1 := newFakeTUN()
 	sw := NewSwappableTUN(fake1)
-	dev, err := NewDevice(sw, "awl0", InterfaceMTU, netip.MustParsePrefix("10.66.0.1/24"), netip.Prefix{})
+	dev, err := NewDevice(sw, "awl0", MaxInterfaceMTU, netip.MustParsePrefix("10.66.0.1/24"), netip.Prefix{})
 	a.NoError(err)
 
 	var mu sync.Mutex

@@ -549,7 +549,7 @@ func (t *testTun) BatchSize() int {
 }
 
 func (t *testTun) Flush() error             { return nil }
-func (t *testTun) MTU() (int, error)        { return vpn.InterfaceMTU, nil }
+func (t *testTun) MTU() (int, error)        { return vpn.MaxInterfaceMTU, nil }
 func (t *testTun) Name() (string, error)    { return "testTun", nil }
 func (t *testTun) Events() <-chan tun.Event { return t.t.events }
 func (t *testTun) Close() error {

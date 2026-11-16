@@ -495,7 +495,7 @@ func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
 			}
 			streamOnRelay = isRelayConn(stream.Conn())
 
-			bytesBuf = make([]byte, 0, packetsBatchSize*(vpn.InterfaceMTU+8))
+			bytesBuf = make([]byte, 0, packetsBatchSize*(vpn.MaxInterfaceMTU+8))
 		}
 
 		data := bytesBuf[:0]

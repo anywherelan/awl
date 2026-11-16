@@ -269,7 +269,7 @@ func newTestTunnel(tb testing.TB) *testTunnel {
 	conf.Unlock()
 
 	fake := &fakeTUN{events: make(chan tun.Event)}
-	device, err := vpn.NewDevice(fake, "fake", vpn.InterfaceMTU, netip.Prefix{}, netip.Prefix{})
+	device, err := vpn.NewDevice(fake, "fake", vpn.MaxInterfaceMTU, netip.Prefix{}, netip.Prefix{})
 	require.NoError(tb, err)
 	tb.Cleanup(func() { _ = device.Close() })
 
@@ -385,7 +385,7 @@ func (f *fakeTUN) Write(bufs [][]byte, _ int) (int, error) {
 	return len(bufs), nil
 }
 
-func (f *fakeTUN) MTU() (int, error) { return vpn.InterfaceMTU, nil }
+func (f *fakeTUN) MTU() (int, error) { return vpn.MaxInterfaceMTU, nil }
 
 func (f *fakeTUN) Events() <-chan tun.Event { return f.events }
 

@@ -129,6 +129,9 @@ func LoadConfig(appType AppType, bus awlevent.Bus) (*Config, error) {
 		return nil, err
 	}
 	conf.startWriter()
+	if conf.saveAfterLoad {
+		conf.Save()
+	}
 	return conf, nil
 }
 
@@ -243,12 +246,15 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	// for the session, recomputed on every load.
 	conf.netstackDNSIP = conf.computeNetstackDNSIP()
 
+	// An invalid vpn.mtu is kept as is for ValidateForStartup to report.
 	if conf.VPNConfig.MTU == 0 {
-		conf.VPNConfig.MTU = vpn.InterfaceMTU
-	} else if conf.VPNConfig.MTU < vpn.MinInterfaceMTU || conf.VPNConfig.MTU > vpn.InterfaceMTU {
-		logger.Errorf("invalid vpn.mtu %d, must be between %d and %d, using the default %d",
-			conf.VPNConfig.MTU, vpn.MinInterfaceMTU, vpn.InterfaceMTU, vpn.InterfaceMTU)
-		conf.VPNConfig.MTU = vpn.InterfaceMTU
+		if isEmptyConfig {
+			conf.VPNConfig.MTU = vpn.DefaultInterfaceMTU
+		} else {
+			// Previous default MTU
+			conf.VPNConfig.MTU = vpn.MaxInterfaceMTU
+			conf.saveAfterLoad = true
+		}
 	}
 	if conf.VPNConfig.InterfaceName == "" {
 		if runtime.GOOS == "darwin" {
@@ -404,6 +410,9 @@ func (c *Config) ValidateForStartup() error {
 		if _, err := parseIPNetV6(s); err != nil {
 			return fmt.Errorf("vpn.ipNetV6 %q: %w", s, err)
 		}
+	}
+	if mtu := c.VPNConfig.MTU; mtu < vpn.MinInterfaceMTU || mtu > vpn.MaxInterfaceMTU {
+		return fmt.Errorf("vpn.mtu %d: must be between %d and %d", mtu, vpn.MinInterfaceMTU, vpn.MaxInterfaceMTU)
 	}
 
 	return nil
