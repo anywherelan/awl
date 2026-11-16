@@ -1952,6 +1952,14 @@ func TestSOCKS5ClientHandlesLocalTargets(t *testing.T) {
 
 	checkLocalTargets()
 	ts.ErrorContains(dial(net.JoinHostPort("0.0.0.0", apiPort)), "not allowed by ruleset")
+
+	// The exit node is gone: no connect is tried, the request fails at once.
+	exitNode.Close()
+	ts.Eventually(func() bool {
+		return !client.app.P2p.IsConnected(exitNode.app.P2p.PeerID())
+	}, 15*time.Second, 50*time.Millisecond)
+	ts.ErrorContains(dial("192.0.2.1:80"), "general SOCKS server failure")
+	ts.Contains(ts.fetchMetrics(client), `awl_socks5_errors_total{direction="client",reason="peer_offline"}`)
 }
 
 func TestUpdatePeerSettingsIPAddr(t *testing.T) {

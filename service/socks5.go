@@ -256,10 +256,12 @@ func (s *SOCKS5) proxyToExitNode(ctx context.Context, conn net.Conn, rawReq []by
 	}
 
 	remotePeerID := peer.PeerId()
-	err := s.p2p.ConnectPeer(ctx, remotePeerID)
-	if err != nil {
-		metrics.SOCKS5ErrorsTotal.WithLabelValues("client", "peer_connect_failed").Inc()
-		return err
+	// As in the tunnel, MaintainBackgroundConnections keeps the connection to the
+	// exit node. A connect here would be a DHT lookup and a dial through every
+	// relay for each SOCKS5 connection, and a browser opens dozens of them.
+	if !s.p2p.IsConnected(remotePeerID) {
+		metrics.SOCKS5ErrorsTotal.WithLabelValues("client", "peer_offline").Inc()
+		return fmt.Errorf("proxy peer %s is not connected", usePeerID)
 	}
 
 	stream, err := s.p2p.NewStreamMulti(ctx, remotePeerID, protocol.Socks5NoAuthMethod, protocol.Socks5PacketMethod)
