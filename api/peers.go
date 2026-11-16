@@ -63,6 +63,7 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 			WeAllowUsingAsExitNode:        knownPeer.WeAllowUsingAsExitNode,
 			AllowedUsingAsExitNode:        knownPeer.AllowedUsingAsExitNode,
 			RemoteVPNGatewayServerEnabled: knownPeer.RemoteVPNGatewayServerEnabled,
+			DisableVPNTunneling:           knownPeer.DisableVPNTunneling,
 			InviteID:                      knownPeer.InviteID,
 			LastSeen:                      knownPeer.LastSeen,
 			Connections:                   h.p2p.PeerConnectionsInfo(id),
@@ -162,6 +163,9 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	knownPeer.Alias = req.Alias
 	knownPeer.DomainName = req.DomainName
 	knownPeer.WeAllowUsingAsExitNode = req.AllowUsingAsExitNode
+	if req.DisableVPNTunneling != nil {
+		knownPeer.DisableVPNTunneling = *req.DisableVPNTunneling
+	}
 
 	h.conf.UpsertPeerUnlocked(knownPeer)
 
