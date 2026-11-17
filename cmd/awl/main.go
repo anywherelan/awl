@@ -23,8 +23,8 @@ const appType = config.AppTypeAwl
 func main() {
 	cli.New(appType).Run()
 
-	if runtime.GOOS == "darwin" && os.Geteuid() == 0 {
-		// macOS has only 127.0.0.1 on lo0: this is required to allow listening on config.AdminHttpServerIP address
+	if (runtime.GOOS == "darwin" || runtime.GOOS == "freebsd") && os.Geteuid() == 0 {
+		// macOS and FreeBSD have only 127.0.0.1 on lo0: this is required to allow listening on config.AdminHttpServerIP address
 		//nolint:gosec
 		err := exec.Command("ifconfig", "lo0", "alias", config.AdminHttpServerIP, "up").Run()
 		if err != nil {
