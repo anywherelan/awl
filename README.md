@@ -24,6 +24,7 @@
   - [macOS](#macos)
   - [Linux desktop (`awl-tray`)](#linux-desktop-awl-tray)
   - [Linux server (`awl`)](#linux-server-awl)
+- [One-Click Deploy](#one-click-deploy)
 - [Connecting devices](#connecting-devices)
 - [Using devices as SOCKS5 proxy](#using-devices-as-socks5-proxy)
 - [VPN gateway (full-tunnel exit node)](#vpn-gateway-full-tunnel-exit-node)
@@ -200,6 +201,10 @@ systemctl status awl.service               # systemd status
 ```
 
 See [Terminal-based client](#terminal-based-client) for more.
+
+# One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/AnywhereLAN/)
 
 ## Connecting devices
 
