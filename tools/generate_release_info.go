@@ -31,6 +31,7 @@ func main() {
 	var awlLinux []string
 	var awlWindows []string
 	var awlWindows7 []string
+	var awlFreebsd []string
 	var awlTrayLinux []string
 	var awlTrayWindows []string
 	var awlTrayWindows7 []string
@@ -52,6 +53,8 @@ func main() {
 			awlWindows7 = append(awlWindows7, filename)
 		case strings.HasPrefix(filename, "awl-windows"):
 			awlWindows = append(awlWindows, filename)
+		case strings.HasPrefix(filename, "awl-freebsd"):
+			awlFreebsd = append(awlFreebsd, filename)
 		case strings.HasPrefix(filename, "awl-tray-linux"):
 			awlTrayLinux = append(awlTrayLinux, filename)
 		case strings.HasPrefix(filename, "awl-tray-windows7"):
@@ -75,6 +78,7 @@ func main() {
 	sort.Strings(awlLinux)
 	sort.Strings(awlWindows)
 	sort.Strings(awlWindows7)
+	sort.Strings(awlFreebsd)
 	sort.Strings(awlTrayLinux)
 	sort.Strings(awlTrayWindows)
 	sort.Strings(awlTrayWindows7)
@@ -97,6 +101,7 @@ func main() {
 		"AwlLinux":        awlLinux,
 		"AwlWindows":      awlWindows,
 		"AwlWindows7":     awlWindows7,
+		"AwlFreebsd":      awlFreebsd,
 		"AwlTrayLinux":    awlTrayLinux,
 		"AwlTrayWindows":  awlTrayWindows,
 		"AwlTrayWindows7": awlTrayWindows7,

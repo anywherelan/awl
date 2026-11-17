@@ -30,14 +30,17 @@ jobs:
           cd cmd/awl-tray && go mod tidy -compat=1.27 && cd ../..
           test -z "$(gofmt -d .)" || (gofmt -d . && false)
           test -z "$(git status --porcelain)" || (git status; git diff && false)
-      - name: Cross-compile 32-bit and cmd/awl-tray
-        # The matrix runners only compile their native 64-bit target, and the
-        # separate cmd/awl-tray module is invisible to `go build ./...` from the root.
+      - name: Cross-compile 32-bit, FreeBSD and cmd/awl-tray
+        # The matrix runners only compile their native 64-bit target, there is
+        # no FreeBSD runner, and the separate cmd/awl-tray module is invisible
+        # to `go build ./...` from the root.
         if: matrix.os == 'ubuntu-latest'
         run: |
           touch embeds/wintun.dll
           CGO_ENABLED=0 GOOS=linux   GOARCH=386 go build ./...
           CGO_ENABLED=0 GOOS=windows GOARCH=386 go build ./...
+          CGO_ENABLED=0 GOOS=freebsd GOARCH=amd64 go build ./...
+          CGO_ENABLED=0 GOOS=freebsd GOARCH=arm64 go build ./...
           cd cmd/awl-tray
           CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o /dev/null .
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null .
