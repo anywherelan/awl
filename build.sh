@@ -69,6 +69,19 @@ gobuild-linux() {
   done
 }
 
+# build for FreeBSD OS
+gobuild-freebsd() {
+  name="$1"
+  for arch in amd64 arm64; do
+    archive_name="$name-freebsd-$arch-$VERSION.tar.gz"
+    filename="$name"
+    CGO_ENABLED=0 GOOS=freebsd GOARCH=$arch go build -trimpath -ldflags "-buildid= -s -w -X github.com/anywherelan/awl/config.Version=${VERSION}" -o "$filename"
+    tar -czf "$archive_name" "$filename"
+    rm "$filename"
+    mv "$archive_name" "$builddir"
+  done
+}
+
 # generate AppIcon.icns from 1024x1024 png, macOS only
 build-macos-icon() {
   src_png="$1"
@@ -219,6 +232,7 @@ build-awl-cross() {
   cd "$awldir/cmd/awl"
   gobuild-linux awl
   gobuild-windows awl
+  gobuild-freebsd awl
 }
 
 # build desktop version for windows and others OS
