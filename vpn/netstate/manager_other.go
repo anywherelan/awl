@@ -48,3 +48,6 @@ func (m *Manager) DisableServerNAT() error { return nil }
 
 // ServerNATActive always reports false on this platform.
 func (m *Manager) ServerNATActive() bool { return false }
+
+// SetServerLANAccess is a no-op on this platform: there is no exit node NAT.
+func (m *Manager) SetServerLANAccess(_ []netip.Addr) error { return nil }

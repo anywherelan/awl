@@ -173,45 +173,14 @@ func TestGatewayHostNetNATLocalDNAT(t *testing.T) {
 	requireRoot(t)
 	captureForward(t)
 
-	peer, ctr := startNetns(t), startNetns(t)
-	_ = exec.Command("ip", "link", "del", testTunIf).Run() // best-effort pre-clean
-	mustCmd(t, "ip", "link", "add", testTunIf, "type", "veth", "peer", "name", "eth0", "netns", peer)
-	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", testTunIf).Run() })
-	mustCmd(t, "ip", "link", "add", testBridgeIf, "type", "veth", "peer", "name", "eth0", "netns", ctr)
-	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", testBridgeIf).Run() })
-
-	// No DAD: IPv6 on a fresh link is otherwise not usable for about a second.
+	peer, ctr := startPeerAndLANNetns(t)
 	for _, step := range []struct{ netns, cmd string }{
-		{"", "sysctl -qw net.ipv6.conf." + testTunIf + ".accept_dad=0"},
-		{"", "ip addr add " + testAwlPrefix.String() + " dev " + testTunIf},
-		{"", "ip addr add " + testAwlPrefix6.String() + " dev " + testTunIf},
-		{"", "ip link set " + testTunIf + " up"},
-		{"", "sysctl -qw net.ipv6.conf." + testBridgeIf + ".accept_dad=0"},
-		{"", "ip addr add 172.31.254.1/24 dev " + testBridgeIf},
-		{"", "ip addr add fd31:254::1/64 dev " + testBridgeIf},
-		{"", "ip link set " + testBridgeIf + " up"},
-		{peer, "sysctl -qw net.ipv6.conf.eth0.accept_dad=0"},
-		{peer, "ip addr add 10.66.0.2/16 dev eth0"},
-		{peer, "ip addr add fd00:66::2/48 dev eth0"},
-		{peer, "ip link set eth0 up"},
-		{peer, "ip route add default via 10.66.0.1"},
-		{peer, "ip -6 route add default via fd00:66::1"},
-		{ctr, "sysctl -qw net.ipv6.conf.eth0.accept_dad=0"},
-		{ctr, "ip addr add 172.31.254.2/24 dev eth0"},
-		{ctr, "ip addr add fd31:254::2/64 dev eth0"},
-		{ctr, "ip link set eth0 up"},
-		{ctr, "ip route add default via 172.31.254.1"},
-		{ctr, "ip -6 route add default via fd31:254::1"},
 		// The container answers port 80 only to the peer's address: with our
 		// MASQUERADE it would see the address of the host on its network.
 		{ctr, "iptables -A INPUT -p tcp --dport 80 ! -s 10.66.0.2 -j DROP"},
 		{ctr, "ip6tables -A INPUT -p tcp --dport 80 ! -s fd00:66::2 -j DROP"},
 	} {
-		args := strings.Fields(step.cmd)
-		if step.netns != "" {
-			args = append([]string{"nsenter", "-t", step.netns, "-n"}, args...)
-		}
-		mustCmd(t, args[0], args[1:]...)
+		nsCmd(t, step.netns, step.cmd)
 	}
 
 	// The host's rules, like Docker's: DNAT of the published port 3080 and
@@ -252,6 +221,139 @@ func TestGatewayHostNetNATLocalDNAT(t *testing.T) {
 
 	require.NoError(t, mgr.DisableServerNAT())
 	require.Equal(t, before, snapshotNet(t), "teardown must restore the exact pre-setup netfilter state")
+}
+
+// ---- N5: a peer with LAN access ----
+//
+// A peer with LAN access reaches a host in the LAN of the exit node, a peer
+// without it does not, and the list of these peers is applied at runtime and
+// kept for the next enable. The LAN host is a network namespace, as the
+// container in N4. Nothing listens in it: "connection refused" means the
+// packet got there.
+
+func TestGatewayHostNetNATLANAccess(t *testing.T) {
+	verifyNoLeaks(t)
+	requireRoot(t)
+	captureForward(t)
+
+	peer, _ := startPeerAndLANNetns(t)
+	// The host lets the LAN traffic through FORWARD, as a router does. Our
+	// jumps end up above these rules.
+	for _, rule := range []string{
+		"iptables -I FORWARD -o " + testBridgeIf + " -j ACCEPT",
+		"iptables -I FORWARD -i " + testBridgeIf + " -j ACCEPT",
+		"ip6tables -I FORWARD -o " + testBridgeIf + " -j ACCEPT",
+		"ip6tables -I FORWARD -i " + testBridgeIf + " -j ACCEPT",
+	} {
+		args := strings.Fields(rule)
+		mustCmd(t, args[0], args[1:]...)
+		del := strings.Fields(strings.Replace(rule, " -I ", " -D ", 1))
+		t.Cleanup(func() { _ = exec.Command(del[0], del[1:]...).Run() })
+	}
+	requireLANReached := func(want bool, msg string) {
+		t.Helper()
+		require.Equal(t, want, tcpReaches(t, peer, "172.31.254.2", "81"), "IPv4: "+msg)
+		require.Equal(t, want, tcpReaches(t, peer, "fd31:254::2", "81"), "IPv6: "+msg)
+	}
+	// fromAddrs makes the peer send from src4 and src6.
+	fromAddrs := func(src4, src6 string) {
+		t.Helper()
+		nsCmd(t, peer, "ip route replace default via 10.66.0.1 src "+src4)
+		nsCmd(t, peer, "ip -6 route replace default via fd00:66::1 src "+src6)
+	}
+	// A second address of the peer, standing for a peer without LAN access.
+	// The kernel would pick the new IPv6 address as the source.
+	nsCmd(t, peer, "ip addr add 10.66.0.4/16 dev eth0")
+	nsCmd(t, peer, "ip -6 addr add fd00:66::4/48 dev eth0")
+	fromAddrs("10.66.0.2", "fd00:66::2")
+	lanPeers := []netip.Addr{netip.MustParseAddr("fd00:66::2"), netip.MustParseAddr("10.66.0.2")}
+
+	before := snapshotNet(t)
+
+	mgr := NewManager()
+	require.NoError(t, mgr.EnableServerNAT(testAwlPrefix, testAwlPrefix6, testTunIf))
+	assertNATApplied(t)
+	requireLANReached(false, "no peer has LAN access yet")
+
+	require.NoError(t, mgr.SetServerLANAccess(lanPeers))
+	assertLANChains(t, lanPeers)
+	requireLANReached(true, "the peer has LAN access at runtime")
+
+	fromAddrs("10.66.0.4", "fd00:66::4")
+	requireLANReached(false, "another peer has no LAN access")
+	fromAddrs("10.66.0.2", "fd00:66::2")
+
+	// A second manager over the live state of the first, as after a crash
+	// (see N2): cleanupStaleNAT must remove the filled AWL-LAN chains too.
+	// The list is set before the enable: it is kept while NAT is off.
+	applied := snapshotNet(t)
+	mgr2 := NewManager()
+	require.NoError(t, mgr2.SetServerLANAccess(lanPeers))
+	require.NoError(t, mgr2.EnableServerNAT(testAwlPrefix, testAwlPrefix6, testTunIf),
+		"re-setup over leftover state must succeed (cleanupStaleNAT)")
+	require.Equal(t, applied, snapshotNet(t), "re-setup must produce identical state, no duplicate rules")
+	requireLANReached(true, "the peer has LAN access after a re-setup")
+
+	require.NoError(t, mgr2.SetServerLANAccess(nil))
+	assertLANChains(t, nil)
+	requireLANReached(false, "the peer's LAN access is revoked")
+
+	require.NoError(t, mgr2.DisableServerNAT())
+	require.Equal(t, before, snapshotNet(t), "single teardown must clean everything after a re-setup")
+}
+
+// startPeerAndLANNetns starts two network namespaces: the peer, connected to
+// the host over testTunIf, which stands for the TUN, and a LAN host, connected
+// over testBridgeIf. Both reach the host's other networks through it. Returns
+// their PIDs.
+//
+//	peer      10.66.0.2/16    fd00:66::2/48  — testTunIf:    10.66.0.1/16    fd00:66::1/48
+//	LAN host  172.31.254.2/24 fd31:254::2/64 — testBridgeIf: 172.31.254.1/24 fd31:254::1/64
+func startPeerAndLANNetns(t *testing.T) (peer, lan string) {
+	t.Helper()
+	peer, lan = startNetns(t), startNetns(t)
+	_ = exec.Command("ip", "link", "del", testTunIf).Run() // best-effort pre-clean
+	mustCmd(t, "ip", "link", "add", testTunIf, "type", "veth", "peer", "name", "eth0", "netns", peer)
+	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", testTunIf).Run() })
+	mustCmd(t, "ip", "link", "add", testBridgeIf, "type", "veth", "peer", "name", "eth0", "netns", lan)
+	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", testBridgeIf).Run() })
+
+	// No DAD: IPv6 on a fresh link is otherwise not usable for about a second.
+	for _, step := range []struct{ netns, cmd string }{
+		{"", "sysctl -qw net.ipv6.conf." + testTunIf + ".accept_dad=0"},
+		{"", "ip addr add " + testAwlPrefix.String() + " dev " + testTunIf},
+		{"", "ip addr add " + testAwlPrefix6.String() + " dev " + testTunIf},
+		{"", "ip link set " + testTunIf + " up"},
+		{"", "sysctl -qw net.ipv6.conf." + testBridgeIf + ".accept_dad=0"},
+		{"", "ip addr add 172.31.254.1/24 dev " + testBridgeIf},
+		{"", "ip addr add fd31:254::1/64 dev " + testBridgeIf},
+		{"", "ip link set " + testBridgeIf + " up"},
+		{peer, "sysctl -qw net.ipv6.conf.eth0.accept_dad=0"},
+		{peer, "ip addr add 10.66.0.2/16 dev eth0"},
+		{peer, "ip addr add fd00:66::2/48 dev eth0"},
+		{peer, "ip link set eth0 up"},
+		{peer, "ip route add default via 10.66.0.1"},
+		{peer, "ip -6 route add default via fd00:66::1"},
+		{lan, "sysctl -qw net.ipv6.conf.eth0.accept_dad=0"},
+		{lan, "ip addr add 172.31.254.2/24 dev eth0"},
+		{lan, "ip addr add fd31:254::2/64 dev eth0"},
+		{lan, "ip link set eth0 up"},
+		{lan, "ip route add default via 172.31.254.1"},
+		{lan, "ip -6 route add default via fd31:254::1"},
+	} {
+		nsCmd(t, step.netns, step.cmd)
+	}
+	return peer, lan
+}
+
+// nsCmd runs cmd in the network namespace of pid, or in ours if pid is empty.
+func nsCmd(t *testing.T, pid, cmd string) {
+	t.Helper()
+	args := strings.Fields(cmd)
+	if pid != "" {
+		args = append([]string{"nsenter", "-t", pid, "-n"}, args...)
+	}
+	mustCmd(t, args[0], args[1:]...)
 }
 
 // ---- R1: route apply/teardown lifecycle ----
@@ -553,6 +655,7 @@ func assertNATApplied(t *testing.T) {
 		"-A " + awlForwardChain + " -m conntrack --ctorigdst " + testAwlPrefix.Addr().String() + " -j RETURN",
 		"-A " + awlForwardChain + " -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu",
 		"-A " + awlForwardChain + " -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
+		"-A " + awlForwardChain + " -j " + awlLANChain,
 	}
 	for _, p := range privatenet.PrefixesV4() {
 		want = append(want, "-A "+awlForwardChain+" -d "+p.String()+" -j DROP")
@@ -561,6 +664,7 @@ func assertNATApplied(t *testing.T) {
 
 	got := lines(cmdOut(t, "iptables", "-S", awlForwardChain))
 	require.Equal(t, want, got, "AWL-FORWARD chain content/order")
+	assertLANChains(t, nil)
 
 	// iptables -S prints matches in its own canonical order (-s before -i,
 	// -d before -o), regardless of the order the code passes them in
@@ -572,6 +676,32 @@ func assertNATApplied(t *testing.T) {
 
 	nat := cmdOut(t, "iptables", "-t", "nat", "-S", "POSTROUTING")
 	require.Contains(t, nat, "-s "+testAwlSubnet+" ! -o "+testTunIf+" -m conntrack ! --ctorigdst "+testAwlPrefix.Addr().String()+" -j MASQUERADE", "MASQUERADE")
+}
+
+// assertLANChains checks the AWL-LAN and AWL6-LAN chains hold the rules for
+// lanPeers, in order.
+func assertLANChains(t *testing.T, lanPeers []netip.Addr) {
+	t.Helper()
+
+	for _, c := range []struct {
+		cmd, chain, awlSubnet string
+		ipv6                  bool
+		lanPrefixes           []netip.Prefix
+	}{
+		{"iptables", awlLANChain, testAwlSubnet, false, privatenet.LANPrefixesV4()},
+		{"ip6tables", awlLANChain6, testAwlSubnet6, true, privatenet.LANPrefixesV6()},
+	} {
+		want := []string{"-N " + c.chain}
+		if peers := lanPeersOf(normalizeLANPeers(lanPeers), c.ipv6); len(peers) > 0 {
+			want = append(want, "-A "+c.chain+" -d "+c.awlSubnet+" -j RETURN")
+			for _, peer := range peers {
+				for _, lan := range c.lanPrefixes {
+					want = append(want, "-A "+c.chain+" -s "+netip.PrefixFrom(peer, peer.BitLen()).String()+" -d "+lan.String()+" -j ACCEPT")
+				}
+			}
+		}
+		require.Equal(t, want, lines(cmdOut(t, c.cmd, "-S", c.chain)), "%s chain content/order", c.chain)
+	}
 }
 
 func assertRoutesApplied(t *testing.T) {

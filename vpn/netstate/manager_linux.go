@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -39,6 +40,8 @@ type Manager struct {
 	mu         sync.Mutex
 	routeState *routeState
 	natState   *natState
+	// lanPeers are the peers with LAN access, see SetServerLANAccess.
+	lanPeers []netip.Addr
 
 	// stopping suppresses the netlink subscription's ErrorCallback on
 	// shutdown: closing our own live subscription socket (the monitor's
@@ -155,7 +158,7 @@ func (m *Manager) EnableServerNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName 
 	if m.natState != nil {
 		return nil
 	}
-	state, err := m.setupNAT(awlPrefix, awlPrefix6, tunIfName)
+	state, err := m.setupNAT(awlPrefix, awlPrefix6, tunIfName, m.lanPeers)
 	if err != nil {
 		return fmt.Errorf("setup NAT: %w", err)
 	}
@@ -183,6 +186,26 @@ func (m *Manager) ServerNATActive() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.natState != nil
+}
+
+// SetServerLANAccess sets the awl addresses, IPv4 and IPv6, of the peers that
+// reach the LAN of the exit node: its LAN and CGNAT ranges, not link-local and
+// not the awl subnet (see privatenet.LANPrefixesV4). Applied right away while
+// NAT is configured, and kept for the next EnableServerNAT. Idempotent.
+func (m *Manager) SetServerLANAccess(peers []netip.Addr) error {
+	peers = normalizeLANPeers(peers)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.lanPeers = peers
+	if m.natState == nil || slices.Equal(m.natState.lanPeers, peers) {
+		return nil
+	}
+	if err := m.natState.setLANAccess(peers); err != nil {
+		return fmt.Errorf("set LAN access: %w", err)
+	}
+	return nil
 }
 
 // routeMonitorDebounce is the interval at which the monitor checks whether any
