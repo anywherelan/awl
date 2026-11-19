@@ -862,7 +862,7 @@ func TestCLI_PeersRename(t *testing.T) {
 	})
 }
 
-// TestCLI_PeersUpdate covers update_domain, update_ip, and allow_exit_node on a shared pair.
+// TestCLI_PeersUpdate covers update_domain, update_ip, allow_exit_node and allow_lan on a shared pair.
 // Each subtest mutates an independent field of peer2's config.
 func TestCLI_PeersUpdate(t *testing.T) {
 	ts := NewTestSuite(t)
@@ -895,6 +895,39 @@ func TestCLI_PeersUpdate(t *testing.T) {
 		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
 		require.NoError(t, err)
 		require.True(t, pcfg.WeAllowUsingAsExitNode)
+	})
+
+	t.Run("AllowLAN", func(t *testing.T) {
+		out, err := runCLI(ts, peer1, "peers", "allow_lan", "--pid", peer2.PeerID(), "--allow")
+		require.NoError(t, err)
+		require.Equal(t, "AllowLANAccess config updated successfully\n", out)
+		pcfg, err := peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.True(t, pcfg.WeAllowLANAccess)
+
+		out, err = runCLI(ts, peer1, "peers", "status", "--format", "e")
+		require.NoError(t, err)
+		require.Contains(t, out, "true, LAN too")
+
+		// Other updates keep it.
+		_, err = runCLI(ts, peer1, "peers", "allow_exit_node", "--pid", peer2.PeerID())
+		require.NoError(t, err)
+		pcfg, err = peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.False(t, pcfg.WeAllowUsingAsExitNode)
+		require.True(t, pcfg.WeAllowLANAccess)
+
+		out, err = runCLI(ts, peer1, "peers", "allow_lan", "--pid", peer2.PeerID(), "--allow")
+		require.NoError(t, err)
+		require.Equal(t, "AllowLANAccess config updated successfully\n"+
+			"the peer can't use this device as an exit node yet, allow it with 'peers allow_exit_node'\n", out)
+
+		out, err = runCLI(ts, peer1, "peers", "allow_lan", "--pid", peer2.PeerID())
+		require.NoError(t, err)
+		require.Equal(t, "AllowLANAccess config updated successfully\n", out)
+		pcfg, err = peer1.api.KnownPeerConfig(peer2.PeerID())
+		require.NoError(t, err)
+		require.False(t, pcfg.WeAllowLANAccess)
 	})
 }
 

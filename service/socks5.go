@@ -175,9 +175,9 @@ func (s *SOCKS5) ProxyStreamHandler(stream network.Stream) {
 
 	// ignore error, we can do nothing about it
 	if stream.Protocol() == protocol.Socks5NoAuthMethod {
-		_ = s.server.ServeStreamConnNoAuth(stream)
+		_ = s.server.ServeStreamConnNoAuth(stream, knownPeer.WeAllowLANAccess)
 	} else {
-		_ = s.server.ServeStreamConn(stream)
+		_ = s.server.ServeStreamConn(stream, knownPeer.WeAllowLANAccess)
 	}
 
 	// stream.Write() + stream.Reset() are not guaranteed to run sequentially

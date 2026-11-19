@@ -274,7 +274,7 @@ On desktop you can also pick the active exit node from the web UI or the system 
 
 The local proxy listens on `127.0.0.1:1066`. Configs created before v0.20.0 keep `127.0.0.66:8080`. If another app already uses the port, awl starts without the local proxy: the web UI shows it as stopped, and the log says which address is taken. To fix it, change `socks5.listenAddress` in the [config](#configuration) and restart awl.
 
-An exit node gives you its internet connection only. Through it you can't reach its `localhost`, its LAN, link-local addresses (such as the cloud metadata service of a VPS) or its awl peers. LAN access may come back as an option, see [#268](https://github.com/anywherelan/awl/issues/268). LAN devices with public IPv6 addresses are an exception and stay reachable.
+By default an exit node gives you its internet connection only. Through it you can't reach its `localhost`, its LAN, link-local addresses (such as the cloud metadata service of a VPS) or its awl peers. Its owner can open its LAN to you, see [LAN access](#lan-access). LAN devices with public IPv6 addresses are an exception and stay reachable.
 
 Some traffic bypasses the exit node: `.awl` names, addresses in your awl network and your own `localhost`.
 
@@ -347,6 +347,22 @@ awl cli gateway status
 awl cli gateway client stop
 ```
 
+### LAN access
+
+An exit node keeps its own network private (see [Security and privacy notes](#security-and-privacy-notes)), unless its owner gives a device LAN access. That device then reaches the devices in the exit node's network through it, such as a NAS or a printer at home: the private IPv4 ranges `10/8`, `172.16/12`, `192.168/16` and `100.64/10`, and over SOCKS5 also IPv6 unique local addresses (`fc00::/7`). LAN access works with both the VPN gateway and the SOCKS5 proxy, takes effect immediately and needs the exit node permission too: without it, the setting does nothing.
+
+```bash
+# on the exit node: let `peer-name` use this device as an exit node and reach its LAN
+awl cli peers allow_exit_node --name="peer-name" --allow=true
+awl cli peers allow_lan --name="peer-name" --allow=true
+# take LAN access away
+awl cli peers allow_lan --name="peer-name" --allow=false
+```
+
+In the API it is `AllowLANAccess` in `peers/update_settings`. `awl cli peers status` shows `LAN too` in the exit node column for such devices.
+
+Even with LAN access, the exit node's `localhost`, link-local addresses (such as the cloud metadata service of a VPS) and its awl peers stay out of reach. The LAN devices see connections from the exit node's own LAN address. With the VPN gateway on desktop, the networks your device is connected to stay local: if your network and the exit node's LAN use the same range, such as `192.168.1.0/24`, you reach the devices in yours.
+
 ### Why serving as an exit node is opt-in
 
 Unlike the SOCKS5 proxy, serving as a VPN gateway changes global system state on the host: on Linux awl turns on `net.ipv4.ip_forward` and installs iptables rules; on Windows it creates a WinNAT instance, enables per-interface IP forwarding and installs a WFP firewall filter. That can interfere with the host's existing networking or firewall setup, and awl can't sandbox it, so we don't enable it on a routine install.
@@ -365,7 +381,7 @@ Unlike the SOCKS5 proxy, serving as a VPN gateway changes global system state on
 ### Security and privacy notes
 
 - **Your IP is exposed.** Once you serve as an exit node, the public IPs that those devices reach see your IP, not theirs.
-- **Your LAN is not.** awl drops forwarded traffic to RFC 1918 / RFC 6598 / RFC 3927 ranges (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`, `169.254/16`) so a gateway client cannot reach the exit node's home network. On Linux this is an iptables chain; on Windows, a WFP forward-layer BLOCK filter with the same subnet list.
+- **Your LAN is not**, unless you give a device [LAN access](#lan-access). awl drops forwarded traffic to RFC 1918 / RFC 6598 / RFC 3927 ranges (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`, `169.254/16`) so a gateway client cannot reach the exit node's home network. On Linux this is an iptables chain; on Windows, a WFP forward-layer BLOCK filter with the same subnet list. LAN access adds exceptions for the awl addresses of the devices you allowed; link-local addresses and the awl subnet stay blocked for them too.
 - **DNS:** in client gateway mode awl forces upstream DNS to a public resolver (`1.1.1.1` by default) so the LAN resolver can't leak queries past the tunnel. If you'd rather use a different resolver, you can change it by hand in the config file (`dns.upstreamDNSAddress`) while awl is stopped.
 - **Connections open before you enable the gateway are cut, not leaked.** When you turn client gateway mode on, existing outbound connections (a browser's keep-alive pools are the common case) are forced to break so applications re-establish them through the tunnel. Otherwise, on Windows, they would keep flowing directly through your physical network card and expose your real IP. On Linux this happens naturally (the tunnel routing kills them); on Windows awl installs a WFP firewall to force it. One deliberate exception on Windows: if this device is *hosting* a service (e.g. an RDP or SMB server) and someone is already connected to it, that inbound connection keeps answering directly, so that enabling the gateway over a remote session does not disconnect you. Fresh inbound connections while the gateway is on are still limited to the tunnel path.
 
@@ -502,6 +518,8 @@ awl cli peers invite revoke --id <invite id from the list>
 
 # allow a peer to use this device as a SOCKS5 exit node
 awl cli peers allow_exit_node --name tester --allow=true
+# also let it reach the LAN of this device, over SOCKS5 and the VPN gateway
+awl cli peers allow_lan --name tester --allow=true
 # list exit nodes / SOCKS5 proxies that are available to you
 awl cli me list_proxies
 # route local SOCKS5 traffic through a specific peer (127.0.0.1:1066 by default)

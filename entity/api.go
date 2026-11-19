@@ -49,6 +49,10 @@ type (
 		// TODO: support ipv6
 		IPAddr               string `validate:"omitempty,ipv4"`
 		AllowUsingAsExitNode bool
+		// optional: lets the peer reach our LAN through us as an exit node,
+		// see config.KnownPeer.WeAllowLANAccess. Omit it to keep the current
+		// value.
+		AllowLANAccess *bool
 	}
 	UpdateMySettingsRequest struct {
 		Name string `validate:"max=100,no_control_chars"`
@@ -91,6 +95,7 @@ type (
 		Confirmed                     bool
 		Declined                      bool
 		WeAllowUsingAsExitNode        bool
+		WeAllowLANAccess              bool
 		AllowedUsingAsExitNode        bool
 		RemoteVPNGatewayServerEnabled bool
 		// InviteID is set when we let this peer in through one of our invite

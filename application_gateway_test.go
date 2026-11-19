@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/anywherelan/awl/config"
 	"github.com/anywherelan/awl/entity"
 	"github.com/anywherelan/awl/service"
@@ -795,6 +797,86 @@ func TestGatewayAPIExitNodeMode(t *testing.T) {
 	ts.False(peer1.app.Conf.VPNGateway.ServerEnabled)
 	peer1.app.Conf.RUnlock()
 	ts.False(peer1.app.VPNGateway.IsServerActive(), "NAT state must be cleared after disable")
+}
+
+// TestGatewayLANAccess checks that the exit node passes the addresses of the
+// peers with LAN access to the netstate manager when the peer settings change:
+// only of the peers it allows to use it as an exit node, IPv4 and IPv6. An
+// update without AllowLANAccess, as from the current UI, keeps the setting.
+func TestGatewayLANAccess(t *testing.T) {
+	ts := NewTestSuite(t)
+	exitNode := ts.NewTestPeer(true)
+	client := ts.NewTestPeer(true)
+	ts.makeFriends(exitNode, client)
+	netManager := exitNode.app.NetManager.(*testNetManager)
+
+	// clientAddrs returns our view of the client's addresses.
+	clientAddrs := func() []netip.Addr {
+		exitNode.app.Conf.RLock()
+		defer exitNode.app.Conf.RUnlock()
+		kp := exitNode.app.Conf.KnownPeers[client.PeerID()]
+		addrs := []netip.Addr{netip.MustParseAddr(kp.IPAddr)}
+		if addr, ok := exitNode.app.Conf.PeerIPv6Unlocked(kp); ok {
+			addrs = append(addrs, addr)
+		}
+		return addrs
+	}
+	update := func(allowExitNode bool, allowLAN *bool) {
+		kp, err := exitNode.api.KnownPeerConfig(client.PeerID())
+		ts.NoError(err)
+		ts.NoError(exitNode.api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+			PeerID:               client.PeerID(),
+			Alias:                kp.Alias,
+			DomainName:           kp.DomainName,
+			IPAddr:               kp.IPAddr,
+			AllowUsingAsExitNode: allowExitNode,
+			AllowLANAccess:       allowLAN,
+		}))
+	}
+	requireLANAccess := func(want bool) {
+		t.Helper()
+		kp, err := exitNode.api.KnownPeerConfig(client.PeerID())
+		ts.NoError(err)
+		ts.Equal(want, kp.WeAllowLANAccess)
+		knownPeers, err := exitNode.api.KnownPeers()
+		ts.NoError(err)
+		ts.Len(knownPeers, 1)
+		ts.Equal(want, knownPeers[0].WeAllowLANAccess)
+	}
+	// The gateway picks a settings change up asynchronously, from the event bus.
+	requireLANPeers := func(clientHasAccess bool) {
+		t.Helper()
+		ts.EventuallyWithT(func(c *assert.CollectT) {
+			var want []netip.Addr
+			if clientHasAccess {
+				want = clientAddrs()
+			}
+			assert.ElementsMatch(c, want, netManager.LANPeers())
+		}, 10*time.Second, 50*time.Millisecond)
+	}
+	allow, forbid := true, false
+
+	// LAN access alone grants nothing.
+	update(false, &allow)
+	requireLANAccess(true)
+	ts.Never(func() bool {
+		return len(netManager.LANPeers()) != 0
+	}, time.Second, 50*time.Millisecond, "a peer without the exit node permission has no LAN access")
+
+	update(true, nil)
+	requireLANAccess(true)
+	requireLANPeers(true)
+
+	update(false, nil)
+	requireLANAccess(true)
+	requireLANPeers(false)
+
+	update(true, nil)
+	requireLANPeers(true)
+
+	update(true, &forbid)
+	requireLANAccess(false)
+	requireLANPeers(false)
 }
 
 // TestGatewayBroadcastHandledViaBroadcastPath verifies that broadcast packets

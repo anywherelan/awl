@@ -121,6 +121,7 @@ type NetManager interface {
 	EnableServerNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName string) error
 	DisableServerNAT() error
 	ServerNATActive() bool
+	SetServerLANAccess(peers []netip.Addr) error
 }
 
 func New() *Application {
@@ -223,6 +224,9 @@ func (a *Application) Init(ctx context.Context, tunDevice tun.Device) error {
 	}
 
 	a.VPNGateway = service.NewVPNGateway(a.Conf, a.Tunnel, a.vpnDevice, a.P2p, a.NetManager, a.Dns)
+	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
+		a.VPNGateway.UpdateLANAccess()
+	}, a.Eventbus, new(awlevent.KnownPeerChanged))
 
 	// Metrics. Read on every scrape of /metrics, so set up before the API.
 	metrics.CollectFrom(

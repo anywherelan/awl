@@ -361,6 +361,21 @@ func (a *Application) init() {
 						},
 					},
 					{
+						Name:  "allow_lan",
+						Usage: "Allow a known peer to reach the LAN of this device through it as an exit node (VPN gateway or SOCKS5 proxy)",
+						Flags: peerSelectorFlags(
+							&cli.BoolFlag{
+								Name:     "allow",
+								Usage:    "true to allow, false to forbid",
+								Required: false,
+							},
+						),
+						Before: a.initApiAndPeerIdRequired,
+						Action: func(c *cli.Context) error {
+							return setAllowLANAccess(a.api, c.String(flagPeerID), c.Bool("allow"), c.App.Writer)
+						},
+					},
+					{
 						Name:  "invite",
 						Usage: "Manage invite links: a peer that uses one is added without a manual accept",
 						Subcommands: []*cli.Command{
