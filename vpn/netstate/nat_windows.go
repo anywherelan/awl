@@ -25,6 +25,10 @@ import (
 const (
 	wfpSublayerName = "awl-gateway-server"
 	wfpRuleName     = "awl-gateway-server: block forwarded LAN/CGNAT egress from TUN"
+	// The rules that let the peers with LAN access past wfpRuleName, see
+	// lanAccessRules.
+	wfpLANRuleName    = "awl-gateway-server: permit forwarded LAN egress of peers with LAN access"
+	wfpLANAWLRuleName = "awl-gateway-server: block forwarded awl subnet egress of peers with LAN access"
 
 	// winNATName is the name of the WinNAT instance owned by awl.
 	winNATName = "awl-gateway"
@@ -56,6 +60,15 @@ const (
 type natState struct {
 	natCreated bool
 	wfpSession *wf.Session
+	// wfpSublayer is our sublayer in wfpSession; tunIfIndex and awlSubnet are
+	// kept for the LAN access rules, which are replaced at runtime.
+	wfpSublayer wf.SublayerID
+	tunIfIndex  uint32
+	awlSubnet   netip.Prefix
+	// lanRuleIDs are the LAN access rules installed in wfpSession for
+	// lanPeers, the IPv4 awl addresses of the peers with LAN access.
+	lanRuleIDs []wf.RuleID
+	lanPeers   []netip.Addr
 	// forwardingEnabled lists interfaces where WE flipped IPv4 forwarding on
 	// (it was off before setupNAT or before a forwarding re-sync). Only these
 	// are reverted at teardown; roaming accumulates LUIDs here, all reverted
@@ -80,7 +93,11 @@ type natState struct {
 // Order matters and is fail-closed: the WFP BLOCK filter is installed before
 // forwarding/NAT create any technical possibility of transit. Any failure
 // after the first step rolls back via teardownNAT (all steps are idempotent).
-func (m *Manager) setupNAT(awlPrefix, _ netip.Prefix, tunIfName string) (*natState, error) {
+//
+// lanPeers are the awl addresses of the peers with LAN access, normalized by
+// normalizeLANPeers. Only the IPv4 ones are used: the exit node forwards IPv4
+// only.
+func (m *Manager) setupNAT(awlPrefix, _ netip.Prefix, tunIfName string, lanPeers []netip.Addr) (*natState, error) {
 	if !awlPrefix.IsValid() {
 		return nil, errors.New("awl prefix is not set")
 	}
@@ -112,12 +129,17 @@ func (m *Manager) setupNAT(awlPrefix, _ netip.Prefix, tunIfName string) (*natSta
 		logger.Warnf("recovered from leftover gateway NAT state (previous run was likely killed before teardown)")
 	}
 
-	state := &natState{tunLUID: tunLUID}
+	state := &natState{tunLUID: tunLUID, tunIfIndex: tunIfIndex, awlSubnet: awlSubnet}
 
-	// 1. WFP forward-layer BLOCK — the safety fence goes up first.
+	// 1. WFP forward-layer BLOCK — the safety fence goes up first, with the
+	// exceptions for the peers with LAN access.
 	if err := setupWFP(state, tunIfIndex, awlSubnet); err != nil {
 		_ = m.teardownNAT(state)
 		return nil, fmt.Errorf("setup WFP filter: %w", err)
+	}
+	if err := state.setLANAccess(lanPeers); err != nil {
+		_ = m.teardownNAT(state)
+		return nil, fmt.Errorf("setup WFP LAN access rules: %w", err)
 	}
 
 	// 2. Per-interface IPv4 forwarding on TUN + uplink. The uplink is the
@@ -282,6 +304,9 @@ func resyncForwarding(state *natState, route uplinkRoute, ok bool, enable func(w
 // higher-weight sublayer — exotic on the forward layer; a plain PERMIT from
 // another firewall does not defeat it.
 //
+// The peers with LAN access get their exceptions from setLANAccess, in the
+// same session and sublayer.
+//
 // The session is Dynamic: everything installed here is removed by the kernel
 // when the session closes or the process dies, so there is no stale-WFP
 // recovery path.
@@ -299,6 +324,7 @@ func setupWFP(state *natState, tunIfIndex uint32, awlPrefix netip.Prefix) error 
 	// forwarding and WinNAT steps. A dangling dynamic session would otherwise
 	// outlive its guarantees until process exit.
 	state.wfpSession = session
+	state.wfpSublayer = sublayerID
 
 	ruleID, err := newWFPGUID()
 	if err != nil {
@@ -314,14 +340,13 @@ func setupWFP(state *natState, tunIfIndex uint32, awlPrefix netip.Prefix) error 
 		})
 	}
 	// The filter weight arbitrates only among filters INSIDE our own
-	// sublayer, and we install exactly one — any non-zero value behaves
-	// identically. 1000 just leaves room on both sides for future rules.
+	// sublayer: the LAN access rules (lanAccessRules) outweigh this one.
 	err = session.AddRule(&wf.Rule{
 		ID:         wf.RuleID(ruleID),
 		Name:       wfpRuleName,
 		Layer:      wf.LayerIPForwardV4,
 		Sublayer:   sublayerID,
-		Weight:     1000,
+		Weight:     wfpBlockRuleWeight,
 		Conditions: conditions,
 		Action:     wf.ActionBlock,
 	})
@@ -330,6 +355,101 @@ func setupWFP(state *natState, tunIfIndex uint32, awlPrefix netip.Prefix) error 
 	}
 
 	return nil
+}
+
+// Weights of the server rules within our sublayer: the highest-weight rule
+// that matches a packet decides.
+const (
+	wfpBlockRuleWeight  = 1000
+	wfpLANRuleWeight    = 2000
+	wfpLANAWLRuleWeight = 3000
+)
+
+// setLANAccess replaces the LAN access rules in the WFP session with the ones
+// for peers, normalized by normalizeLANPeers. The old rules go first, so while
+// they are replaced the peers have no LAN access for a moment, never the
+// other way around.
+func (state *natState) setLANAccess(peers []netip.Addr) error {
+	peers = lanPeersOf(peers, false)
+	for len(state.lanRuleIDs) > 0 {
+		id := state.lanRuleIDs[len(state.lanRuleIDs)-1]
+		if err := state.wfpSession.DeleteRule(id); err != nil {
+			return fmt.Errorf("delete WFP LAN access rule: %w", err)
+		}
+		state.lanRuleIDs = state.lanRuleIDs[:len(state.lanRuleIDs)-1]
+	}
+	state.lanPeers = nil
+
+	rules, err := lanAccessRules(state.wfpSublayer, state.tunIfIndex, state.awlSubnet, peers)
+	if err != nil {
+		return err
+	}
+	for _, rule := range rules {
+		if err := state.wfpSession.AddRule(rule); err != nil {
+			return fmt.Errorf("add WFP rule %q: %w", rule.Name, err)
+		}
+		state.lanRuleIDs = append(state.lanRuleIDs, rule.ID)
+	}
+	state.lanPeers = peers
+	return nil
+}
+
+// lanAccessRules builds the rules that let IPv4 peers past the BLOCK rule of
+// setupWFP, none when there are no peers. In the order they are to be added:
+//
+//   - BLOCK, the awl subnet: LAN access does not open the exit node's awl
+//     peers, which are in 10.0.0.0/8 too;
+//   - PERMIT, the LAN ranges (privatenet.LANPrefixesV4), not link-local.
+//
+// Both match packets that come in through the TUN from the peers.
+func lanAccessRules(sublayer wf.SublayerID, tunIfIndex uint32, awlSubnet netip.Prefix, peers []netip.Addr) ([]*wf.Rule, error) {
+	if len(peers) == 0 {
+		return nil, nil
+	}
+
+	fromPeers := []*wf.Match{
+		{Field: wf.FieldSourceInterfaceIndex, Op: wf.MatchTypeEqual, Value: tunIfIndex},
+	}
+	for _, peer := range peers {
+		fromPeers = append(fromPeers, &wf.Match{
+			Field: wf.FieldIPSourceAddress, Op: wf.MatchTypeEqual, Value: netip.PrefixFrom(peer, peer.BitLen()),
+		})
+	}
+	toLAN := make([]*wf.Match, 0, len(privatenet.LANPrefixesV4()))
+	for _, p := range privatenet.LANPrefixesV4() {
+		toLAN = append(toLAN, &wf.Match{
+			Field: wf.FieldIPDestinationAddress, Op: wf.MatchTypeEqual, Value: p,
+		})
+	}
+	toAWL := []*wf.Match{
+		{Field: wf.FieldIPDestinationAddress, Op: wf.MatchTypeEqual, Value: awlSubnet},
+	}
+
+	var rules []*wf.Rule
+	for _, r := range []struct {
+		name   string
+		weight uint64
+		to     []*wf.Match
+		action wf.Action
+	}{
+		{wfpLANAWLRuleName, wfpLANAWLRuleWeight, toAWL, wf.ActionBlock},
+		{wfpLANRuleName, wfpLANRuleWeight, toLAN, wf.ActionPermit},
+	} {
+		id, err := newWFPGUID()
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, &wf.Rule{
+			ID:         wf.RuleID(id),
+			Name:       r.name,
+			Layer:      wf.LayerIPForwardV4,
+			Sublayer:   sublayer,
+			Weight:     r.weight,
+			Conditions: slices.Concat(fromPeers, r.to),
+			Action:     r.action,
+		})
+	}
+	return rules, nil
 }
 
 // openDynamicWFPSession opens a dynamic WFP session and creates one sublayer

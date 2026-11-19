@@ -2,9 +2,14 @@
 // exit node keeps from its peers: LAN, CGNAT and link-local. The VPN gateway
 // and the SOCKS5 exit node use the same list, so the two do not drift apart.
 //
+// A peer the exit node allows LAN access reaches the LAN and CGNAT ranges
+// (LANPrefixesV4, LANPrefixesV6), never the link-local ones: those hold the
+// cloud metadata service of a VPS, not devices of a home network.
+//
 // The awl subnet itself is in 10.0.0.0/8 in practice, so traffic between awl
 // peers through an exit node is dropped too, by design: peers reach each
-// other directly via libp2p, not via an exit node.
+// other directly via libp2p, not via an exit node. LAN access does not change
+// that.
 package privatenet
 
 import (
@@ -12,18 +17,24 @@ import (
 	"slices"
 )
 
-var prefixesV4 = []netip.Prefix{
+var lanPrefixesV4 = []netip.Prefix{
 	netip.MustParsePrefix("10.0.0.0/8"),
 	netip.MustParsePrefix("172.16.0.0/12"),
 	netip.MustParsePrefix("192.168.0.0/16"),
-	netip.MustParsePrefix("100.64.0.0/10"),  // RFC 6598 — CGNAT
-	netip.MustParsePrefix("169.254.0.0/16"), // RFC 3927 — link-local
+	netip.MustParsePrefix("100.64.0.0/10"), // RFC 6598 — CGNAT
 }
 
-var prefixesV6 = []netip.Prefix{
-	netip.MustParsePrefix("fc00::/7"),  // RFC 4193 — Unique Local Address (ULA), equivalent to RFC 1918 LANs
-	netip.MustParsePrefix("fe80::/10"), // RFC 4291 — link-local, equivalent to 169.254.0.0/16
+var lanPrefixesV6 = []netip.Prefix{
+	netip.MustParsePrefix("fc00::/7"), // RFC 4193 — Unique Local Address (ULA), equivalent to RFC 1918 LANs
 }
+
+var prefixesV4 = append(slices.Clone(lanPrefixesV4),
+	netip.MustParsePrefix("169.254.0.0/16"), // RFC 3927 — link-local
+)
+
+var prefixesV6 = append(slices.Clone(lanPrefixesV6),
+	netip.MustParsePrefix("fe80::/10"), // RFC 4291 — link-local, equivalent to 169.254.0.0/16
+)
 
 // PrefixesV4 returns the IPv4 ranges.
 func PrefixesV4() []netip.Prefix {
@@ -34,6 +45,18 @@ func PrefixesV4() []netip.Prefix {
 // are not covered: by prefix they cannot be told apart from the internet.
 func PrefixesV6() []netip.Prefix {
 	return slices.Clone(prefixesV6)
+}
+
+// LANPrefixesV4 returns the IPv4 ranges a peer with LAN access may reach:
+// PrefixesV4 without link-local.
+func LANPrefixesV4() []netip.Prefix {
+	return slices.Clone(lanPrefixesV4)
+}
+
+// LANPrefixesV6 returns the IPv6 ranges a peer with LAN access may reach:
+// PrefixesV6 without link-local.
+func LANPrefixesV6() []netip.Prefix {
+	return slices.Clone(lanPrefixesV6)
 }
 
 // Contains reports whether addr is in one of the ranges. An IPv4-mapped IPv6

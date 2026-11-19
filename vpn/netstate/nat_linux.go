@@ -19,6 +19,12 @@ const (
 	awlForwardChain  = "AWL-FORWARD"
 	awlForwardChain6 = "AWL6-FORWARD"
 
+	// awlLANChain and awlLANChain6 let the peers with LAN access past the
+	// private-subnet DROPs of AWL-FORWARD / AWL6-FORWARD. Rebuilt whenever
+	// the list of these peers changes, see setLANAccess.
+	awlLANChain  = "AWL-LAN"
+	awlLANChain6 = "AWL6-LAN"
+
 	// xtablesLockWaitSec is how long an iptables call waits for the xtables
 	// lock. Without a limit, iptables-legacy waits forever while another
 	// program holds the lock, and awl hangs with it. iptables-nft has no
@@ -45,6 +51,10 @@ type natState struct {
 	localIP6        string
 	origIPv6Forward string
 	ip6tablesOK     bool
+
+	// lanPeers are the awl addresses of the peers with LAN access that the
+	// AWL-LAN chains currently hold, normalized by normalizeLANPeers.
+	lanPeers []netip.Addr
 }
 
 // newIPTables waits for the xtables lock at most xtablesLockWaitSec. It adds
@@ -69,7 +79,9 @@ func newIPTables(proto iptables.Protocol) (*iptables.IPTables, error) {
 //
 // awlPrefix and awlPrefix6 are our own address with the prefix length of the
 // awl subnet, like 10.66.0.1/11. awlPrefix6 is not valid when IPv6 is off.
-func (m *Manager) setupNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName string) (*natState, error) {
+// lanPeers are the awl addresses of the peers with LAN access, normalized by
+// normalizeLANPeers.
+func (m *Manager) setupNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName string, lanPeers []netip.Addr) (*natState, error) {
 	if !awlPrefix.IsValid() {
 		return nil, errors.New("awl prefix is not set")
 	}
@@ -77,6 +89,7 @@ func (m *Manager) setupNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName string)
 		awlSubnet: awlPrefix.Masked().String(),
 		localIP:   awlPrefix.Addr().String(),
 		tunIfName: tunIfName,
+		lanPeers:  lanPeers,
 	}
 	if awlPrefix6.IsValid() {
 		state.awlSubnet6 = awlPrefix6.Masked().String()
@@ -179,6 +192,9 @@ func setupIptables(ipt *iptables.IPTables, state *natState) error {
 	if err := ipt.NewChain("filter", awlForwardChain); err != nil {
 		return fmt.Errorf("create chain %s: %w", awlForwardChain, err)
 	}
+	if err := ipt.NewChain("filter", awlLANChain); err != nil {
+		return fmt.Errorf("create chain %s: %w", awlLANChain, err)
+	}
 
 	// Connections first addressed to our own awl address are not transit
 	// through the gateway. The host DNATs them to its own services, like a
@@ -208,6 +224,15 @@ func setupIptables(ipt *iptables.IPTables, state *natState) error {
 	//     FORWARD chain with a duplicate RELATED,ESTABLISHED ACCEPT.
 	if err := ipt.Append("filter", awlForwardChain, conntrackArgs()...); err != nil {
 		return fmt.Errorf("add conntrack rule: %w", err)
+	}
+
+	// The peers with LAN access are let through to the LAN in AWL-LAN, the
+	// others return from it to the DROPs below.
+	if err := ipt.Append("filter", awlForwardChain, "-j", awlLANChain); err != nil {
+		return fmt.Errorf("add jump to %s: %w", awlLANChain, err)
+	}
+	if err := fillLANChain(ipt, awlLANChain, state.awlSubnet, lanPeersOf(state.lanPeers, false), privatenet.LANPrefixesV4()); err != nil {
+		return err
 	}
 
 	// The destinations we refuse to forward, see the privatenet package.
@@ -248,6 +273,9 @@ func setupIptables6(ipt6 *iptables.IPTables, state *natState) error {
 	if err := ipt6.NewChain("filter", awlForwardChain6); err != nil {
 		return fmt.Errorf("create chain %s: %w", awlForwardChain6, err)
 	}
+	if err := ipt6.NewChain("filter", awlLANChain6); err != nil {
+		return fmt.Errorf("create chain %s: %w", awlLANChain6, err)
+	}
 
 	if err := ipt6.Append("filter", awlForwardChain6, localReturnArgs(state.localIP6)...); err != nil {
 		return fmt.Errorf("add RETURN rule to %s: %w", awlForwardChain6, err)
@@ -260,6 +288,13 @@ func setupIptables6(ipt6 *iptables.IPTables, state *natState) error {
 
 	if err := ipt6.Append("filter", awlForwardChain6, conntrackArgs()...); err != nil {
 		return fmt.Errorf("add conntrack rule to %s: %w", awlForwardChain6, err)
+	}
+
+	if err := ipt6.Append("filter", awlForwardChain6, "-j", awlLANChain6); err != nil {
+		return fmt.Errorf("add jump to %s: %w", awlLANChain6, err)
+	}
+	if err := fillLANChain(ipt6, awlLANChain6, state.awlSubnet6, lanPeersOf(state.lanPeers, true), privatenet.LANPrefixesV6()); err != nil {
+		return err
 	}
 
 	for _, priv := range privatenet.PrefixesV6() {
@@ -342,6 +377,10 @@ func teardownIptablesRules(state *natState) []error {
 			errs = append(errs, fmt.Errorf("del chain %s: %w", awlForwardChain, err))
 		}
 	}
+	// After AWL-FORWARD: a chain can't be deleted while a rule jumps to it.
+	if err := ipt.ClearAndDeleteChain("filter", awlLANChain); err != nil {
+		errs = append(errs, fmt.Errorf("del chain %s: %w", awlLANChain, err))
+	}
 	return errs
 }
 
@@ -376,24 +415,27 @@ func teardownIptablesRules6(state *natState) []error {
 			errs = append(errs, fmt.Errorf("del chain %s: %w", awlForwardChain6, err))
 		}
 	}
+	if err := ipt6.ClearAndDeleteChain("filter", awlLANChain6); err != nil {
+		errs = append(errs, fmt.Errorf("del chain %s: %w", awlLANChain6, err))
+	}
 	return errs
 }
 
 // cleanupStaleNAT removes leftover NAT state from a previous setupNAT call
 // that did not get a clean teardown (kill -9, OOM, etc). Detection key is the
-// presence of the AWL-FORWARD chain — if it exists, we assume the rest of the
-// awl NAT scaffolding may also be present and try to remove it. All operations
-// are *IfExists / clear-then-delete so callers get an idempotent best-effort
-// pre-clean.
+// presence of the AWL-FORWARD or the AWL-LAN chain — if one exists, we assume
+// the rest of the awl NAT scaffolding may also be present and try to remove
+// it. All operations are *IfExists / clear-then-delete so callers get an
+// idempotent best-effort pre-clean.
 //
 // Returns (cleaned, err) where cleaned is true iff a stale chain was detected
 // (and thus removed). err is only returned for unexpected ChainExists failures;
 // the per-operation deletes' errors are intentionally swallowed because the
 // goal is "make NewChain succeed", not "perfectly mirror teardown".
 func cleanupStaleNAT(ipt *iptables.IPTables, state *natState) (bool, error) {
-	chainExists, err := ipt.ChainExists("filter", awlForwardChain)
+	chainExists, err := anyChainExists(ipt, awlForwardChain, awlLANChain)
 	if err != nil {
-		return false, fmt.Errorf("check %s chain: %w", awlForwardChain, err)
+		return false, err
 	}
 	if !chainExists {
 		// No leftover scaffolding. A bare MASQUERADE without the chain would
@@ -406,18 +448,18 @@ func cleanupStaleNAT(ipt *iptables.IPTables, state *natState) (bool, error) {
 	_ = ipt.DeleteIfExists("nat", "POSTROUTING", oldMasqueradeArgs(state.awlSubnet, state.tunIfName)...)
 	_ = ipt.DeleteIfExists("filter", "FORWARD", returnJumpArgs(state.tunIfName, state.awlSubnet)...)
 	_ = ipt.DeleteIfExists("filter", "FORWARD", outboundJumpArgs(state.tunIfName, state.awlSubnet)...)
-	_ = ipt.ClearChain("filter", awlForwardChain)
-	_ = ipt.DeleteChain("filter", awlForwardChain)
+	_ = ipt.ClearAndDeleteChain("filter", awlForwardChain)
+	_ = ipt.ClearAndDeleteChain("filter", awlLANChain)
 
 	return true, nil
 }
 
 // cleanupStaleNAT6 mirrors cleanupStaleNAT for IPv6. Detection key is the
-// AWL6-FORWARD chain.
+// AWL6-FORWARD or the AWL6-LAN chain.
 func cleanupStaleNAT6(ipt6 *iptables.IPTables, state *natState) (bool, error) {
-	chainExists, err := ipt6.ChainExists("filter", awlForwardChain6)
+	chainExists, err := anyChainExists(ipt6, awlForwardChain6, awlLANChain6)
 	if err != nil {
-		return false, fmt.Errorf("check %s chain: %w", awlForwardChain6, err)
+		return false, err
 	}
 	if !chainExists {
 		return false, nil
@@ -427,10 +469,74 @@ func cleanupStaleNAT6(ipt6 *iptables.IPTables, state *natState) (bool, error) {
 	_ = ipt6.DeleteIfExists("nat", "POSTROUTING", oldMasqueradeArgs(state.awlSubnet6, state.tunIfName)...)
 	_ = ipt6.DeleteIfExists("filter", "FORWARD", returnJumpArgs6(state.tunIfName, state.awlSubnet6)...)
 	_ = ipt6.DeleteIfExists("filter", "FORWARD", outboundJumpArgs6(state.tunIfName, state.awlSubnet6)...)
-	_ = ipt6.ClearChain("filter", awlForwardChain6)
-	_ = ipt6.DeleteChain("filter", awlForwardChain6)
+	_ = ipt6.ClearAndDeleteChain("filter", awlForwardChain6)
+	_ = ipt6.ClearAndDeleteChain("filter", awlLANChain6)
 
 	return true, nil
+}
+
+// anyChainExists reports whether one of the chains exists in the filter table.
+func anyChainExists(ipt *iptables.IPTables, chains ...string) (bool, error) {
+	for _, chain := range chains {
+		exists, err := ipt.ChainExists("filter", chain)
+		if err != nil {
+			return false, fmt.Errorf("check %s chain: %w", chain, err)
+		}
+		if exists {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// setLANAccess rebuilds the AWL-LAN chains for the peers with LAN access,
+// normalized by normalizeLANPeers. While a chain is rebuilt, the peers it is
+// rebuilt for have no LAN access for a moment: their packets fall through to
+// the DROPs, never the other way around.
+func (state *natState) setLANAccess(peers []netip.Addr) error {
+	ipt, err := newIPTables(iptables.ProtocolIPv4)
+	if err != nil {
+		return fmt.Errorf("init iptables: %w", err)
+	}
+	if err := fillLANChain(ipt, awlLANChain, state.awlSubnet, lanPeersOf(peers, false), privatenet.LANPrefixesV4()); err != nil {
+		return err
+	}
+
+	if state.ip6tablesOK {
+		ipt6, err := newIPTables(iptables.ProtocolIPv6)
+		if err != nil {
+			return fmt.Errorf("init ip6tables: %w", err)
+		}
+		if err := fillLANChain(ipt6, awlLANChain6, state.awlSubnet6, lanPeersOf(peers, true), privatenet.LANPrefixesV6()); err != nil {
+			return err
+		}
+	}
+
+	state.lanPeers = peers
+	return nil
+}
+
+// fillLANChain replaces the rules of chain with the ones that accept packets
+// from peers to lanPrefixes. Packets to the awl subnet return first: LAN
+// access does not open the exit node's awl peers, which are in 10.0.0.0/8 too.
+func fillLANChain(ipt *iptables.IPTables, chain, awlSubnet string, peers []netip.Addr, lanPrefixes []netip.Prefix) error {
+	if err := ipt.ClearChain("filter", chain); err != nil {
+		return fmt.Errorf("flush chain %s: %w", chain, err)
+	}
+	if len(peers) == 0 {
+		return nil
+	}
+	if err := ipt.Append("filter", chain, "-d", awlSubnet, "-j", "RETURN"); err != nil {
+		return fmt.Errorf("add awl subnet RETURN rule to %s: %w", chain, err)
+	}
+	for _, peer := range peers {
+		for _, lan := range lanPrefixes {
+			if err := ipt.Append("filter", chain, lanAccessArgs(peer, lan)...); err != nil {
+				return fmt.Errorf("add LAN access rule for %s to %s: %w", peer, chain, err)
+			}
+		}
+	}
+	return nil
 }
 
 // ─── iptables rule argument builders (IPv4, and shared by both families) ────
@@ -454,6 +560,11 @@ func localReturnArgs(localIP string) []string {
 // their MSS to the path MTU. Used for both families.
 func mssClampArgs() []string {
 	return []string{"-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"}
+}
+
+// lanAccessArgs accepts packets from peer to lan. Used for both families.
+func lanAccessArgs(peer netip.Addr, lan netip.Prefix) []string {
+	return []string{"-s", peer.String(), "-d", lan.String(), "-j", "ACCEPT"}
 }
 
 func outboundJumpArgs(tunIfName, awlSubnet string) []string {

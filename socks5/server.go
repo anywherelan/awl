@@ -26,11 +26,17 @@ const (
 	dialTimeout = 30 * time.Second
 )
 
+// Server is the SOCKS5 exit-node server. It serves the peers with LAN access
+// (see ExitNodeRule) and the others with two servers that differ only in the
+// rule: the library has no way to tell the rule who asks.
 type Server struct {
-	socks        *socks5.Server
-	conf         *socks5.Config
-	rule         *UpdatableRule
-	exitNodeRule *ExitNodeRule
+	socks    *socks5.Server
+	socksLAN *socks5.Server
+
+	rule            *UpdatableRule
+	ruleLAN         *UpdatableRule
+	exitNodeRule    *ExitNodeRule
+	exitNodeRuleLAN *ExitNodeRule
 }
 
 // NewServer constructs the SOCKS5 exit-node server. dialControl, when non-nil,
@@ -56,9 +62,20 @@ type Server struct {
 // platform. Those sockets would need their own dialControl-style hook,
 // otherwise UDP relay traffic loops into the VPN gateway tunnel.
 func NewServer(dialControl func(network, address string, c syscall.RawConn) error, awlPrefixes []netip.Prefix) *Server {
-	exitNodeRule := &ExitNodeRule{awlPrefixes: awlPrefixes}
-	rule := NewUpdatableRule(exitNodeRule)
 	dialer := &net.Dialer{Control: dialControl, Timeout: dialTimeout}
+	s := &Server{
+		exitNodeRule:    &ExitNodeRule{awlPrefixes: awlPrefixes},
+		exitNodeRuleLAN: &ExitNodeRule{awlPrefixes: awlPrefixes, allowLAN: true},
+	}
+	s.rule = NewUpdatableRule(s.exitNodeRule)
+	s.ruleLAN = NewUpdatableRule(s.exitNodeRuleLAN)
+	s.socks = newSocksServer(dialer, s.rule)
+	s.socksLAN = newSocksServer(dialer, s.ruleLAN)
+
+	return s
+}
+
+func newSocksServer(dialer *net.Dialer, rule *UpdatableRule) *socks5.Server {
 	conf := &socks5.Config{
 		// fake addr, we don't bind address for server
 		BindIP:   net.IPv4(127, 0, 0, 1),
@@ -74,13 +91,7 @@ func NewServer(dialControl func(network, address string, c syscall.RawConn) erro
 	if err != nil {
 		panic(err)
 	}
-
-	return &Server{
-		socks:        server,
-		conf:         conf,
-		rule:         rule,
-		exitNodeRule: exitNodeRule,
-	}
+	return server
 }
 
 // SetRulesEnabled is for tests: with the rules off, the server proxies to any
@@ -88,25 +99,38 @@ func NewServer(dialControl func(network, address string, c syscall.RawConn) erro
 func (s *Server) SetRulesEnabled(enabled bool) {
 	if enabled {
 		s.rule.SetRule(s.exitNodeRule)
+		s.ruleLAN.SetRule(s.exitNodeRuleLAN)
 	} else {
 		s.rule.SetRule(socks5.PermitAll())
+		s.ruleLAN.SetRule(socks5.PermitAll())
 	}
 }
 
-func (s *Server) ServeStreamConn(stream network.Stream) error {
-	conn := StreamConnWrapper{Stream: stream}
-	return s.socks.ServeConn(conn)
+// server returns the server for a peer with LAN access if allowLAN is set.
+func (s *Server) server(allowLAN bool) *socks5.Server {
+	if allowLAN {
+		return s.socksLAN
+	}
+	return s.socks
 }
 
-func (s *Server) ServeStreamConnNoAuth(stream network.Stream) error {
+// ServeStreamConn serves a peer, which reaches our LAN if allowLAN is set.
+func (s *Server) ServeStreamConn(stream network.Stream, allowLAN bool) error {
 	conn := StreamConnWrapper{Stream: stream}
-	return s.socks.ServeConnNoAuth(conn)
+	return s.server(allowLAN).ServeConn(conn)
+}
+
+// ServeStreamConnNoAuth is ServeStreamConn for a client that has done the auth
+// negotiation on its side.
+func (s *Server) ServeStreamConnNoAuth(stream network.Stream, allowLAN bool) error {
+	conn := StreamConnWrapper{Stream: stream}
+	return s.server(allowLAN).ServeConnNoAuth(conn)
 }
 
 // ServeConn is only used in tests. TODO: refactor tests
-func (s *Server) ServeConn(ioConn io.ReadWriteCloser) error {
+func (s *Server) ServeConn(ioConn io.ReadWriteCloser, allowLAN bool) error {
 	conn := ReadWriterConnWrapper{ReadWriteCloser: ioConn}
-	return s.socks.ServeConn(conn)
+	return s.server(allowLAN).ServeConn(conn)
 }
 
 func (s *Server) SendServerFailureReply(conn io.ReadWriter) error {
@@ -233,19 +257,23 @@ func (r *UpdatableRule) SetRule(rule socks5.RuleSet) {
 //   - multicast;
 //   - the awl subnets: the exit node's peers are not the client's.
 //
+// With allowLAN, for the peers with LAN access, the LAN and CGNAT ranges are
+// allowed. The rest is refused all the same.
+//
 // The address is checked after the name is resolved, and the connection goes
 // to that same address, so a name resolving to a refused address is refused
 // too. The exit node's own public addresses are allowed: its peers reach its
 // services through its awl address anyway.
 type ExitNodeRule struct {
 	awlPrefixes []netip.Prefix
+	allowLAN    bool
 }
 
 func (r *ExitNodeRule) Allow(ctx context.Context, req *socks5.Request) (context.Context, bool) {
 	reason := "invalid_address"
 	if req.DestAddr != nil {
 		if addr, ok := netip.AddrFromSlice(req.DestAddr.IP); ok {
-			reason = exitAddrRefusal(addr, r.awlPrefixes)
+			reason = exitAddrRefusal(addr, r.awlPrefixes, r.allowLAN)
 		}
 	}
 	if reason != "" {
@@ -256,8 +284,9 @@ func (r *ExitNodeRule) Allow(ctx context.Context, req *socks5.Request) (context.
 }
 
 // exitAddrRefusal returns why the exit node does not connect to addr, or "" if
-// it does. The awl subnets are checked before the LAN ranges they are in.
-func exitAddrRefusal(addr netip.Addr, awlPrefixes []netip.Prefix) string {
+// it does. The awl subnets are checked before the LAN ranges they are in, and
+// link-local addresses before the LAN ranges allowed with allowLAN.
+func exitAddrRefusal(addr netip.Addr, awlPrefixes []netip.Prefix, allowLAN bool) string {
 	addr = addr.Unmap()
 	switch {
 	case addr.IsLoopback() || addr.IsUnspecified():
@@ -272,7 +301,7 @@ func exitAddrRefusal(addr netip.Addr, awlPrefixes []netip.Prefix) string {
 			return "awl_address"
 		}
 	}
-	if privatenet.Contains(addr) {
+	if !allowLAN && privatenet.Contains(addr) {
 		return "private_address"
 	}
 

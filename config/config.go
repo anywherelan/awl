@@ -185,6 +185,12 @@ type (
 		// invitation or removed us from its peers.
 		Declined               bool `json:"declined"`
 		WeAllowUsingAsExitNode bool `json:"weAllowUsingAsExitNode"`
+		// WeAllowLANAccess lets the peer reach our LAN through us as an exit
+		// node, over the VPN gateway and SOCKS5 alike: the LAN and CGNAT
+		// ranges of privatenet, not link-local addresses and not our awl
+		// peers. Takes effect only with WeAllowUsingAsExitNode. Local to us:
+		// the peer is not told.
+		WeAllowLANAccess       bool `json:"weAllowLANAccess"`
 		AllowedUsingAsExitNode bool `json:"allowedUsingAsExitNode"`
 		// RemoteVPNGatewayServerEnabled is the remote peer's VPNGatewayConfig.ServerEnabled
 		// as advertised via the status protocol. Combined with AllowedUsingAsExitNode

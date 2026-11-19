@@ -4,10 +4,15 @@ package netstate
 
 import (
 	"errors"
+	"net/netip"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tailscale/wf"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
+
+	"github.com/anywherelan/awl/vpn/privatenet"
 )
 
 // fakeEnable records enableIPv4Forwarding calls and plays back a scripted
@@ -173,4 +178,50 @@ func TestParseNetNATJSON(t *testing.T) {
 		_, err = parseNetNATJSON([]byte(`[{"Name":"x"`))
 		require.Error(t, err)
 	})
+}
+
+func TestLANAccessRules(t *testing.T) {
+	sublayer := wf.SublayerID{Data1: 1}
+	const tunIfIndex = uint32(7)
+	awlSubnet := netip.MustParsePrefix("10.66.0.0/16")
+
+	rules, err := lanAccessRules(sublayer, tunIfIndex, awlSubnet, nil)
+	require.NoError(t, err)
+	require.Empty(t, rules, "no peers, no rules")
+
+	peers := []netip.Addr{netip.MustParseAddr("10.66.0.2"), netip.MustParseAddr("10.66.0.3")}
+	rules, err = lanAccessRules(sublayer, tunIfIndex, awlSubnet, peers)
+	require.NoError(t, err)
+	require.Len(t, rules, 2)
+
+	fromPeers := []*wf.Match{
+		{Field: wf.FieldSourceInterfaceIndex, Op: wf.MatchTypeEqual, Value: tunIfIndex},
+		{Field: wf.FieldIPSourceAddress, Op: wf.MatchTypeEqual, Value: netip.MustParsePrefix("10.66.0.2/32")},
+		{Field: wf.FieldIPSourceAddress, Op: wf.MatchTypeEqual, Value: netip.MustParsePrefix("10.66.0.3/32")},
+	}
+	toLAN := make([]*wf.Match, 0, len(privatenet.LANPrefixesV4()))
+	for _, p := range privatenet.LANPrefixesV4() {
+		toLAN = append(toLAN, &wf.Match{Field: wf.FieldIPDestinationAddress, Op: wf.MatchTypeEqual, Value: p})
+	}
+
+	// The awl subnet block goes in first and outweighs the permit, which
+	// outweighs the block of every private range.
+	awlBlock, lanPermit := rules[0], rules[1]
+	require.Equal(t, wfpLANAWLRuleName, awlBlock.Name)
+	require.Equal(t, wf.ActionBlock, awlBlock.Action)
+	require.Equal(t, append(slices.Clone(fromPeers),
+		&wf.Match{Field: wf.FieldIPDestinationAddress, Op: wf.MatchTypeEqual, Value: awlSubnet}), awlBlock.Conditions)
+
+	require.Equal(t, wfpLANRuleName, lanPermit.Name)
+	require.Equal(t, wf.ActionPermit, lanPermit.Action)
+	require.Equal(t, slices.Concat(fromPeers, toLAN), lanPermit.Conditions)
+
+	require.Greater(t, awlBlock.Weight, lanPermit.Weight)
+	require.Greater(t, lanPermit.Weight, uint64(wfpBlockRuleWeight))
+	for _, r := range rules {
+		require.Equal(t, wf.LayerIPForwardV4, r.Layer)
+		require.Equal(t, sublayer, r.Sublayer)
+		require.NotZero(t, r.ID)
+	}
+	require.NotEqual(t, awlBlock.ID, lanPermit.ID)
 }

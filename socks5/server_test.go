@@ -28,7 +28,7 @@ func TestProxy(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		conn := <-socksClient.ConnsChan()
-		socksServer.ServeConn(conn)
+		socksServer.ServeConn(conn, false)
 	}()
 
 	upstreamAddr := startUpstreamServer(t)
@@ -59,7 +59,7 @@ func TestProxyWithAuth(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		conn := <-socksClient.ConnsChan()
-		socksServer.ServeConn(conn)
+		socksServer.ServeConn(conn, false)
 	}()
 
 	upstreamAddr := startUpstreamServer(t)

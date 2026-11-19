@@ -61,6 +61,7 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 			Confirmed:                     knownPeer.Confirmed,
 			Declined:                      knownPeer.Declined,
 			WeAllowUsingAsExitNode:        knownPeer.WeAllowUsingAsExitNode,
+			WeAllowLANAccess:              knownPeer.WeAllowLANAccess,
 			AllowedUsingAsExitNode:        knownPeer.AllowedUsingAsExitNode,
 			RemoteVPNGatewayServerEnabled: knownPeer.RemoteVPNGatewayServerEnabled,
 			InviteID:                      knownPeer.InviteID,
@@ -162,6 +163,9 @@ func (h *Handler) UpdatePeerSettings(c echo.Context) (err error) {
 	knownPeer.Alias = req.Alias
 	knownPeer.DomainName = req.DomainName
 	knownPeer.WeAllowUsingAsExitNode = req.AllowUsingAsExitNode
+	if req.AllowLANAccess != nil {
+		knownPeer.WeAllowLANAccess = *req.AllowLANAccess
+	}
 
 	h.conf.UpsertPeerUnlocked(knownPeer)
 

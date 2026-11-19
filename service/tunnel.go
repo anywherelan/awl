@@ -855,11 +855,10 @@ func (t *Tunnel) writeInboundBatch(packets []*vpn.Packet, bufs [][]byte, senderI
 
 // isNonRoutableIP returns true for IPs that should not be forwarded through the gateway.
 //
-// TODO(gateway): add client-side drop of
-// private destinations (10/8, 172.16/12, 192.168/16, CGNAT, link-local)
-// before sending to the gateway: fast local refusal instead of a silent drop
-// at the exit node's filter. Not a replacement for the server-side filtering
-// (iptables on Linux, WFP on Windows) — the server cannot trust clients.
+// Private destinations (10/8, 172.16/12, 192.168/16, CGNAT) are forwarded:
+// the exit node's filter (iptables on Linux, WFP on Windows) lets them through
+// for the peers it gives LAN access and drops them for the others, which we
+// can't tell from here.
 func isNonRoutableIP(ip netip.Addr) bool {
 	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast()
 }

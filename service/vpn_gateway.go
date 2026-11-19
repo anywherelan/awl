@@ -37,6 +37,7 @@ type NetManager interface {
 	EnableServerNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName string) error
 	DisableServerNAT() error
 	ServerNATActive() bool
+	SetServerLANAccess(peers []netip.Addr) error
 }
 
 // VPNGateway owns the lifecycle of VPN gateway mode (both client and server
@@ -374,9 +375,44 @@ func (g *VPNGateway) IsServerActive() bool {
 	return g.netManager.ServerNATActive()
 }
 
+// UpdateLANAccess passes the peers with LAN access to the netstate manager,
+// which applies them while the gateway server is on and keeps them for when it
+// is turned on. Called on every change of the known peers.
+func (g *VPNGateway) UpdateLANAccess() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if err := g.netManager.SetServerLANAccess(g.lanAccessPeers()); err != nil {
+		g.logger.Errorf("update LAN access of peers: %v", err)
+	}
+}
+
+// lanAccessPeers returns our view of the addresses, IPv4 and IPv6, of the peers
+// we allow to use us as an exit node and to reach our LAN. They are the source
+// addresses of the packets these peers send through us.
+func (g *VPNGateway) lanAccessPeers() []netip.Addr {
+	g.conf.RLock()
+	defer g.conf.RUnlock()
+
+	var peers []netip.Addr
+	for _, kp := range g.conf.KnownPeers {
+		if !kp.WeAllowUsingAsExitNode || !kp.WeAllowLANAccess {
+			continue
+		}
+		// Empty until the first status exchange.
+		if addr, err := netip.ParseAddr(kp.IPAddr); err == nil {
+			peers = append(peers, addr)
+		}
+		if addr, ok := g.conf.PeerIPv6Unlocked(kp); ok {
+			peers = append(peers, addr)
+		}
+	}
+	return peers
+}
+
 // applyServer brings up VPN gateway server NAT (iptables MASQUERADE +
-// ip_forward + AWL-FORWARD chain). Idempotent: if NAT is already configured,
-// it is a no-op.
+// ip_forward + AWL-FORWARD chain), with the peers with LAN access as of now.
+// Idempotent: if NAT is already configured, it is a no-op.
 func (g *VPNGateway) applyServer() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -405,6 +441,11 @@ func (g *VPNGateway) applyServer() error {
 		awlPrefix6, ipv6 = prefix, prefix.String()
 	}
 
+	// Kept by the manager for EnableServerNAT. UpdateLANAccess keeps it up to
+	// date from here on.
+	if err := g.netManager.SetServerLANAccess(g.lanAccessPeers()); err != nil {
+		return err
+	}
 	if err := g.netManager.EnableServerNAT(awlPrefix, awlPrefix6, tunName); err != nil {
 		return err
 	}
