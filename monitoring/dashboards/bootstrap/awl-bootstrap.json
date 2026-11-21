@@ -1191,7 +1191,7 @@
     {
       "type": "timeseries",
       "title": "Relayed data",
-      "description": "Each circuit is limited to 2 minutes and 21 MiB.",
+      "description": "Each circuit is limited to 10 minutes and 512 MiB in each direction. Nodes before v0.12.0: 2 minutes and 21 MiB.",
       "id": 15,
       "datasource": {
         "type": "prometheus",
@@ -1396,7 +1396,7 @@
     {
       "type": "stat",
       "title": "Closed by the limit",
-      "description": "Of the successful circuits, the share that ran until the relay limit of 2 minutes (110–125 s). 590–610 s are counted too, for a limit of 10 minutes. Over the time range of the dashboard.",
+      "description": "Of the successful circuits, the share that ran until the relay limit of 10 minutes (590–610 s). 110–125 s are counted too, for nodes before v0.12.0 with a limit of 2 minutes. Over the time range of the dashboard.",
       "id": 42,
       "datasource": {
         "type": "prometheus",
