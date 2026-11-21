@@ -25,11 +25,14 @@
   - [Linux desktop (`awl-tray`)](#linux-desktop-awl-tray)
   - [Linux server (`awl`)](#linux-server-awl)
 - [Connecting devices](#connecting-devices)
+- [Device addresses](#device-addresses)
 - [Using devices as SOCKS5 proxy](#using-devices-as-socks5-proxy)
 - [VPN gateway (full-tunnel exit node)](#vpn-gateway-full-tunnel-exit-node)
 - [Configuration](#configuration)
   - [Config file location](#config-file-location)
   - [Example config](#example-config)
+  - [IPv4 subnet and addresses](#ipv4-subnet-and-addresses)
+  - [MTU](#mtu)
 - [Monitoring](#monitoring)
 - [Terminal-based client](#terminal-based-client)
   - [Common examples](#common-examples)
@@ -127,6 +130,13 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 awl's release binaries are built reproducibly on every platform. Builds run in public GitHub Actions from tagged source (see the [build workflow](.github/workflows/build-manual.yml) and [`build.sh`](build.sh)), using `-trimpath` and `-buildid=` with pinned dependencies, so the same source produces byte-identical output.
 
 - **Android:** the app is independently reproducible-verified: F-Droid rebuilds the application from source and verifies that the resulting APK matches the APK published in the GitHub Releases. See its [reproducibility status](https://verification.f-droid.org/packages/com.anywherelan.awl/).
+
+  APKs from F-Droid and GitHub use the same signing certificate. To verify your installed copy, find Anywherelan in [AppVerifier](https://github.com/soupslurpr/AppVerifier) and compare its package name and SHA-256 certificate fingerprint with the values below.
+
+  ```
+  com.anywherelan.awl
+  74:DD:8B:26:38:F7:F0:EF:61:43:13:17:58:8F:96:14:1B:AA:EA:87:15:82:5B:28:58:D0:DF:CE:0C:07:B1:77
+  ```
 - **Desktop:** every GitHub release includes SHA-256 checksums for its archives. You can independently reproduce a release yourself by building the same tag according to [`BUILDING.md`](BUILDING.md) and verifying that the checksums match.
 
 # Installation
@@ -241,12 +251,19 @@ awl cli peers add --name myphone
 # list known peers
 awl cli peers status
 
-# reach the new peer by VPN IP or by name
-ping 10.66.0.2
+# reach the new peer by VPN device name or by IP
 ping awl-tester.awl
 ```
 
 More options for invite links, declining requests and unblocking peers are in the [CLI cheat sheet](#common-examples).
+
+## Device addresses
+
+Use the `.awl` name shown in your peer list, such as `laptop.awl`. You can keep using that name if the peer’s VPN IP changes.
+
+awl is peer-to-peer. There’s no central server assigning VPN IPs, so two devices can pick the same address. A new device derives its VPN IP from its device ID, which is based on its cryptographic public key. It shares that IP with its peers, so they can usually reach it at the same address. If the announced IP is already in use or falls outside a peer’s VPN subnet, that peer picks a free address in its own subnet.
+
+Each device keeps its own list of peer addresses. You can set its VPN subnet and its own VPN IP, and override the addresses it uses for individual peers. See [IPv4 subnet and addresses](#ipv4-subnet-and-addresses).
 
 ## Using devices as SOCKS5 proxy
 
@@ -297,7 +314,7 @@ In short: reach for SOCKS5 to send a single app through a peer, and for the VPN 
 | Windows | ✅ | ✅ | fully supported |
 | macOS | ❌ | ❌ | needs volunteers for testing |
 
-On macOS awl currently refuses to start with VPN gateway enabled.
+On macOS if VPN gateway is enabled in the config, awl starts with the gateway off and logs why.
 
 > ⚠️ **IPv6 is not tunnelled.** The gateway only carries IPv4. While it's on, all IPv6 traffic is dropped so that your real IPv6 address is never exposed past the exit node:
 > - **Dual-stack (IPv4 + IPv6):** everything automatically uses IPv4 through the tunnel.
@@ -358,6 +375,7 @@ Unlike the SOCKS5 proxy, serving as a VPN gateway changes global system state on
 - **A site works over IPv6 but not through the gateway.** This is expected: IPv6 isn't tunnelled (see the note above). Dual-stack hosts fall back to IPv4 automatically; anything IPv6-only won't work while the gateway is on.
 - **Turning on *Serve as VPN Gateway* fails on Windows.** Windows effectively allows one NAT instance per host, and it may already be taken by Docker (Windows containers), WSL2 or Internet Connection Sharing. The error message lists the current holders. Free it up, or share this device over SOCKS5 instead: the SOCKS5 exit node doesn't need NAT.
 - **Turning on *Serve as VPN Gateway* on Windows fails with "WinNAT is not available" (HRESULT 0x80041010).** awl's exit-node NAT is built on Windows' own WinNAT, and on this installation the `MSFT_NetNat` WMI class doesn't exist. Windows **Home** editions don't have WinNAT at all, so there is no way to enable it there. On Pro/Enterprise/Server it can also be missing when neither Hyper-V nor RAS components are enabled (turning on the Hyper-V feature registers it) or when the WMI repository is corrupted. If you can't get WinNAT on your machine, share this device over SOCKS5 instead: the SOCKS5 exit node doesn't need it.
+- **Downloads through an exit node stall, while small pages open.** If the client uses an MTU of 3500, try setting [`vpn.mtu`](#mtu) to `1400` on the client.
 - **No internet right after awl started with the gateway on.** The exit node may have stopped allowing you to use it. awl keeps the gateway on so your traffic doesn't leak through your own network, and writes a warning to the log. Ask the owner to allow you again, or pick another exit node.
 - **No IPv6 connectivity after awl crashed (Linux).** If awl is killed (not shut down) with the gateway client on, its IPv6 block stays behind. It is removed automatically on the next awl start (and stop).
 - **Devices are reachable only via relay from a Windows machine with multiple network interfaces.** awl on Windows pins its peer-to-peer traffic to the interface that holds the default route, so peers reachable only through a secondary network card may fall back to relayed connections.
@@ -409,13 +427,14 @@ A minimal, populated `config_awl.json` (peer IDs and identity truncated):
   },
   "vpn": {
     "interfaceName": "awl0",
-    "ipNet": "10.66.0.1/24"
+    "ipNet": "10.70.12.5/11",
+    "mtu": 1400
   },
   "knownPeers": {
     "12D3KooW...": {
       "peerId": "12D3KooW...",
       "name": "work-laptop",
-      "ipAddr": "10.66.0.2",
+      "ipAddr": "10.83.140.21",
       "domainName": "work-laptop",
       "confirmed": true
     }
@@ -425,19 +444,40 @@ A minimal, populated `config_awl.json` (peer IDs and identity truncated):
 
 Every field (with comments and types) lives in [`config/config.go`](config/config.go), which is the authoritative reference.
 
+### IPv4 subnet and addresses
+
+`vpn.ipNet` sets this device's VPN IPv4 address and subnet in CIDR notation. The default subnet is `10.64.0.0/11`. If it overlaps another network you use, such as a work VPN, choose a subnet that avoids the overlap.
+
+Stop awl and edit `vpn.ipNet` in `config_awl.json`:
+
+- **Set the device's IP yourself.** Enter a host address with its prefix length. For example, `10.66.0.1/20` sets this device's IP to `10.66.0.1` in the `10.66.0.0/20` subnet.
+- **Derive the device's IP from its ID.** Enter the subnet's network address with all host bits set to zero, such as `10.66.0.0/20`. Use `10.64.0.0/11` to do this in the default subnet. At startup, awl derives an IP in that subnet and saves it in `vpn.ipNet`.
+
+Before restarting with a different subnet, remove `ipAddr` from any entries under `knownPeers` whose address is outside the new subnet. awl assigns each of those peers a new IP on the next status exchange. The old defaults `10.66.0.1/24` and `10.66.0.1/16` are widened to `10.66.0.1/11` at startup, so use a different prefix to keep a smaller subnet.
+
+Each device keeps the IPs it has already assigned to peers. To use a peer's new IP, edit *Local IP address* in its *Peer settings* or use `awl cli peers update_ip` on the device where you want the change.
+
+### MTU
+
+The MTU sets the maximum packet size, in bytes, for outgoing traffic on the awl VPN interface. New configs use 1400. Configs created before v0.21.0 keep 3500 on upgrade unless you set `vpn.mtu`. The smaller MTU helps prevent stalled downloads through an exit node on paths that can only carry smaller packets.
+
+Devices with different MTUs can usually exchange traffic. If your network has a mix of 1400 and 3500, we recommend using 1400 on all your awl devices, including exit nodes. In particular, downloads can stall when a client using 3500 connects through a Windows exit node using 1400.
+
+To change the MTU, stop awl, set `vpn.mtu` in `config_awl.json` to a value from 1280 to 3500, and restart awl.
+
 ## Monitoring
 
-AWL includes built-in Prometheus metrics and pprof profiling support:
+awl includes built-in Prometheus metrics and pprof profiling support:
 
 - **Metrics**: `http://localhost:8639/metrics` (Prometheus format)
 - **Profiling**: `http://localhost:8639/api/v0/debug/pprof/`
 
 A pre-packaged monitoring stack is available in the [monitoring/](monitoring/) directory with:
 
-- **Prometheus**: scrapes AWL metrics
-- **Grafana**: dashboards for libp2p subsystems and AWL-specific metrics, plus profile exploration via Pyroscope datasource
+- **Prometheus**: scrapes awl metrics
+- **Grafana**: dashboards for awl, the bootstrap node and libp2p subsystems, plus the profiles from Pyroscope
 - **Pyroscope**: continuous profiling storage
-- **Grafana Alloy**: scrapes pprof endpoints and pushes CPU, heap, goroutine, mutex, and block profiles to Pyroscope
+- **Grafana Alloy**: takes the CPU, heap and goroutine profiles from the pprof endpoints and pushes them to Pyroscope
 
 See [monitoring/README.md](monitoring/README.md) for setup instructions.
 

@@ -115,10 +115,9 @@ type (
 		InterfaceName       string `json:"interfaceName"`
 		IPNet               string `json:"ipNet"`
 		IPNetV6             string `json:"ipNetV6"`
-		// MTU of the VPN interface. 0 means the default (3500). Must be in the range
-		// 1280-3500, otherwise the default is used. Lower it if TCP connections stall
-		// because ICMP "fragmentation needed" messages are dropped on the path, for
-		// example to 1280.
+		// MTU is the VPN interface's maximum packet size in bytes. An omitted
+		// or zero value defaults to 1400 for new configs and 3500 for existing
+		// configs. Nonzero values outside the range 1280 to 3500 prevent startup.
 		MTU int `json:"mtu,omitempty"`
 	}
 	// VPNGatewayConfig configures full-tunnel VPN gateway mode.

@@ -13,6 +13,185 @@ a minor version may contain breaking changes. They are listed under **Changed** 
 Releases before v0.20.0 are described on the
 [GitHub releases page](https://github.com/anywherelan/awl/releases).
 
+## [0.21.0] - 2026-11-21
+
+### Added
+
+- **VPN addresses based on device IDs.** A new device derives its VPN address from its ID
+  and shares it with its peers. Other devices running awl v0.21.0 or newer can usually
+  reach it at that same address. A new peer's IP appears after the first status exchange.
+  ([#240](https://github.com/anywherelan/awl/issues/240),
+  [#317](https://github.com/anywherelan/awl/pull/317))
+- **Direct connections in a local network.** Devices in the same local network
+  can connect directly. Update Android devices to v0.21.0 so they can share their
+  local network addresses. If a VPN tunnel is already using a relay, it switches to
+  the direct connection when one becomes available.
+  ([#313](https://github.com/anywherelan/awl/pull/313),
+  [#326](https://github.com/anywherelan/awl/pull/326),
+  [#27](https://github.com/anywherelan/awl/issues/27),
+  [#270](https://github.com/anywherelan/awl/issues/270),
+  [#301](https://github.com/anywherelan/awl/issues/301),
+  [#303](https://github.com/anywherelan/awl/issues/303))
+- **Grafana dashboards for awl.** The monitoring stack in `monitoring/` has the
+  *awl Overview*, *awl Traffic*, *awl DHT*, *awl Connectivity* and *awl Profiles*
+  dashboards, and *awl Bootstrap Node* for the bootstrap nodes. The libp2p dashboards
+  moved to the `libp2p` folder. ([#308](https://github.com/anywherelan/awl/pull/308))
+- `vpn.mtu` in the config sets the MTU of the VPN interface, from 1280 to 3500.
+  It also applies on Android. Thanks to @officialasishkumar.
+  ([#274](https://github.com/anywherelan/awl/issues/274),
+  [#315](https://github.com/anywherelan/awl/pull/315),
+  [awl-flutter#45](https://github.com/anywherelan/awl-flutter/pull/45))
+- Monitoring: new metrics and labels. `awl_peers_connected` tells peers connected
+  directly from peers connected only through a relay. `awl_p2p_bandwidth_bytes_total`
+  counts libp2p traffic by protocol. `awl_peers_received_requests_dropped_total` counts
+  friend requests and status exchanges from other peers that awl dropped, for example
+  when too many friend requests already wait. `awl_vpn_packets_dropped_total` has new
+  reasons, such as `peer_offline`. `awl_socks5_errors_total` counts the requests an exit
+  node refused by its rules. `awl_node_info` shows the app: `awl`, `awl-tray` or
+  `android`. `awl_dns_query_duration_seconds` is split by handler.
+  ([#308](https://github.com/anywherelan/awl/pull/308))
+- `awl_p2p_lan_dials_total` counts attempts to connect to known peers at their
+  local network addresses. ([#313](https://github.com/anywherelan/awl/pull/313))
+
+### Changed
+
+- The default VPN subnet is now `10.64.0.0/11`, from `10.64.0.0` to `10.95.255.255`.
+  On upgrade, awl widens the old defaults `10.66.0.1/16` and `10.66.0.1/24` to
+  `10.66.0.1/11`. Existing device and peer addresses are kept.
+
+  If the new subnet overlaps another network you use, stop awl and set `vpn.ipNet` config to
+  a subnet that avoids the overlap. If your device uses `10.66.0.1`, for example,
+  `10.66.0.1/20` keeps its IP and uses a smaller subnet. Remove `ipAddr` from any entries
+  under `knownPeers` whose address is outside the new subnet. They get a new address at
+  the next status exchange.
+
+  To switch this device to an address based on its ID, stop awl, set `vpn.ipNet` to
+  the subnet's network address, such as `10.64.0.0/11`, and start awl. The startup log
+  shows the new VPN address. To use it on your other devices too, update
+  *Local IP address* in this device's *Peer settings* on each of them.
+  ([#317](https://github.com/anywherelan/awl/pull/317))
+- awl doesn't start if `vpn.ipNet` in the config is not an IPv4 network or its prefix is
+  longer than `/30`. The error says what is wrong. Before, awl quietly used the default
+  network instead. ([#317](https://github.com/anywherelan/awl/pull/317))
+- A new install has an MTU of 1400 on the VPN interface. The smaller MTU helps prevent
+  stalled downloads through a VPN gateway. On upgrade, a config without `vpn.mtu`
+  keeps 3500. If your devices use a mix of 1400 and 3500, use 1400 on all of them,
+  including exit nodes. To change it, stop awl, set `vpn.mtu` in the config, and
+  restart awl. ([#327](https://github.com/anywherelan/awl/pull/327))
+- With **Serve as VPN Gateway** on, a Windows gateway with MTU 1400 can still stall
+  downloads for clients with MTU 3500. Update those clients and set their `vpn.mtu`
+  to `1400`.
+  ([#327](https://github.com/anywherelan/awl/pull/327))
+- awl doesn't start if `vpn.mtu` in the config is not between 1280 and 3500. The error
+  says what is wrong. ([#327](https://github.com/anywherelan/awl/pull/327))
+- awl connects to the first known device up to 4 seconds sooner after startup.
+  ([#325](https://github.com/anywherelan/awl/pull/325))
+- Android uses DHT client mode by default, including after an update. Most phones
+  were already DHT clients. Some phones with a public address could act as DHT servers
+  and spend mobile data answering other devices' discovery requests. The new default
+  skips those replies and still lets you find your devices. Set `p2pNode.dhtMode` to
+  `auto` in the config to restore automatic mode selection.
+  ([#332](https://github.com/anywherelan/awl/pull/332))
+- When a relay cuts the connection to a device, awl reconnects about a second sooner.
+  Before, the two devices often dialed each other at the same moment and ended up with
+  two or more connections through relays. ([#326](https://github.com/anywherelan/awl/pull/326))
+- VPN traffic takes up to 7% less CPU. Where the CPU limits the speed, for example on a
+  slow device, the VPN is a bit faster. ([#311](https://github.com/anywherelan/awl/pull/311))
+- SOCKS5 proxy: when the exit node is offline, a connection through the proxy fails right
+  away. Before, awl tried to reach the exit node for each such connection. A browser
+  opens many of them, and this added up to hundreds of connection attempts a minute.
+  awl reconnects to the exit node in the background, the same way as to your other
+  devices. ([#325](https://github.com/anywherelan/awl/pull/325))
+- When the selected VPN gateway has no awl address or is no longer a known peer,
+  awl starts with the VPN gateway off.
+  ([#317](https://github.com/anywherelan/awl/pull/317),
+  [awl-flutter#45](https://github.com/anywherelan/awl-flutter/pull/45))
+- The web UI and Android app show a new peer's `.awl` name while waiting for its first
+  address. You can still save changes in *Peer settings* with *Local IP address* empty.
+  ([awl-flutter#45](https://github.com/anywherelan/awl-flutter/pull/45))
+- awl no longer conflicts over DNS settings with some other VPN apps on the same
+  computer. If an older awl was killed or crashed just before the upgrade, its DNS
+  settings can stay behind and break DNS. On Linux, stop awl and fix `/etc/resolv.conf`.
+  The older awl left a backup of it in `/etc`. If there is no backup, restart the
+  computer. On Windows, if DNS doesn't work while awl is stopped, remove the NRPT rule
+  for `.`. ([#312](https://github.com/anywherelan/awl/pull/312))
+- The API returns an empty `IpAddr` for a peer awaiting its first address.
+  `/peers/update_settings` keeps the address when the submitted `ipaddr` is empty.
+  A friend request includes `ipv4Addr`, the address the peer announces, and
+  `SuggestedIP` shows the address it would get. ([#317](https://github.com/anywherelan/awl/pull/317))
+- Monitoring: `awl_p2p_peer_latency_seconds` is reported only for connected known peers,
+  after the first ping. Before, offline peers had a zero. awl no longer goes over all
+  known peers every 2 seconds to update the metrics: they are read when Prometheus
+  scrapes them. The new `path`, `app` and `handler` labels start new series.
+  ([#308](https://github.com/anywherelan/awl/pull/308))
+- Monitoring: the stack scrapes awl every 10 seconds instead of 3 and takes profiles
+  once a minute. Mutex and block profiles are no longer taken, awl doesn't record them.
+  The node is shown as `local`. ([#308](https://github.com/anywherelan/awl/pull/308))
+- Updated Go to 1.27.4 and dependencies.
+  ([#312](https://github.com/anywherelan/awl/pull/312),
+  [#332](https://github.com/anywherelan/awl/pull/332))
+
+### Removed
+
+- Monitoring: `awl_socks5_bytes_transferred_total`. It was never filled.
+  ([#308](https://github.com/anywherelan/awl/pull/308))
+
+### Fixed
+
+- Large UDP datagrams now get through the VPN when they are split into multiple IP
+  packets.
+  ([#311](https://github.com/anywherelan/awl/pull/311))
+- VPN: after awl reconnected to a device, the first packets to it were lost. With a
+  device connected through a relay this could happen each time the relay cut the
+  connection. ([#326](https://github.com/anywherelan/awl/pull/326))
+- Linux: awl could fail to start with `unable to set IP ... file exists` when
+  NetworkManager had saved settings for `awl0`. This happened, for example, after you put
+  `awl0` in a firewalld zone. Thanks to @VoNguyenMinhTriet.
+  ([#307](https://github.com/anywherelan/awl/issues/307),
+  [#309](https://github.com/anywherelan/awl/pull/309))
+- NixOS and Guix: awl couldn't serve as an exit node and failed with `iptables ...
+  not found in $PATH` when started from awl-tray or as a systemd service.
+  ([#263](https://github.com/anywherelan/awl/issues/263),
+  [#321](https://github.com/anywherelan/awl/pull/321))
+- Linux: if Docker started after awl, turning off **Serve as VPN Gateway** or stopping awl
+  could leave Docker containers without network access. awl now leaves IPv4 forwarding
+  enabled when the VPN gateway stops. ([#324](https://github.com/anywherelan/awl/pull/324))
+- Linux: with **Serve as VPN Gateway** on, other awl devices sometimes couldn't reach the
+  ports that Docker publishes on the device, for example after awl restarted. Now these
+  ports work the same as with the switch off, and apps in containers see the awl address
+  of the device that connects. ([#324](https://github.com/anywherelan/awl/pull/324))
+- Linux: on some systems, awl could hang when you turned **Serve as VPN Gateway** on or
+  off, or when awl stopped, while another program such as Docker was changing the
+  firewall. Now awl waits for it at most 10 seconds. If the firewall is still busy,
+  turning the switch on fails with an error.
+  ([#324](https://github.com/anywherelan/awl/pull/324))
+- Linux: downloads through a device with **Serve as VPN Gateway** on could stall when its
+  internet connection had a smaller MTU, for example PPPoE.
+  ([#327](https://github.com/anywherelan/awl/pull/327))
+- awl crashed when the port of the web UI was already taken. Now it stops with the error
+  `address already in use`. ([#322](https://github.com/anywherelan/awl/pull/322))
+- SOCKS5 proxy: a removed device stayed selected as the exit node. Now the exit node is
+  cleared when you remove the device.
+  ([#325](https://github.com/anywherelan/awl/pull/325))
+- A failed attempt to add a blocked device leaves it blocked.
+  ([#332](https://github.com/anywherelan/awl/pull/332))
+- Linux: awl runs without root again when the VPN interface is off
+  (`vpn.disableVPNInterface`). Since v0.18.0 it couldn't connect to other devices this way.
+  ([#322](https://github.com/anywherelan/awl/pull/322))
+- Linux without systemd-resolved: while awl ran, short names of devices in your local
+  network, like `nas` for `nas.lan`, didn't resolve. Now they do.
+  ([#323](https://github.com/anywherelan/awl/pull/323))
+- On Linux, when awl manages `/etc/resolv.conf` directly, it restores its DNS settings
+  if another program overwrites that file. On Windows, DNS setup no longer waits for
+  missing interface settings to appear.
+  ([#312](https://github.com/anywherelan/awl/pull/312))
+- CLI: `awl cli gateway status` showed `Connection: direct` for a gateway that was not
+  connected. ([#325](https://github.com/anywherelan/awl/pull/325))
+- Monitoring: a reverse DNS lookup that awl forwarded upstream was counted twice, as
+  `awl_ptr` and as `proxy`. ([#308](https://github.com/anywherelan/awl/pull/308))
+- Monitoring on Linux: Pyroscope stopped answering after the LAN address of the computer
+  changed. ([#308](https://github.com/anywherelan/awl/pull/308))
+
 ## [0.20.0] - 2026-10-24
 
 ### Added
@@ -197,4 +376,5 @@ Releases before v0.20.0 are described on the
   and the API rejects a name or alias that contains them.
   ([#290](https://github.com/anywherelan/awl/pull/290))
 
+[0.21.0]: https://github.com/anywherelan/awl/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/anywherelan/awl/compare/v0.19.0...v0.20.0
