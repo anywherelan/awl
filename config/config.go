@@ -456,12 +456,18 @@ func (c *Config) GetBlockedPeer(peerID string) (BlockedPeer, bool) {
 
 func (c *Config) RemoveBlockedPeer(peerID string) bool {
 	c.Lock()
+	defer c.Unlock()
+	return c.RemoveBlockedPeerUnlocked(peerID)
+}
+
+// RemoveBlockedPeerUnlocked is RemoveBlockedPeer without locking. The caller
+// must hold the write lock.
+func (c *Config) RemoveBlockedPeerUnlocked(peerID string) bool {
 	_, exists := c.BlockedPeers[peerID]
 	if exists {
 		delete(c.BlockedPeers, peerID)
 		c.Save()
 	}
-	c.Unlock()
 
 	return exists
 }
