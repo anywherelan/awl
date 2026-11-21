@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -46,7 +47,7 @@ func TestSetDefaultsIPNet(t *testing.T) {
 				conf.P2pNode.PeerID = testPeerID
 			}
 			conf.KnownPeers = map[string]KnownPeer{testPeerID2: {PeerID: testPeerID2}}
-			setDefaults(conf, nil)
+			setDefaults(conf, nil, runtime.GOOS)
 
 			assert.Equal(t, tc.want, conf.VPNConfig.IPNet)
 			// A peer gets its address on the first status exchange, not on load.
@@ -86,7 +87,7 @@ func TestSetDefaultsIPv6(t *testing.T) {
 				conf.Version = Version
 				conf.P2pNode.PeerID = testPeerID
 			}
-			setDefaults(conf, nil)
+			setDefaults(conf, nil, runtime.GOOS)
 
 			assert.Equal(t, tc.want, conf.VPNConfig.IPNetV6)
 			if tc.validErr {
@@ -185,7 +186,7 @@ func TestSetIdentityDerivesAddrs(t *testing.T) {
 	t.Setenv(AppDataDirEnvKey, dir)
 
 	conf := &Config{dataDir: dir, VPNConfig: VPNConfig{IPNetV6: DefaultVPNNetworkSubnet6}}
-	setDefaults(conf, eventbus.NewBus())
+	setDefaults(conf, eventbus.NewBus(), runtime.GOOS)
 	conf.startWriter()
 	t.Cleanup(conf.Close)
 	require.Equal(t, DefaultVPNNetworkSubnet, conf.VPNConfig.IPNet)
