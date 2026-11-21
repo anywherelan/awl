@@ -29,6 +29,8 @@ const (
 	dirsPerm  = 0700
 )
 
+const goosAndroid = "android"
+
 // TODO: move to Config struct?
 var logger = log.Logger("awl/config")
 
@@ -106,7 +108,7 @@ func CalcAppDataDir() string {
 // Use NewConfigReadOnly when the config is only going to be read.
 func NewConfig(appType AppType, bus awlevent.Bus) *Config {
 	conf := &Config{appType: appType}
-	setDefaults(conf, bus)
+	setDefaults(conf, bus, runtime.GOOS)
 	conf.startWriter()
 	return conf
 }
@@ -115,7 +117,7 @@ func NewConfig(appType AppType, bus awlevent.Bus) *Config {
 // Save on it is a no-op that DPanics in dev mode.
 func NewConfigReadOnly(appType AppType) *Config {
 	conf := &Config{appType: appType}
-	setDefaults(conf, nil)
+	setDefaults(conf, nil, runtime.GOOS)
 	return conf
 }
 
@@ -167,7 +169,7 @@ func loadConfig(appType AppType, bus awlevent.Bus) (*Config, error) {
 		return nil, err
 	}
 	conf.dataDir = dataDir
-	setDefaults(conf, bus)
+	setDefaults(conf, bus, runtime.GOOS)
 	return conf, nil
 }
 
@@ -202,7 +204,7 @@ func ImportConfig(data []byte, directory string) error {
 // marks a read-only config, which is left without one; see NewConfigReadOnly.
 //
 //nolint:gocyclo
-func setDefaults(conf *Config, bus awlevent.Bus) {
+func setDefaults(conf *Config, bus awlevent.Bus, goos string) {
 	isEmptyConfig := conf.Version == ""
 
 	conf.Version = Version
@@ -213,6 +215,13 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 	}
 	if conf.P2pNode.BootstrapPeers == nil {
 		conf.P2pNode.BootstrapPeers = make([]string, 0)
+	}
+	if conf.P2pNode.DHTMode == "" {
+		if goos == goosAndroid {
+			conf.P2pNode.DHTMode = DHTModeClient
+		} else {
+			conf.P2pNode.DHTMode = DHTModeAuto
+		}
 	}
 	if conf.P2pNode.ReconnectionIntervalSec == 0 {
 		conf.P2pNode.ReconnectionIntervalSec = 20
@@ -257,7 +266,7 @@ func setDefaults(conf *Config, bus awlevent.Bus) {
 		}
 	}
 	if conf.VPNConfig.InterfaceName == "" {
-		if runtime.GOOS == "darwin" {
+		if goos == "darwin" {
 			conf.VPNConfig.InterfaceName = "utun"
 		} else {
 			conf.VPNConfig.InterfaceName = DefaultVPNInterfaceName
@@ -403,6 +412,11 @@ func (c *Config) ValidateForStartup() error {
 	c.RLock()
 	defer c.RUnlock()
 
+	switch c.P2pNode.DHTMode {
+	case "", DHTModeAuto, DHTModeClient:
+	default:
+		return fmt.Errorf("p2pNode.dhtMode %q: must be auto or client", c.P2pNode.DHTMode)
+	}
 	if _, err := parseIPNet(c.VPNConfig.IPNet); err != nil {
 		return fmt.Errorf("vpn.ipNet %q: %w", c.VPNConfig.IPNet, err)
 	}

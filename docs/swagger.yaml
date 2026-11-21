@@ -162,6 +162,12 @@ definitions:
         items:
           type: string
         type: array
+      dhtMode:
+        description: DHTMode defaults to client on Android and auto on other platforms.
+        enum:
+          - auto
+          - client
+        type: string
       identity:
         type: string
       ignoreDefaultBootstrapPeers:

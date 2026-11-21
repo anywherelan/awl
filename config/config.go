@@ -36,6 +36,9 @@ const (
 	defaultSOCKS5ListenAddress = "127.0.0.1:1066"
 
 	DefaultPeerAlias = "peer"
+
+	DHTModeAuto   = "auto"
+	DHTModeClient = "client"
 )
 
 // LinuxFilesOwnerUID is used to set correct files owner uid.
@@ -93,6 +96,8 @@ type (
 		Name           string   `json:"name"`
 		Identity       string   `json:"identity"`
 		BootstrapPeers []string `json:"bootstrapPeers"`
+		// DHTMode defaults to client on Android and auto on other platforms.
+		DHTMode string `json:"dhtMode,omitempty" enums:"auto,client"`
 		// With this option only BootstrapPeers from config will be used
 		IgnoreDefaultBootstrapPeers *bool    `json:"ignoreDefaultBootstrapPeers,omitempty"`
 		ListenAddresses             []string `json:"listenAddresses"`
@@ -564,7 +569,7 @@ func (c *Config) DNSNamesMapping() map[string]netip.Addr {
 	// TODO(android awldns): make admin.awl work on Android. The admin server is
 	// not reachable on AdminHttpServerIP there (the API listens elsewhere and
 	// port 80 cannot be bound), so don't advertise a dead name.
-	if runtime.GOOS != "android" {
+	if runtime.GOOS != goosAndroid {
 		mapping[AdminHttpServerDomainName] = netip.MustParseAddr(AdminHttpServerIP)
 	}
 	c.RLock()

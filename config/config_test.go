@@ -67,7 +67,7 @@ func TestConfigSaveThenLoad(t *testing.T) {
 	t.Setenv(AppDataDirEnvKey, dir)
 
 	conf := &Config{dataDir: dir}
-	setDefaults(conf, eventbus.NewBus())
+	setDefaults(conf, eventbus.NewBus(), runtime.GOOS)
 	conf.startWriter()
 	conf.P2pNode.Name = "saved-node"
 	conf.KnownPeers["peer-1"] = KnownPeer{PeerID: "peer-1", Alias: "alias-1"}
@@ -107,7 +107,7 @@ func TestConfigSaveCoalesces(t *testing.T) {
 func TestConfigCloseFlushesPendingSave(t *testing.T) {
 	dir := t.TempDir()
 	conf := &Config{dataDir: dir}
-	setDefaults(conf, eventbus.NewBus())
+	setDefaults(conf, eventbus.NewBus(), runtime.GOOS)
 	conf.startWriter()
 
 	conf.Lock()
@@ -264,7 +264,7 @@ func TestSetDefaultsFixesDomainNames(t *testing.T) {
 	for _, kPeer := range peers {
 		conf.KnownPeers[kPeer.PeerID] = kPeer
 	}
-	setDefaults(conf, nil)
+	setDefaults(conf, nil, runtime.GOOS)
 
 	got := make(map[string]string, len(peers))
 	for id, kPeer := range conf.KnownPeers {
@@ -293,7 +293,7 @@ func TestSetDefaultsUpdateCheckInterval(t *testing.T) {
 	} {
 		conf := &Config{dataDir: t.TempDir()}
 		conf.Update.TrayAutoCheckInterval = tc.saved
-		setDefaults(conf, nil)
+		setDefaults(conf, nil, runtime.GOOS)
 		assert.Equal(t, tc.want, conf.Update.TrayAutoCheckInterval, "saved %q", tc.saved)
 	}
 }
@@ -324,7 +324,7 @@ func newTestConfig(t *testing.T) (*Config, string) {
 
 	dir := t.TempDir()
 	conf := &Config{dataDir: dir}
-	setDefaults(conf, eventbus.NewBus())
+	setDefaults(conf, eventbus.NewBus(), runtime.GOOS)
 	conf.startWriter()
 	t.Cleanup(conf.Close)
 
@@ -352,6 +352,37 @@ func requireSaved(t *testing.T, path string, check func(*Config) bool) {
 	}, 3*time.Second, 10*time.Millisecond, "config on disk never matched; last read: %s", last)
 }
 
+func TestSetDefaultsDHTMode(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		goos     string
+		version  string
+		saved    string
+		want     string
+		validErr bool
+	}{
+		{name: "new Android config", goos: "android", want: "client"},
+		{name: "old Android config", goos: "android", version: "v0.20.0", want: "client"},
+		{name: "new desktop config", goos: "linux", want: "auto"},
+		{name: "old desktop config", goos: "linux", version: "v0.20.0", want: "auto"},
+		{name: "explicit auto on Android", goos: "android", version: "v0.20.0", saved: "auto", want: "auto"},
+		{name: "explicit client on desktop", goos: "linux", version: "v0.20.0", saved: "client", want: "client"},
+		{name: "unknown mode", goos: "linux", version: "v0.20.0", saved: "unknown", want: "unknown", validErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conf := &Config{dataDir: t.TempDir(), Version: tc.version}
+			conf.P2pNode.DHTMode = tc.saved
+			setDefaults(conf, nil, tc.goos)
+			assert.Equal(t, tc.want, conf.P2pNode.DHTMode)
+			if tc.validErr {
+				assert.ErrorContains(t, conf.ValidateForStartup(), "p2pNode.dhtMode")
+			} else {
+				assert.NoError(t, conf.ValidateForStartup())
+			}
+		})
+	}
+}
+
 func TestSetDefaultsVPNMTU(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -373,7 +404,7 @@ func TestSetDefaultsVPNMTU(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			conf := &Config{dataDir: t.TempDir(), Version: tc.version}
 			conf.VPNConfig.MTU = tc.saved
-			setDefaults(conf, nil)
+			setDefaults(conf, nil, runtime.GOOS)
 			assert.Equal(t, tc.want, conf.VPNConfig.MTU)
 			if tc.validErr {
 				assert.ErrorContains(t, conf.ValidateForStartup(), "vpn.mtu")
