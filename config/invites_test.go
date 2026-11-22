@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/hex"
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -190,7 +191,7 @@ func TestCheckInvite(t *testing.T) {
 // the map is nil there, and writing into a nil map panics.
 func TestSetDefaultsInitsInvites(t *testing.T) {
 	conf := &Config{dataDir: t.TempDir()}
-	setDefaults(conf, nil)
+	setDefaults(conf, nil, runtime.GOOS)
 
 	require.NotNil(t, conf.Invites)
 	assert.Empty(t, conf.Invites)

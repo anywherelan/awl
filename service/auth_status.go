@@ -676,8 +676,6 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 		name = ingoingAuth.Name
 	}
 
-	s.conf.RemoveBlockedPeer(peerIDStr)
-
 	s.conf.Lock()
 	if _, exist := s.conf.GetPeerUnlocked(peerIDStr); exist {
 		s.conf.Unlock()
@@ -719,6 +717,7 @@ func (s *AuthStatus) AddPeer(ctx context.Context, params AddPeerParams) error {
 		PendingInviteToken:     params.PendingInviteToken,
 	}
 	newPeerConfig.DomainName = s.conf.GenUniqDomainNameUnlocked(peerIDStr, newPeerConfig.DisplayName())
+	s.conf.RemoveBlockedPeerUnlocked(peerIDStr)
 	s.conf.UpsertPeerUnlocked(newPeerConfig)
 	s.conf.Unlock()
 

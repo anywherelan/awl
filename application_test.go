@@ -79,6 +79,13 @@ func TestRemovePeer(t *testing.T) {
 	ts.Len(peer1.app.AuthStatus.GetIngoingAuthRequests(), 0)
 	ts.Len(peer2.app.AuthStatus.GetIngoingAuthRequests(), 0)
 
+	err = peer1.api.SendFriendRequest(entity.FriendRequest{
+		PeerID: peer2.PeerID(), Alias: "peer_2", IPAddr: "192.0.2.1",
+	})
+	ts.ErrorContains(err, "does not belong to subnet")
+	_, blockedPeerExists = peer1.app.Conf.GetBlockedPeer(peer2.PeerID())
+	ts.True(blockedPeerExists, "a failed re-add keeps the peer blocked")
+
 	// Add peer2 from peer1 - should succeed
 	err = peer1.api.SendFriendRequest(entity.FriendRequest{PeerID: peer2.PeerID(), Alias: "peer_2"})
 	ts.NoError(err)

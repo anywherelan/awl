@@ -36,6 +36,9 @@ const (
 	defaultSOCKS5ListenAddress = "127.0.0.1:1066"
 
 	DefaultPeerAlias = "peer"
+
+	DHTModeAuto   = "auto"
+	DHTModeClient = "client"
 )
 
 // LinuxFilesOwnerUID is used to set correct files owner uid.
@@ -93,6 +96,8 @@ type (
 		Name           string   `json:"name"`
 		Identity       string   `json:"identity"`
 		BootstrapPeers []string `json:"bootstrapPeers"`
+		// DHTMode defaults to client on Android and auto on other platforms.
+		DHTMode string `json:"dhtMode,omitempty" enums:"auto,client"`
 		// With this option only BootstrapPeers from config will be used
 		IgnoreDefaultBootstrapPeers *bool    `json:"ignoreDefaultBootstrapPeers,omitempty"`
 		ListenAddresses             []string `json:"listenAddresses"`
@@ -110,10 +115,9 @@ type (
 		InterfaceName       string `json:"interfaceName"`
 		IPNet               string `json:"ipNet"`
 		IPNetV6             string `json:"ipNetV6"`
-		// MTU of the VPN interface. 0 means the default (3500). Must be in the range
-		// 1280-3500, otherwise the default is used. Lower it if TCP connections stall
-		// because ICMP "fragmentation needed" messages are dropped on the path, for
-		// example to 1280.
+		// MTU is the VPN interface's maximum packet size in bytes. An omitted
+		// or zero value defaults to 1400 for new configs and 3500 for existing
+		// configs. Nonzero values outside the range 1280 to 3500 prevent startup.
 		MTU int `json:"mtu,omitempty"`
 	}
 	// VPNGatewayConfig configures full-tunnel VPN gateway mode.
@@ -455,12 +459,18 @@ func (c *Config) GetBlockedPeer(peerID string) (BlockedPeer, bool) {
 
 func (c *Config) RemoveBlockedPeer(peerID string) bool {
 	c.Lock()
+	defer c.Unlock()
+	return c.RemoveBlockedPeerUnlocked(peerID)
+}
+
+// RemoveBlockedPeerUnlocked is RemoveBlockedPeer without locking. The caller
+// must hold the write lock.
+func (c *Config) RemoveBlockedPeerUnlocked(peerID string) bool {
 	_, exists := c.BlockedPeers[peerID]
 	if exists {
 		delete(c.BlockedPeers, peerID)
 		c.Save()
 	}
-	c.Unlock()
 
 	return exists
 }
@@ -568,7 +578,7 @@ func (c *Config) DNSNamesMapping() map[string]netip.Addr {
 	// TODO(android awldns): make admin.awl work on Android. The admin server is
 	// not reachable on AdminHttpServerIP there (the API listens elsewhere and
 	// port 80 cannot be bound), so don't advertise a dead name.
-	if runtime.GOOS != "android" {
+	if runtime.GOOS != goosAndroid {
 		mapping[AdminHttpServerDomainName] = netip.MustParseAddr(AdminHttpServerIP)
 	}
 	c.RLock()

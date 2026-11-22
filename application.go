@@ -28,6 +28,7 @@ import (
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	libp2pProtocol "github.com/libp2p/go-libp2p/core/protocol"
@@ -443,6 +444,11 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		socketControl = marker.ControlFunc()
 	}
 
+	dhtMode := dht.ModeAuto
+	if a.Conf.P2pNode.DHTMode == config.DHTModeClient {
+		dhtMode = dht.ModeClient
+	}
+
 	return p2p.HostConfig{
 		PrivKeyBytes:             a.Conf.PrivKey(),
 		ListenAddrs:              a.Conf.GetListenAddresses(),
@@ -471,6 +477,7 @@ func (a *Application) makeP2pHostConfig() p2p.HostConfig {
 		},
 		Peerstore:    peerstore,
 		DHTDatastore: dssync.MutexWrap(ds.NewMapDatastore()),
+		DHTOpts:      []dht.Option{dht.Mode(dhtMode)},
 	}
 }
 
