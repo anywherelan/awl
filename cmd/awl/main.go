@@ -51,6 +51,10 @@ func main() {
 				logger.Info("updates auto check is disabled for dev version")
 				return
 			}
+			if runtime.GOOS == "freebsd" {
+				logger.Info("updates auto check is disabled for FreeBSD")
+				return
+			}
 			interval, err := time.ParseDuration(app.Conf.Update.TrayAutoCheckInterval)
 			if err != nil {
 				logger.Errorf("update auto check: interval parse: %v", err)
