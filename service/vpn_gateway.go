@@ -177,11 +177,17 @@ func (g *VPNGateway) EnableClient(gatewayPeerID peer.ID) error {
 }
 
 // checkGatewayAllowed returns an error if the peer does not allow us to use it
-// as a VPN gateway, as of the last status exchange. An unknown peer is left to
-// Tunnel.SetVPNGatewayPeer.
+// as a VPN gateway, as of the last status exchange, or if we disabled VPN
+// tunneling for it. An unknown peer is left to Tunnel.SetVPNGatewayPeer.
 func (g *VPNGateway) checkGatewayAllowed(gatewayPeerID peer.ID) error {
 	kp, ok := g.conf.GetPeer(gatewayPeerID.String())
-	if !ok || kp.CanUseAsVPNGateway() {
+	if !ok {
+		return nil
+	}
+	if kp.DisableVPNTunneling {
+		return fmt.Errorf("VPN tunneling is disabled for peer %s", gatewayPeerID)
+	}
+	if kp.CanUseAsVPNGateway() {
 		return nil
 	}
 	return fmt.Errorf("peer %s is not currently a valid VPN gateway "+
@@ -339,10 +345,11 @@ func (g *VPNGateway) setupClientAtStartup(gatewayPeerIDStr string) error {
 	}
 
 	// Unlike EnableClient, keep the gateway even if the peer no longer
-	// allows it, as we do when it revokes the permission while we run:
-	// traffic waits for the gateway instead of going around it.
+	// allows it or VPN tunneling with it is disabled, as we do when this
+	// happens while we run: traffic waits for the gateway instead of going
+	// around it.
 	if err := g.checkGatewayAllowed(gatewayPeerID); err != nil {
-		g.logger.Warnf("%v: internet traffic will not go until the peer allows it again", err)
+		g.logger.Warnf("%v: internet traffic will not go until the gateway can be used again", err)
 	}
 	if err := g.bindClient(gatewayPeerID); err != nil {
 		return fmt.Errorf("couldn't enable VPN gateway client at startup: %v", err)
