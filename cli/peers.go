@@ -132,7 +132,11 @@ func printPeersStatus(api *apiclient.Client, format string, w io.Writer) error {
 			case TableFormatVersion:
 				row = append(row, peer.Version)
 			case TableFormatExitNode:
-				row = append(row, fmt.Sprintf("we allow:     %v\npeer allowed: %v", peer.WeAllowUsingAsExitNode, peer.AllowedUsingAsExitNode))
+				weAllow := strconv.FormatBool(peer.WeAllowUsingAsExitNode)
+				if peer.WeAllowUsingAsExitNode && peer.WeAllowLANAccess {
+					weAllow += ", LAN too"
+				}
+				row = append(row, fmt.Sprintf("we allow:     %s\npeer allowed: %v", weAllow, peer.AllowedUsingAsExitNode))
 			}
 		}
 		table.Append(row)
@@ -524,5 +528,30 @@ func setAllowUsingAsExitNode(api *apiclient.Client, peerID string, allow bool, w
 	}
 
 	fmt.Fprintln(w, "AllowUsingAsExitNode config updated successfully")
+	return nil
+}
+
+func setAllowLANAccess(api *apiclient.Client, peerID string, allow bool, w io.Writer) error {
+	pcfg, err := api.KnownPeerConfig(peerID)
+	if err != nil {
+		return err
+	}
+
+	err = api.UpdatePeerSettings(entity.UpdatePeerSettingsRequest{
+		PeerID:               peerID,
+		Alias:                pcfg.Alias,
+		DomainName:           pcfg.DomainName,
+		IPAddr:               pcfg.IPAddr,
+		AllowUsingAsExitNode: pcfg.WeAllowUsingAsExitNode,
+		AllowLANAccess:       &allow,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(w, "AllowLANAccess config updated successfully")
+	if allow && !pcfg.WeAllowUsingAsExitNode {
+		fmt.Fprintln(w, "the peer can't use this device as an exit node yet, allow it with 'peers allow_exit_node'")
+	}
 	return nil
 }

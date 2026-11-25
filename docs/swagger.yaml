@@ -151,6 +151,14 @@ definitions:
           (also from status) it determines whether this peer is currently a valid
           VPN gateway target for us — see KnownPeer.CanUseAsVPNGateway.
         type: boolean
+      weAllowLANAccess:
+        description: |-
+          WeAllowLANAccess lets the peer reach our LAN through us as an exit
+          node, over the VPN gateway and SOCKS5 alike: the LAN and CGNAT
+          ranges of privatenet, not link-local addresses and not our awl
+          peers. Takes effect only with WeAllowUsingAsExitNode. Local to us:
+          the peer is not told.
+        type: boolean
       weAllowUsingAsExitNode:
         type: boolean
     type: object
@@ -560,6 +568,8 @@ definitions:
         type: boolean
       version:
         type: string
+      weAllowLANAccess:
+        type: boolean
       weAllowUsingAsExitNode:
         type: boolean
     type: object
@@ -692,6 +702,12 @@ definitions:
       alias:
         maxLength: 100
         type: string
+      allowLANAccess:
+        description: |-
+          optional: lets the peer reach our LAN through us as an exit node,
+          see config.KnownPeer.WeAllowLANAccess. Omit it to keep the current
+          value.
+        type: boolean
       allowUsingAsExitNode:
         type: boolean
       domainName:

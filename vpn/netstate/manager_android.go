@@ -135,3 +135,6 @@ func (m *Manager) ServerNATActive() bool {
 	defer m.mu.Unlock()
 	return m.serverNATActive
 }
+
+// SetServerLANAccess is a no-op: no OS state is touched, see EnableServerNAT.
+func (m *Manager) SetServerLANAccess(_ []netip.Addr) error { return nil }

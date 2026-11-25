@@ -50,6 +50,7 @@ import (
 	"net"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -165,6 +166,24 @@ func wfpRuleInstalled(t *testing.T) bool {
 		}
 	}
 	return false
+}
+
+// wfpRuleIDs returns the IDs of the rules named name that are currently
+// visible in the filtering engine, see wfpRuleInstalled.
+func wfpRuleIDs(t *testing.T, name string) []wf.RuleID {
+	t.Helper()
+	session, err := wf.New(&wf.Options{Name: "awl-hostnet-assert", Dynamic: true})
+	require.NoError(t, err)
+	defer session.Close()
+	rules, err := session.Rules()
+	require.NoError(t, err)
+	var ids []wf.RuleID
+	for _, r := range rules {
+		if r.Name == name {
+			ids = append(ids, r.ID)
+		}
+	}
+	return ids
 }
 
 // clientFenceRuleCount returns how many leak-fence rules are currently
@@ -365,6 +384,47 @@ func TestGatewayHostNetNATLifecycle(t *testing.T) {
 	require.Equal(t, forwardingBefore, forwardingEnabled(t, nicLUID),
 		"teardown must restore the interface's original forwarding state")
 	require.False(t, wfpRuleInstalled(t), "teardown must remove the WFP rule (dynamic session closed)")
+}
+
+// ---- Server: LAN access rules ----
+
+// TestGatewayHostNetNATLANAccess checks that the LAN access rules are
+// installed with NAT for the peers set before, replaced at runtime when the
+// peers change, left alone when they don't, and removed with NAT. Whether
+// they let traffic through is up to the filtering engine, see lanAccessRules.
+func TestGatewayHostNetNATLANAccess(t *testing.T) {
+	verifyNoLeaks(t)
+	requireAdmin(t)
+	_, nicGUID := pickServerTestNIC(t)
+	require.False(t, awlNATInstalled(t), "pre-existing awl-gateway NetNat; clean the host before running")
+
+	lanRuleIDs := func() []wf.RuleID {
+		return append(wfpRuleIDs(t, wfpLANAWLRuleName), wfpRuleIDs(t, wfpLANRuleName)...)
+	}
+	// IPv6 addresses are left out: the exit node forwards IPv4 only.
+	lanPeers := []netip.Addr{netip.MustParseAddr("10.66.0.2"), netip.MustParseAddr("fd00:66::2")}
+
+	mgr := NewManager()
+	require.NoError(t, mgr.SetServerLANAccess(lanPeers))
+	require.NoError(t, mgr.EnableServerNAT(testAwlPrefix, netip.Prefix{}, nicGUID))
+	require.True(t, wfpRuleInstalled(t), "WFP block rule must be installed while NAT is up")
+	ids := lanRuleIDs()
+	require.Len(t, ids, 2, "LAN access rules must be installed with NAT for the peers set before")
+
+	require.NoError(t, mgr.SetServerLANAccess(slices.Clone(lanPeers)))
+	require.Equal(t, ids, lanRuleIDs(), "the same peers must not replace the rules")
+
+	require.NoError(t, mgr.SetServerLANAccess(lanPeers[1:]))
+	require.Empty(t, lanRuleIDs(), "no IPv4 peers, no LAN access rules")
+	require.True(t, wfpRuleInstalled(t), "the WFP block rule must stay")
+
+	require.NoError(t, mgr.SetServerLANAccess(append(lanPeers, netip.MustParseAddr("10.66.0.3"))))
+	require.Len(t, lanRuleIDs(), 2, "LAN access rules must be installed at runtime")
+
+	require.NoError(t, mgr.DisableServerNAT())
+	require.False(t, awlNATInstalled(t), "teardown must remove the NetNat")
+	require.False(t, wfpRuleInstalled(t), "teardown must remove the WFP rule (dynamic session closed)")
+	require.Empty(t, lanRuleIDs(), "teardown must remove the LAN access rules")
 }
 
 // ---- Server: teardown must not disable forwarding it did not enable ----

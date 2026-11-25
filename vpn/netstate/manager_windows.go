@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,6 +59,8 @@ type Manager struct {
 	mu         sync.Mutex
 	routeState *routeState
 	natState   *natState
+	// lanPeers are the peers with LAN access, see SetServerLANAccess.
+	lanPeers []netip.Addr
 }
 
 // NewManager returns the Manager for Windows. The uplink indexes stay zero
@@ -253,7 +256,7 @@ func (m *Manager) EnableServerNAT(awlPrefix, awlPrefix6 netip.Prefix, tunIfName 
 	if m.natState != nil {
 		return nil
 	}
-	state, err := m.setupNAT(awlPrefix, awlPrefix6, tunIfName)
+	state, err := m.setupNAT(awlPrefix, awlPrefix6, tunIfName, m.lanPeers)
 	if err != nil {
 		return fmt.Errorf("setup NAT: %w", err)
 	}
@@ -282,4 +285,25 @@ func (m *Manager) ServerNATActive() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.natState != nil
+}
+
+// SetServerLANAccess sets the awl addresses of the peers that reach the LAN of
+// the exit node: its LAN and CGNAT ranges, not link-local and not the awl
+// subnet (see privatenet.LANPrefixesV4). Only IPv4 addresses are used, the
+// exit node forwards IPv4 only. Applied right away while NAT is configured,
+// and kept for the next EnableServerNAT. Idempotent.
+func (m *Manager) SetServerLANAccess(peers []netip.Addr) error {
+	peers = normalizeLANPeers(peers)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.lanPeers = peers
+	if m.natState == nil || slices.Equal(m.natState.lanPeers, lanPeersOf(peers, false)) {
+		return nil
+	}
+	if err := m.natState.setLANAccess(peers); err != nil {
+		return fmt.Errorf("set LAN access: %w", err)
+	}
+	return nil
 }

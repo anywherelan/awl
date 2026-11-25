@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -715,6 +716,7 @@ type testNetManager struct {
 	serverActive      bool
 	clientEnableCount int
 	serverEnableCount int
+	lanPeers          []netip.Addr
 }
 
 func (m *testNetManager) Start(_ context.Context) error { return nil }
@@ -766,6 +768,21 @@ func (m *testNetManager) ServerNATActive() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.serverActive
+}
+
+func (m *testNetManager) SetServerLANAccess(peers []netip.Addr) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lanPeers = slices.Clone(peers)
+	return nil
+}
+
+// LANPeers returns the peers with LAN access as last set by the gateway
+// service.
+func (m *testNetManager) LANPeers() []netip.Addr {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.lanPeers)
 }
 
 // ClientEnables returns how many times client routes were actually installed
