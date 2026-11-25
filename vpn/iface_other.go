@@ -1,5 +1,5 @@
-//go:build !windows && !darwin && !linux
-// +build !windows,!darwin,!linux
+//go:build !windows && !darwin && !linux && !freebsd
+// +build !windows,!darwin,!linux,!freebsd
 
 package vpn
 
@@ -12,7 +12,7 @@ import (
 )
 
 func newTUN(ifname string, mtu int, _, _ netip.Prefix) (tun.Device, error) {
-	fmt.Println("WARN: TUN is unimplemented for !linux,!windows,!darwin")
+	fmt.Println("WARN: TUN is unimplemented for !linux,!windows,!darwin,!freebsd")
 	tt := tuntest.NewChannelTUN()
 
 	go func() {

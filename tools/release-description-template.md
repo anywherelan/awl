@@ -47,6 +47,11 @@ For instructions on how to install anywherelan [see readme](https://github.com/a
 {{range .AwlWindows7}}
 [{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
 
+### FreeBSD binary builds
+
+{{range .AwlFreebsd}}
+[{{.}}](https://github.com/anywherelan/awl/releases/download/{{$.ReleaseTag}}/{{.}})  {{end}}
+
 ## Checksums (SHA-256)
 
 Verify a downloaded file with `sha256sum -c` (or `shasum -a 256 -c`). Anywherelan's builds are reproducible — see [Reproducible builds](https://github.com/anywherelan/awl#reproducible-builds).

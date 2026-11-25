@@ -10,17 +10,19 @@ jobs:
       matrix:
         # golangci-lint has no config option for the target platform: it lints
         # the files selected by GOOS/GOARCH from the environment. Without this
-        # matrix *_windows.go and *_android.go are never linted, and
-        # android-only code (cmd/gomobile-lib) is never even type-checked
+        # matrix *_windows.go, *_freebsd.go and *_android.go are never linted,
+        # and android-only code (cmd/gomobile-lib) is never even type-checked
         # outside a release build. Android needs arm64: on android/amd64 the go
         # tool rejects main packages without cgo, which fails typecheck.
         # automatic-module-directories also lints the separate cmd/awl-tray
         # module; systray has no android implementation, so android lints the
-        # root module only.
+        # root module only. awl-tray is not built for FreeBSD, so FreeBSD lints
+        # the root module only too.
         include:
           - { goos: linux, goarch: amd64, experimental: automatic-module-directories }
           - { goos: windows, goarch: amd64, experimental: automatic-module-directories }
           - { goos: android, goarch: arm64 }
+          - { goos: freebsd, goarch: amd64 }
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

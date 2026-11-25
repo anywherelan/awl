@@ -50,6 +50,9 @@ func NewUpdateService(c *config.Config, logger *log.ZapEventLogger, appType conf
 	if config.IsDevVersion() {
 		return UpdateService{}, errors.New("updates are unsupported for dev version")
 	}
+	if runtime.GOOS == "freebsd" {
+		return UpdateService{}, errors.New("automatic updates are unsupported on FreeBSD, download the new version from https://github.com/anywherelan/awl/releases")
+	}
 
 	channels := make([]updaterini.Channel, 1)
 	channels[0] = updaterini.NewReleaseChannel(true)
