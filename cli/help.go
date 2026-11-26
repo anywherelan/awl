@@ -27,11 +27,11 @@ This CLI controls a running awl server through its local HTTP API.`
 // cliHelpFooter follows the standard app help, after GLOBAL OPTIONS.
 const cliHelpFooter = `
 EXAMPLES:
-   {{.HelpName}} me status                                # server status and network stats
-   {{.HelpName}} me id                                    # your peer id and a link to share
-   {{.HelpName}} peers status                             # known peers and their status
-   {{.HelpName}} peers invite create                      # link that adds a peer without a manual accept
-   {{.HelpName}} peers add --pid <peer id> --name laptop  # invite a peer, or accept its invitation
+   {{.FullName}} me status                                # server status and network stats
+   {{.FullName}} me id                                    # your peer id and a link to share
+   {{.FullName}} peers status                             # known peers and their status
+   {{.FullName}} peers invite create                      # link that adds a peer without a manual accept
+   {{.FullName}} peers add --pid <peer id> --name laptop  # invite a peer, or accept its invitation
 
 LEARN MORE:
    Website:  ` + websiteURL + `

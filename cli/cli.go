@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +15,7 @@ import (
 
 	"github.com/GrigoryKrasnochub/updaterini"
 	"github.com/ipfs/go-log/v2"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 
 	"github.com/anywherelan/awl/api/apiclient"
 	"github.com/anywherelan/awl/config"
@@ -38,7 +39,7 @@ var binaryName = path.Base(os.Args[0])
 type Application struct {
 	logger  *log.ZapEventLogger
 	api     *apiclient.Client
-	cliapp  *cli.App
+	cliapp  *cli.Command
 	appType config.AppType
 }
 
@@ -55,7 +56,7 @@ func New(appType config.AppType) *Application {
 // Suitable for use in tests. Unlike Run(), it does not read os.Args or call os.Exit.
 func (a *Application) RunWithWriter(args []string, w io.Writer) error {
 	a.cliapp.Writer = w
-	return a.cliapp.Run(args)
+	return a.cliapp.Run(context.Background(), args)
 }
 
 func (a *Application) Run() {
@@ -72,7 +73,7 @@ func (a *Application) Run() {
 		// is handled in linux_root_hacks.go
 		return
 	case CliCommandName:
-		err := a.cliapp.Run(os.Args[1:])
+		err := a.cliapp.Run(context.Background(), os.Args[1:])
 		if err != nil {
 			a.logger.Fatalf("Error occurred: %v", err)
 		}
@@ -90,13 +91,12 @@ func (a *Application) Run() {
 }
 
 func (a *Application) init() {
-	a.cliapp = &cli.App{
-		Name:                  "awl",
-		HelpName:              binaryName + " " + CliCommandName,
-		Description:           cliDescription,
-		CustomAppHelpTemplate: cli.AppHelpTemplate + cliHelpFooter,
-		Version:               config.Version,
-		Usage:                 projectTagline,
+	a.cliapp = &cli.Command{
+		Name:                          binaryName + " " + CliCommandName,
+		Description:                   cliDescription,
+		CustomRootCommandHelpTemplate: cli.RootCommandHelpTemplate + cliHelpFooter,
+		Version:                       config.Version,
+		Usage:                         projectTagline,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:     "api_addr",
@@ -118,21 +118,25 @@ func (a *Application) init() {
 			{
 				Name:  "me",
 				Usage: "Manage this device: status, peer id, name, SOCKS5 proxy",
-				Subcommands: []*cli.Command{
+				Commands: []*cli.Command{
 					{
-						Name:   "status",
-						Usage:  "Print your server status and network stats",
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return printStatus(a.api, c.App.Writer)
+						Name:  "status",
+						Usage: "Print your server status and network stats",
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return printStatus(a.api, cmd.Writer)
 						},
 					},
 					{
-						Name:   "id",
-						Usage:  "Print your peer id, with a link and a QR code to share it",
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return printPeerId(a.api, c.App.Writer)
+						Name:  "id",
+						Usage: "Print your peer id, with a link and a QR code to share it",
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return printPeerId(a.api, cmd.Writer)
 						},
 					},
 					{
@@ -145,28 +149,32 @@ func (a *Application) init() {
 								Required: true,
 							},
 						},
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return renameMe(a.api, c.String("name"), c.App.Writer)
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return renameMe(a.api, cmd.String("name"), cmd.Writer)
 						},
 					},
 					{
-						Name:   "list_proxies",
-						Usage:  "List SOCKS5 proxies available to you",
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return listProxies(a.api, c.App.Writer)
+						Name:  "list_proxies",
+						Usage: "List SOCKS5 proxies available to you",
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return listProxies(a.api, cmd.Writer)
 						},
 					},
 					{
 						Name:  "set_proxy",
 						Usage: "Route local SOCKS5 traffic through a peer; empty pid and name stop it",
 						Flags: peerSelectorFlags(),
-						Before: func(c *cli.Context) error {
-							return a.initApiAndPeerId(c, false)
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiAndPeerId(cmd, false)
 						},
-						Action: func(c *cli.Context) error {
-							return setProxy(a.api, c.String(flagPeerID), c.App.Writer)
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return setProxy(a.api, cmd.String(flagPeerID), cmd.Writer)
 						},
 					},
 				},
@@ -174,7 +182,7 @@ func (a *Application) init() {
 			{
 				Name:  "peers",
 				Usage: "Manage known peers and incoming friend requests",
-				Subcommands: []*cli.Command{
+				Commands: []*cli.Command{
 					{
 						Name:  "status",
 						Usage: "Print known peers and their status",
@@ -189,17 +197,21 @@ func (a *Application) init() {
 									"\n   u - network usage by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n   e - exit node status\n  ",
 							},
 						},
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return printPeersStatus(a.api, c.String("format"), c.App.Writer)
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return printPeersStatus(a.api, cmd.String("format"), cmd.Writer)
 						},
 					},
 					{
-						Name:   "requests",
-						Usage:  "Print incoming friend requests",
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return printFriendRequests(a.api, c.App.Writer)
+						Name:  "requests",
+						Usage: "Print incoming friend requests",
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return printFriendRequests(a.api, cmd.Writer)
 						},
 					},
 					{
@@ -232,15 +244,17 @@ func (a *Application) init() {
 								Required: false,
 							},
 						},
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
 							return addPeer(a.api, addPeerParams{
-								Link:                 c.String("link"),
-								PeerID:               c.String(flagPeerID),
-								Alias:                c.String(flagPeerName),
-								IPAddr:               c.String("ip"),
-								AllowUsingAsExitNode: c.Bool("allow-exit-node"),
-							}, c.App.Writer)
+								Link:                 cmd.String("link"),
+								PeerID:               cmd.String(flagPeerID),
+								Alias:                cmd.String(flagPeerName),
+								IPAddr:               cmd.String("ip"),
+								AllowUsingAsExitNode: cmd.Bool("allow-exit-node"),
+							}, cmd.Writer)
 						},
 					},
 					{
@@ -258,26 +272,32 @@ func (a *Application) init() {
 								Required: false,
 							},
 						},
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return declinePeer(a.api, c.String(flagPeerID), c.String(flagPeerName), c.App.Writer)
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return declinePeer(a.api, cmd.String(flagPeerID), cmd.String(flagPeerName), cmd.Writer)
 						},
 					},
 					{
-						Name:   "remove",
-						Usage:  "Remove a peer from the friends list and block it until you add it again",
-						Flags:  peerSelectorFlags(),
-						Before: a.initApiAndPeerIdRequired,
-						Action: func(c *cli.Context) error {
-							return removePeer(a.api, c.String(flagPeerID), c.App.Writer)
+						Name:  "remove",
+						Usage: "Remove a peer from the friends list and block it until you add it again",
+						Flags: peerSelectorFlags(),
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiAndPeerIdRequired(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return removePeer(a.api, cmd.String(flagPeerID), cmd.Writer)
 						},
 					},
 					{
-						Name:   "blocked",
-						Usage:  "Print blocked peers: the ones you declined or removed",
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return printBlockedPeers(a.api, c.App.Writer)
+						Name:  "blocked",
+						Usage: "Print blocked peers: the ones you declined or removed",
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return printBlockedPeers(a.api, cmd.Writer)
 						},
 					},
 					{
@@ -295,9 +315,11 @@ func (a *Application) init() {
 								Required: false,
 							},
 						},
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return unblockPeer(a.api, c.String(flagPeerID), c.String(flagPeerName), c.App.Writer)
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return unblockPeer(a.api, cmd.String(flagPeerID), cmd.String(flagPeerName), cmd.Writer)
 						},
 					},
 					{
@@ -310,9 +332,11 @@ func (a *Application) init() {
 								Required: true,
 							},
 						),
-						Before: a.initApiAndPeerIdRequired,
-						Action: func(c *cli.Context) error {
-							return changePeerAlias(a.api, c.String(flagPeerID), c.String("new_name"), c.App.Writer)
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiAndPeerIdRequired(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return changePeerAlias(a.api, cmd.String(flagPeerID), cmd.String("new_name"), cmd.Writer)
 						},
 					},
 					{
@@ -325,9 +349,11 @@ func (a *Application) init() {
 								Required: true,
 							},
 						),
-						Before: a.initApiAndPeerIdRequired,
-						Action: func(c *cli.Context) error {
-							return changePeerDomain(a.api, c.String(flagPeerID), c.String("domain"), c.App.Writer)
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiAndPeerIdRequired(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return changePeerDomain(a.api, cmd.String(flagPeerID), cmd.String("domain"), cmd.Writer)
 						},
 					},
 					{
@@ -340,9 +366,11 @@ func (a *Application) init() {
 								Required: true,
 							},
 						),
-						Before: a.initApiAndPeerIdRequired,
-						Action: func(c *cli.Context) error {
-							return changePeerIP(a.api, c.String(flagPeerID), c.String("ip"), c.App.Writer)
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiAndPeerIdRequired(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return changePeerIP(a.api, cmd.String(flagPeerID), cmd.String("ip"), cmd.Writer)
 						},
 					},
 					{
@@ -355,15 +383,17 @@ func (a *Application) init() {
 								Required: false,
 							},
 						),
-						Before: a.initApiAndPeerIdRequired,
-						Action: func(c *cli.Context) error {
-							return setAllowUsingAsExitNode(a.api, c.String(flagPeerID), c.Bool("allow"), c.App.Writer)
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiAndPeerIdRequired(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return setAllowUsingAsExitNode(a.api, cmd.String(flagPeerID), cmd.Bool("allow"), cmd.Writer)
 						},
 					},
 					{
 						Name:  "invite",
 						Usage: "Manage invite links: a peer that uses one is added without a manual accept",
-						Subcommands: []*cli.Command{
+						Commands: []*cli.Command{
 							{
 								Name:  "create",
 								Usage: "Create an invite link and print it with a QR code",
@@ -401,16 +431,18 @@ func (a *Application) init() {
 										Required: false,
 									},
 								},
-								Before: a.initApiConnection,
-								Action: func(c *cli.Context) error {
+								Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+									return ctx, a.initApiConnection(cmd)
+								},
+								Action: func(ctx context.Context, cmd *cli.Command) error {
 									return createInvite(a.api, createInviteParams{
-										Uses:                 c.Int("uses"),
-										Expires:              c.String("expires"),
-										Alias:                c.String("alias"),
-										AllowUsingAsExitNode: c.Bool("allow-exit-node"),
-										Label:                c.String("label"),
-										ShowQR:               !c.Bool("no-qr"),
-									}, c.App.Writer)
+										Uses:                 cmd.Int("uses"),
+										Expires:              cmd.String("expires"),
+										Alias:                cmd.String("alias"),
+										AllowUsingAsExitNode: cmd.Bool("allow-exit-node"),
+										Label:                cmd.String("label"),
+										ShowQR:               !cmd.Bool("no-qr"),
+									}, cmd.Writer)
 								},
 							},
 							{
@@ -423,9 +455,11 @@ func (a *Application) init() {
 										Required: false,
 									},
 								},
-								Before: a.initApiConnection,
-								Action: func(c *cli.Context) error {
-									return printInvites(a.api, c.Bool("show-links"), c.App.Writer)
+								Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+									return ctx, a.initApiConnection(cmd)
+								},
+								Action: func(ctx context.Context, cmd *cli.Command) error {
+									return printInvites(a.api, cmd.Bool("show-links"), cmd.Writer)
 								},
 							},
 							{
@@ -438,9 +472,11 @@ func (a *Application) init() {
 										Required: true,
 									},
 								},
-								Before: a.initApiConnection,
-								Action: func(c *cli.Context) error {
-									return revokeInvite(a.api, c.String("id"), c.App.Writer)
+								Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+									return ctx, a.initApiConnection(cmd)
+								},
+								Action: func(ctx context.Context, cmd *cli.Command) error {
+									return revokeInvite(a.api, cmd.String("id"), cmd.Writer)
 								},
 							},
 						},
@@ -450,19 +486,21 @@ func (a *Application) init() {
 			{
 				Name:  "gateway",
 				Usage: "Manage VPN gateway mode: route all traffic through a peer, or serve as one",
-				Subcommands: []*cli.Command{
+				Commands: []*cli.Command{
 					{
-						Name:   "status",
-						Usage:  "Print VPN gateway status",
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return gatewayStatus(a.api, c.App.Writer)
+						Name:  "status",
+						Usage: "Print VPN gateway status",
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gatewayStatus(a.api, cmd.Writer)
 						},
 					},
 					{
 						Name:  "client",
 						Usage: "Manage VPN gateway client mode (route all traffic through a peer)",
-						Subcommands: []*cli.Command{
+						Commands: []*cli.Command{
 							{
 								Name:  "use",
 								Usage: "Route all traffic through the given peer; if another peer is in use, switch to this one atomically",
@@ -478,17 +516,21 @@ func (a *Application) init() {
 										Required: false,
 									},
 								},
-								Before: a.initApiAndPeerIdRequired,
-								Action: func(c *cli.Context) error {
-									return gatewayClientUse(a.api, c.String(flagPeerID), c.App.Writer)
+								Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+									return ctx, a.initApiAndPeerIdRequired(cmd)
+								},
+								Action: func(ctx context.Context, cmd *cli.Command) error {
+									return gatewayClientUse(a.api, cmd.String(flagPeerID), cmd.Writer)
 								},
 							},
 							{
-								Name:   "stop",
-								Usage:  "Stop using a peer as VPN gateway",
-								Before: a.initApiConnection,
-								Action: func(c *cli.Context) error {
-									return gatewayClientStop(a.api, c.App.Writer)
+								Name:  "stop",
+								Usage: "Stop using a peer as VPN gateway",
+								Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+									return ctx, a.initApiConnection(cmd)
+								},
+								Action: func(ctx context.Context, cmd *cli.Command) error {
+									return gatewayClientStop(a.api, cmd.Writer)
 								},
 							},
 						},
@@ -496,31 +538,37 @@ func (a *Application) init() {
 					{
 						Name:  "server",
 						Usage: "Manage VPN gateway server mode (serve as a gateway for permitted peers)",
-						Subcommands: []*cli.Command{
+						Commands: []*cli.Command{
 							{
-								Name:   "enable",
-								Usage:  "Serve as a VPN gateway for permitted peers",
-								Before: a.initApiConnection,
-								Action: func(c *cli.Context) error {
-									return gatewaySetServerEnabled(a.api, true, c.App.Writer)
+								Name:  "enable",
+								Usage: "Serve as a VPN gateway for permitted peers",
+								Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+									return ctx, a.initApiConnection(cmd)
+								},
+								Action: func(ctx context.Context, cmd *cli.Command) error {
+									return gatewaySetServerEnabled(a.api, true, cmd.Writer)
 								},
 							},
 							{
-								Name:   "disable",
-								Usage:  "Stop serving as a VPN gateway",
-								Before: a.initApiConnection,
-								Action: func(c *cli.Context) error {
-									return gatewaySetServerEnabled(a.api, false, c.App.Writer)
+								Name:  "disable",
+								Usage: "Stop serving as a VPN gateway",
+								Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+									return ctx, a.initApiConnection(cmd)
+								},
+								Action: func(ctx context.Context, cmd *cli.Command) error {
+									return gatewaySetServerEnabled(a.api, false, cmd.Writer)
 								},
 							},
 						},
 					},
 					{
-						Name:   "list",
-						Usage:  "List peers available as VPN gateways",
-						Before: a.initApiConnection,
-						Action: func(c *cli.Context) error {
-							return gatewayList(a.api, c.App.Writer)
+						Name:  "list",
+						Usage: "List peers available as VPN gateways",
+						Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+							return ctx, a.initApiConnection(cmd)
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gatewayList(a.api, cmd.Writer)
 						},
 					},
 				},
@@ -542,22 +590,26 @@ func (a *Application) init() {
 						Value:    10,
 					},
 				},
-				Before: a.initApiConnection,
-				Action: func(c *cli.Context) error {
-					logs, err := a.api.ApplicationLog(c.Int("n"), c.Bool("head"))
+				Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+					return ctx, a.initApiConnection(cmd)
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					logs, err := a.api.ApplicationLog(cmd.Int("n"), cmd.Bool("head"))
 					if err != nil {
 						return err
 					}
-					fmt.Fprintln(c.App.Writer, logs)
+					fmt.Fprintln(cmd.Writer, logs)
 
 					return nil
 				},
 			},
 			{
-				Name:   "p2p_info",
-				Usage:  "Print p2p debug info as JSON",
-				Before: a.initApiConnection,
-				Action: func(c *cli.Context) error {
+				Name:  "p2p_info",
+				Usage: "Print p2p debug info as JSON",
+				Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+					return ctx, a.initApiConnection(cmd)
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
 					debugInfo, err := a.api.P2pDebugInfo()
 					if err != nil {
 						return err
@@ -567,7 +619,7 @@ func (a *Application) init() {
 					if err != nil {
 						return err
 					}
-					fmt.Fprintln(c.App.Writer, string(bytes))
+					fmt.Fprintln(cmd.Writer, string(bytes))
 
 					return nil
 				},
@@ -589,7 +641,7 @@ func (a *Application) init() {
 						Required: false,
 					},
 				},
-				Action: func(c *cli.Context) error {
+				Action: func(ctx context.Context, cmd *cli.Command) error {
 					_, _ = fmt.Fprintf(a.cliapp.Writer, "current version: %s\n", config.Version)
 
 					conf, err := config.LoadConfigReadOnly(a.appType)
@@ -610,7 +662,7 @@ func (a *Application) init() {
 						a.logger.Infof("app is already up-to-date")
 						return nil
 					}
-					if !c.Bool("quiet") {
+					if !cmd.Bool("quiet") {
 						status, err = a.yesNoPrompt(fmt.Sprintf("update to version %s: %s, %s", updService.NewVersion.VersionTag(),
 							updService.NewVersion.VersionName(), updService.NewVersion.VersionDescription()), true)
 						if !status || err != nil {
@@ -625,7 +677,7 @@ func (a *Application) init() {
 						return fmt.Errorf("update: updating process: %v", err)
 					}
 					a.logger.Infof("updated successfully %s -> %s", conf.Version, updService.NewVersion.VersionTag())
-					if c.Bool("run") {
+					if cmd.Bool("run") {
 						return updResult.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
 					}
 					return updResult.DeletePreviousVersionFiles(updaterini.DeleteModKillProcess)
@@ -635,11 +687,11 @@ func (a *Application) init() {
 	}
 }
 
-func (a *Application) initApiConnection(c *cli.Context) error {
-	username := c.String("api_user")
-	password := c.String("api_password")
+func (a *Application) initApiConnection(cmd *cli.Command) error {
+	username := cmd.String("api_user")
+	password := cmd.String("api_password")
 
-	apiAddr := c.String("api_addr")
+	apiAddr := cmd.String("api_addr")
 	if apiAddr != "" {
 		return a.initApiFromAddr(apiAddr, username, password)
 	}
@@ -694,21 +746,21 @@ func peerSelectorFlags(extra ...cli.Flag) []cli.Flag {
 	return append(flags, extra...)
 }
 
-func (a *Application) initApiAndPeerIdRequired(c *cli.Context) error {
-	return a.initApiAndPeerId(c, true)
+func (a *Application) initApiAndPeerIdRequired(cmd *cli.Command) error {
+	return a.initApiAndPeerId(cmd, true)
 }
 
-func (a *Application) initApiAndPeerId(c *cli.Context, isRequired bool) error {
-	err := a.initApiConnection(c)
+func (a *Application) initApiAndPeerId(cmd *cli.Command, isRequired bool) error {
+	err := a.initApiConnection(cmd)
 	if err != nil {
 		return err
 	}
 
-	pid := c.String(flagPeerID)
+	pid := cmd.String(flagPeerID)
 	if pid != "" {
 		return nil
 	}
-	alias := c.String(flagPeerName)
+	alias := cmd.String(flagPeerName)
 	if alias == "" && isRequired {
 		return fmt.Errorf("peerID or name should be defined")
 	} else if alias == "" && !isRequired {
@@ -719,7 +771,7 @@ func (a *Application) initApiAndPeerId(c *cli.Context, isRequired bool) error {
 	if err != nil {
 		return err
 	}
-	return c.Set(flagPeerID, pid)
+	return cmd.Set(flagPeerID, pid)
 }
 
 func (a *Application) yesNoPrompt(message string, def bool) (bool, error) {
