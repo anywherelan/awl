@@ -235,6 +235,10 @@ func (p *P2p) NetworkStatsByProtocol() map[protocol.ID]metrics.Stats {
 	return p.bandwidthCounter.GetBandwidthByProtocol()
 }
 
+func (p *P2p) NetworkStatsForProtocol(proto protocol.ID) metrics.Stats {
+	return p.bandwidthCounter.GetBandwidthForProtocol(proto)
+}
+
 func (p *P2p) NetworkStatsByPeer() map[peer.ID]metrics.Stats {
 	return p.bandwidthCounter.GetBandwidthByPeer()
 }

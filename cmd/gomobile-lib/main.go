@@ -11,7 +11,9 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/anywherelan/awl"
+	"github.com/anywherelan/awl/api"
 	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/protocol"
 	"github.com/anywherelan/awl/vpn"
 	"github.com/anywherelan/awl/vpn/netstate"
 )
@@ -175,9 +177,14 @@ func StopServer() {
 	globalSwapTUN = nil
 }
 
+// ImportConfig returns an error while the server runs: the host may have
+// started it again (e.g. Always-on VPN) between stopping it and the import.
 func ImportConfig(data string) error {
-	if globalApp != nil || globalDataDir == "" {
-		panic("call to ImportConfig before server shutdown")
+	if globalDataDir == "" {
+		panic("call to ImportConfig before Setup")
+	}
+	if globalApp != nil {
+		return fmt.Errorf("the server is running, stop it before importing")
 	}
 
 	return config.ImportConfig([]byte(data), globalDataDir)
@@ -188,6 +195,32 @@ func GetApiAddress() string {
 		return globalApp.Api.Address()
 	}
 	return ""
+}
+
+// TunnelStats is the traffic of the VPN tunnel with peers. SOCKS5 and
+// control traffic are not included.
+type TunnelStats struct {
+	TotalIn, TotalOut     int64   // bytes
+	RateIn, RateOut       float64 // bytes per second
+	RateInIEC, RateOutIEC string  // e.g. "1.2 MiB/s"
+}
+
+// GetTunnelStats returns nil when the server or its VPN interface is not
+// running.
+func GetTunnelStats() *TunnelStats {
+	if globalApp == nil || globalApp.P2p == nil || globalSwapTUN == nil {
+		return nil
+	}
+	stats := globalApp.P2p.NetworkStatsForProtocol(protocol.TunnelPacketMethod)
+	units := api.StatsInIECUnits(stats)
+	return &TunnelStats{
+		TotalIn:    stats.TotalIn,
+		TotalOut:   stats.TotalOut,
+		RateIn:     stats.RateIn,
+		RateOut:    stats.RateOut,
+		RateInIEC:  units.RateIn,
+		RateOutIEC: units.RateOut,
+	}
 }
 
 // DnsServerIP returns the in-tunnel IP the host app must pass to
