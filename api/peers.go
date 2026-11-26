@@ -67,7 +67,7 @@ func (h *Handler) getKnownPeers() []entity.KnownPeersResponse {
 			LastSeen:                      knownPeer.LastSeen,
 			Connections:                   h.p2p.PeerConnectionsInfo(id),
 			NetworkStats:                  netStats,
-			NetworkStatsInIECUnits:        getStatsInIECUnits(netStats),
+			NetworkStatsInIECUnits:        StatsInIECUnits(netStats),
 			Ping:                          h.p2p.GetPeerLatency(id),
 			PeerstoreAddrs:                h.p2p.PeerstoreAddrs(id),
 		}

@@ -10,7 +10,8 @@ import (
 	"github.com/anywherelan/awl/entity"
 )
 
-func getStatsInIECUnits(stats metrics.Stats) entity.StatsInUnits {
+// StatsInIECUnits formats traffic stats in IEC units, e.g. "1.2 MiB/s".
+func StatsInIECUnits(stats metrics.Stats) entity.StatsInUnits {
 	return entity.StatsInUnits{
 		TotalIn:  convertBytesToIECUnits(float64(stats.TotalIn)),
 		TotalOut: convertBytesToIECUnits(float64(stats.TotalOut)),
