@@ -121,9 +121,7 @@ func (h *Handler) UpdateMySettings(c echo.Context) (err error) {
 		return c.JSON(http.StatusBadRequest, ErrorMessage(err.Error()))
 	}
 
-	h.conf.Lock()
-	h.conf.P2pNode.Name = strings.TrimSpace(req.Name)
-	h.conf.Unlock()
+	h.conf.SetNodeName(strings.TrimSpace(req.Name))
 	h.conf.Save()
 
 	go func() {
