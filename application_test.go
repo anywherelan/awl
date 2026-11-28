@@ -2656,7 +2656,9 @@ func TestIPv6DisabledOnOneSide(t *testing.T) {
 	kp, _ = peer2.app.Conf.GetPeer(peer1.PeerID())
 	ts.False(kp.RemoteIPv6Enabled)
 	ts.Empty(kp.IPAddrV6)
-	ts.Empty(peer2.app.Conf.DNSNamesMappingV6())
+	dnsMappingV6 := peer2.app.Conf.DNSNamesMappingV6()
+	ts.NotContains(dnsMappingV6, peer1.PeerID())
+	ts.NotContains(dnsMappingV6, kp.DomainName)
 }
 
 func TestIPv6InvalidIPNetV6FailsInit(t *testing.T) {
@@ -2877,16 +2879,7 @@ func TestDNSAndroidInterceptor(t *testing.T) {
 	peer2 := ts.NewTestPeer(true)
 	ts.makeFriends(peer2, peer1)
 
-	// In production Application.Init wires this behind runtime.GOOS ==
-	// "android"; the test drives the same code path directly.
-	peer1.app.Dns.initDNSAndroid(peer1.app.vpnDevice, peer1.app.Tunnel)
-
-	dnsIP := peer1.app.Conf.NetstackDNSIP()
-	ts.NotNil(dnsIP)
-	dnsAddress := net.JoinHostPort(dnsIP.String(), awldns.DefaultDNSPort)
-	ts.Eventually(func() bool {
-		return peer1.app.Dns.AwlDNSAddress() == dnsAddress
-	}, 5*time.Second, 10*time.Millisecond)
+	dnsIP := ts.initAndroidDNS(peer1)
 	ts.True(peer1.app.Dns.IsAwlDNSSetAsSystem())
 	// The running interceptor reports the same IP the config computes
 	// (what gomobile's DnsServerIP relies on in the reconfigure_vpn flow).
@@ -2896,18 +2889,86 @@ func TestDNSAndroidInterceptor(t *testing.T) {
 	ts.True(exists)
 	ts.NotEmpty(knownPeer.DomainName)
 
+	resp := ts.queryAndroidDNS(peer1, knownPeer.DomainName+".awl.")
+	ts.Equal(dns.RcodeSuccess, resp.Rcode)
+	ts.Len(resp.Answer, 1)
+	aRecord, ok := resp.Answer[0].(*dns.A)
+	ts.True(ok)
+	ts.Equal(knownPeer.IPAddr, aRecord.A.String())
+}
+
+// TestDNSResolvesOwnName: a node resolves its own name and peer ID to its own
+// VPN address, as its peers do, and serves a new name once it is renamed.
+func TestDNSResolvesOwnName(t *testing.T) {
+	ts := NewTestSuite(t)
+
+	peer1 := ts.NewTestPeer(true)
+	ts.NoError(peer1.api.UpdateMySettings("My Laptop"))
+	ts.initAndroidDNS(peer1)
+	ownIP := peer1.app.Conf.VPNPrefix().Addr().String()
+
+	resolve := func(name string) (rcode int, addr string) {
+		resp := ts.queryAndroidDNS(peer1, name)
+		if len(resp.Answer) == 0 {
+			return resp.Rcode, ""
+		}
+		aRecord, ok := resp.Answer[0].(*dns.A)
+		ts.True(ok)
+		return resp.Rcode, aRecord.A.String()
+	}
+	resolvesToOwnIP := func(name string) bool {
+		rcode, addr := resolve(name)
+		return rcode == dns.RcodeSuccess && addr == ownIP
+	}
+
+	ts.True(resolvesToOwnIP("my_laptop.awl."))
+	ts.True(resolvesToOwnIP(strings.ToLower(peer1.PeerID()) + ".awl."))
+
+	ts.NoError(peer1.api.UpdateMySettings("desktop"))
+	ts.Eventually(func() bool {
+		return resolvesToOwnIP("desktop.awl.")
+	}, 5*time.Second, 50*time.Millisecond)
+	rcode, _ := resolve("my_laptop.awl.")
+	ts.Equal(dns.RcodeNameError, rcode, "the old name is not served after a rename")
+}
+
+// initAndroidDNS starts the Android DNS path of peer and waits for the
+// resolver to come up. It returns the DNS server IP. In production
+// Application.Init wires this behind runtime.GOOS == "android"; tests drive
+// the same code path directly.
+func (ts *TestSuite) initAndroidDNS(peer TestPeer) net.IP {
+	peer.app.Dns.initDNSAndroid(peer.app.vpnDevice, peer.app.Tunnel)
+
+	dnsIP := peer.app.Conf.NetstackDNSIP()
+	ts.NotNil(dnsIP)
+	dnsAddress := net.JoinHostPort(dnsIP.String(), awldns.DefaultDNSPort)
+	ts.Eventually(func() bool {
+		return peer.app.Dns.AwlDNSAddress() == dnsAddress
+	}, 5*time.Second, 10*time.Millisecond)
+
+	return dnsIP
+}
+
+// queryAndroidDNS sends a raw UDP DNS query for the A record of name into the
+// TUN read path of peer, started with initAndroidDNS, and returns the response
+// that comes back out of the TUN write path.
+func (ts *TestSuite) queryAndroidDNS(peer TestPeer, name string) *dns.Msg {
+	dnsIP := peer.app.Conf.NetstackDNSIP()
+	ts.NotNil(dnsIP)
+
 	inbound := make(chan []byte, 100)
-	peer1.tun.SetInboundCapture(0, inbound)
+	peer.tun.SetInboundCapture(0, inbound)
+	defer peer.tun.SetInboundCapture(0, nil)
 
 	query := new(dns.Msg)
-	query.SetQuestion(knownPeer.DomainName+".awl.", dns.TypeA)
+	query.SetQuestion(name, dns.TypeA)
 	payload, err := query.Pack()
 	ts.NoError(err)
 
-	localIP := net.IP(peer1.app.Conf.VPNPrefix().Addr().AsSlice())
+	localIP := net.IP(peer.app.Conf.VPNPrefix().Addr().AsSlice())
 	const clientPort = 40000
 	queryPacket := testUDPPacket(localIP, dnsIP, clientPort, 53, payload)
-	peer1.tun.Outbound <- [][]byte{queryPacket}
+	peer.tun.Outbound <- [][]byte{queryPacket}
 
 	timeout := time.After(10 * time.Second)
 	for {
@@ -2932,12 +2993,10 @@ func TestDNSAndroidInterceptor(t *testing.T) {
 
 		resp := new(dns.Msg)
 		ts.NoError(resp.Unpack(udpHeader[udpHeaderLen:]))
-		ts.Equal(query.Id, resp.Id)
-		ts.Len(resp.Answer, 1)
-		aRecord, ok := resp.Answer[0].(*dns.A)
-		ts.True(ok)
-		ts.Equal(knownPeer.IPAddr, aRecord.A.String())
-		return
+		if resp.Id != query.Id {
+			continue
+		}
+		return resp
 	}
 }
 

@@ -336,6 +336,12 @@ func setDefaults(conf *Config, bus awlevent.Bus, goos string) {
 			panic(err)
 		}
 		conf.emitter = emitter
+
+		nodeNameEmitter, err := bus.Emitter(new(awlevent.NodeNameChanged), eventbus.Stateful)
+		if err != nil {
+			panic(err)
+		}
+		conf.nodeNameEmitter = nodeNameEmitter
 	}
 
 	if u := conf.Update.UpdateServerURL; u == "" || u == "http://example/example.json" {

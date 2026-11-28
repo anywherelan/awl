@@ -136,6 +136,8 @@ func TestConfigReadOnlyDoesNotWrite(t *testing.T) {
 	conf := NewConfigReadOnly(AppTypeAwl)
 	require.Nil(t, conf.saveTrigger)
 	require.Nil(t, conf.emitter, "a read-only config must not hold an emitter")
+	require.Nil(t, conf.nodeNameEmitter, "a read-only config must not hold an emitter")
+	assert.NotPanics(t, func() { conf.SetNodeName("renamed") })
 
 	// Save is a no-op rather than a panic: it DPanics, which aborts in dev mode
 	// to surface the misuse but only logs otherwise.
@@ -242,6 +244,55 @@ func TestDNSNamesMappingV6(t *testing.T) {
 		testPeerID: netip.MustParseAddr("fd00:66::5"),
 		"one":      netip.MustParseAddr("fd00:66::5"),
 	}, conf.DNSNamesMappingV6())
+}
+
+// TestDNSNamesMappingOwnNames: our own address is served by our peer ID and
+// our normalized name. A reserved name is skipped, and a peer with the same
+// domain name keeps it, also where it has no address.
+func TestDNSNamesMappingOwnNames(t *testing.T) {
+	ownIP := netip.MustParseAddr("10.66.0.1")
+	ownIPv6 := netip.MustParseAddr("fd00:66::1")
+	newConf := func(name string, peers ...KnownPeer) *Config {
+		conf := &Config{
+			P2pNode:    P2pNodeConfig{PeerID: testPeerID, Name: name},
+			VPNConfig:  VPNConfig{IPNet: "10.66.0.1/16", IPNetV6: "fd00:66::1/48"},
+			KnownPeers: make(map[string]KnownPeer),
+		}
+		for _, kPeer := range peers {
+			conf.KnownPeers[kPeer.PeerID] = kPeer
+		}
+		return conf
+	}
+
+	conf := newConf("My Laptop", KnownPeer{PeerID: testPeerID2, DomainName: "nas", IPAddr: "10.66.0.3"})
+	assert.Equal(t, map[string]netip.Addr{
+		AdminHttpServerDomainName: netip.MustParseAddr(AdminHttpServerIP),
+		testPeerID:                ownIP,
+		"my_laptop":               ownIP,
+		testPeerID2:               netip.MustParseAddr("10.66.0.3"),
+		"nas":                     netip.MustParseAddr("10.66.0.3"),
+	}, conf.DNSNamesMapping())
+	assert.Equal(t, map[string]netip.Addr{
+		testPeerID:  ownIPv6,
+		"my_laptop": ownIPv6,
+	}, conf.DNSNamesMappingV6())
+
+	conf = newConf("NAS", KnownPeer{PeerID: testPeerID2, DomainName: "nas", IPAddr: "10.66.0.3"})
+	assert.Equal(t, netip.MustParseAddr("10.66.0.3"), conf.DNSNamesMapping()["nas"], "a peer keeps its domain name")
+	assert.NotContains(t, conf.DNSNamesMappingV6(), "nas", "a peer without IPv6 keeps its domain name too")
+	assert.Equal(t, ownIPv6, conf.DNSNamesMappingV6()[testPeerID])
+
+	conf = newConf("Admin")
+	assert.Equal(t, netip.MustParseAddr(AdminHttpServerIP), conf.DNSNamesMapping()[AdminHttpServerDomainName])
+	assert.NotContains(t, conf.DNSNamesMappingV6(), AdminHttpServerDomainName, "a reserved name is not ours")
+
+	conf = newConf(" ")
+	assert.Equal(t, map[string]netip.Addr{testPeerID: ownIPv6}, conf.DNSNamesMappingV6(), "no name, only the peer ID")
+
+	conf = newConf("laptop")
+	conf.VPNConfig.IPNetV6 = ""
+	assert.Equal(t, ownIP, conf.DNSNamesMapping()["laptop"])
+	assert.Empty(t, conf.DNSNamesMappingV6(), "IPv6 is off")
 }
 
 // TestSetDefaultsFixesDomainNames: loading a config gives every peer a

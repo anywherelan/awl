@@ -14,6 +14,10 @@ type Emitter = event.Emitter
 type KnownPeerChanged struct {
 }
 
+// NodeNameChanged is emitted when the name of this node changes.
+type NodeNameChanged struct {
+}
+
 type ReceivedAuthRequest struct {
 	protocol.AuthPeer
 	PeerID string

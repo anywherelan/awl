@@ -561,12 +561,7 @@ func (a *DNSService) initDNS(interfaceName string) {
 	a.upstreamDNS = a.conf.DNS.UpstreamDNSAddress
 	a.forceUpstream = a.conf.VPNGateway.ClientEnabled
 	a.refreshDNSConfigLocked()
-
-	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		a.refreshDNSConfigLocked()
-	}, a.eventbus, new(awlevent.KnownPeerChanged))
+	a.subscribeToDNSNamesChanges()
 
 	// In direct mode on Linux the configurator watches /etc/resolv.conf and
 	// publishes TrampleDNS when another program overwrites it. Events come
@@ -632,12 +627,7 @@ func (a *DNSService) initDNSAndroid(vpnDevice *vpn.Device, tunnel *service.Tunne
 	// and leaves through the gateway peer — no DNS leak.
 	a.upstreamDNS = a.conf.DNS.UpstreamDNSAddress
 	a.refreshDNSConfigLocked()
-
-	awlevent.WrapSubscriptionToCallback(a.ctx, func(_ interface{}) {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		a.refreshDNSConfigLocked()
-	}, a.eventbus, new(awlevent.KnownPeerChanged))
+	a.subscribeToDNSNamesChanges()
 
 	tunnel.SetDNSHandler(dnsAddr, bridge)
 	// The interceptor now handles all device DNS — the host sets the same IP
@@ -751,6 +741,18 @@ func (a *DNSService) ForceUpstreamDNS(enabled bool) error {
 	a.forceUpstream = enabled
 	a.applyOSDNSConfigLocked()
 	return nil
+}
+
+// subscribeToDNSNamesChanges refreshes the resolver whenever the names it
+// serves change: those of known peers and our own name.
+func (a *DNSService) subscribeToDNSNamesChanges() {
+	refresh := func(_ interface{}) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.refreshDNSConfigLocked()
+	}
+	awlevent.WrapSubscriptionToCallback(a.ctx, refresh, a.eventbus, new(awlevent.KnownPeerChanged))
+	awlevent.WrapSubscriptionToCallback(a.ctx, refresh, a.eventbus, new(awlevent.NodeNameChanged))
 }
 
 func (a *DNSService) refreshDNSConfigLocked() {

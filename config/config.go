@@ -50,7 +50,9 @@ type (
 		sync.RWMutex `swaggerignore:"true"`
 		dataDir      string
 		emitter      awlevent.Emitter
-		appType      AppType
+		// nodeNameEmitter announces NodeNameChanged, see SetNodeName.
+		nodeNameEmitter awlevent.Emitter
+		appType         AppType
 		// netstackDNSIP is the in-subnet IP reserved for the awl DNS server:
 		// broadcast−1 shifted down past taken addresses. Computed once in
 		// setDefaults from the config snapshot (not serialized), fixed for the
@@ -368,6 +370,19 @@ func (c *Config) NodeName() string {
 	return c.P2pNode.Name
 }
 
+// SetNodeName sets this node's name and announces it, so that awl DNS serves
+// the new name. It does not save the config.
+func (c *Config) SetNodeName(name string) {
+	c.Lock()
+	c.P2pNode.Name = name
+	c.Unlock()
+
+	// The emitter is nil on a read-only config.
+	if c.nodeNameEmitter != nil {
+		_ = c.nodeNameEmitter.Emit(awlevent.NodeNameChanged{})
+	}
+}
+
 func (c *Config) RemovePeer(peerID string) (KnownPeer, bool) {
 	c.Lock()
 	knownPeer, exists := c.KnownPeers[peerID]
@@ -567,8 +582,9 @@ func (c *Config) GetListenAddresses() []multiaddr.Multiaddr {
 }
 
 // DNSNamesMapping returns the IPv4 addresses of known peers by peer ID and by
-// domain name, and the address of the admin server. Peers with an invalid IP
-// are left out.
+// domain name, the address of the admin server, and our own address by our
+// peer ID and name, see addOwnDNSNamesUnlocked. Peers with an invalid IP are
+// left out.
 func (c *Config) DNSNamesMapping() map[string]netip.Addr {
 	mapping := make(map[string]netip.Addr)
 	// TODO(android awldns): make admin.awl work on Android. The admin server is
@@ -580,6 +596,9 @@ func (c *Config) DNSNamesMapping() map[string]netip.Addr {
 	c.RLock()
 	defer c.RUnlock()
 
+	if prefix := c.vpnPrefixUnlocked(); prefix.IsValid() {
+		c.addOwnDNSNamesUnlocked(mapping, prefix.Addr())
+	}
 	for _, knownPeer := range c.KnownPeers {
 		addr, err := netip.ParseAddr(knownPeer.IPAddr)
 		if err != nil || !addr.Is4() {
@@ -594,12 +613,16 @@ func (c *Config) DNSNamesMapping() map[string]netip.Addr {
 	return mapping
 }
 
-// DNSNamesMappingV6 is DNSNamesMapping for IPv6, see PeerIPv6Unlocked.
+// DNSNamesMappingV6 is DNSNamesMapping for IPv6, see PeerIPv6Unlocked. It
+// has no admin server.
 func (c *Config) DNSNamesMappingV6() map[string]netip.Addr {
 	mapping := make(map[string]netip.Addr)
 	c.RLock()
 	defer c.RUnlock()
 
+	if prefix, ok := c.vpnPrefixV6Unlocked(); ok {
+		c.addOwnDNSNamesUnlocked(mapping, prefix.Addr())
+	}
 	for _, knownPeer := range c.KnownPeers {
 		addr, ok := c.PeerIPv6Unlocked(knownPeer)
 		if !ok {
@@ -612,6 +635,25 @@ func (c *Config) DNSNamesMappingV6() map[string]netip.Addr {
 	}
 
 	return mapping
+}
+
+// addOwnDNSNamesUnlocked maps our peer ID and our name, normalized as peers
+// normalize it (see NormalizeDomainName), to addr, so that this node resolves
+// its own name as its peers do. An empty name is skipped, it would give
+// "peer". So is a name that is reserved or taken by a known peer, see
+// IsUniqDomainNameUnlocked: the peer keeps it for both IPv4 and IPv6, even if
+// it has an address of only one of them.
+func (c *Config) addOwnDNSNamesUnlocked(mapping map[string]netip.Addr, addr netip.Addr) {
+	if c.P2pNode.PeerID != "" {
+		mapping[c.P2pNode.PeerID] = addr
+	}
+	if strings.TrimSpace(c.P2pNode.Name) == "" {
+		return
+	}
+	name := awldns.NormalizeDomainName(c.P2pNode.Name)
+	if c.IsUniqDomainNameUnlocked("", name) {
+		mapping[name] = addr
+	}
 }
 
 func (c *Config) PeerstoreDir() string {
@@ -671,6 +713,11 @@ func (c *Config) Close() {
 		if c.emitter != nil {
 			if err := c.emitter.Close(); err != nil {
 				logger.Errorf("Close config emitter: %v", err)
+			}
+		}
+		if c.nodeNameEmitter != nil {
+			if err := c.nodeNameEmitter.Close(); err != nil {
+				logger.Errorf("Close config node name emitter: %v", err)
 			}
 		}
 	})
